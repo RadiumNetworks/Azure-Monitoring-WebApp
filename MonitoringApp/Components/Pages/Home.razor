@@ -1,0 +1,543 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject AlertStore AlertStore
+
+<PageTitle>Alert Console</PageTitle>
+
+<section class="page-heading">
+    <div class="heading-copy">
+        <p class="eyebrow">Operations</p>
+        <h1>Alert inbox</h1>
+        <p class="subtitle">Incoming Azure Monitor notifications, in one live view.</p>
+        <div class="current-time" aria-label="Current time in @SelectedTimeZone.Label">
+            <span>Current time</span>
+            <time datetime="@currentTimeUtc.ToString("O")">@FormatCurrentTime()</time>
+            <small>@SelectedTimeZone.Label (@FormatUtcOffset())</small>
+        </div>
+    </div>
+    @{
+        var hourlyCounts = GetHourlyAlertCounts();
+        var maximumHourlyCount = hourlyCounts.Max(bucket => bucket.Count);
+        var chartScaleMaximum = Math.Max(1, maximumHourlyCount);
+    }
+    <div class="alert-trend" role="img" aria-label="@ChartDescription(hourlyCounts)">
+        <div class="trend-heading">
+            <strong>Alerts per hour</strong>
+            <span>Last 48 hours / @SelectedTimeZone.Label</span>
+        </div>
+        <div class="chart-frame">
+            <span class="chart-maximum">@maximumHourlyCount</span>
+            <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
+                <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
+                <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
+                <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
+                <polyline class="chart-line" points="@ChartPoints(hourlyCounts, chartScaleMaximum)" />
+            </svg>
+        </div>
+        <div class="chart-axis" aria-hidden="true">
+            <span>@FormatChartTime(hourlyCounts[0].Hour)</span>
+            <span>@FormatChartTime(hourlyCounts[24].Hour)</span>
+            <span>Now</span>
+        </div>
+    </div>
+    <div class="alert-count" aria-label="Total alert count">
+        <strong>@alerts.Count</strong>
+        <span>received</span>
+    </div>
+</section>
+
+<section class="controls" aria-label="Alert filters">
+    <label>
+        <span>View</span>
+        <select @bind="viewMode">
+            <option value="active">Active alerts</option>
+            <option value="history">Full history</option>
+        </select>
+    </label>
+    <label class="search-field">
+        <span>Search alerts</span>
+        <input type="search" @bind="searchText" @bind:event="oninput" placeholder="Rule, target, search query..." />
+    </label>
+    <label>
+        <span>Time zone</span>
+        <select value="@selectedTimeZoneId" @onchange="ChangeTimeZone">
+            @foreach (var timeZone in AlertTimeZones.Options)
+            {
+                <option value="@timeZone.Id">@timeZone.Label</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Received from</span>
+        <input type="datetime-local" @bind="receivedFrom" @bind:format="yyyy-MM-ddTHH:mm" />
+    </label>
+    <label>
+        <span>Received to</span>
+        <input type="datetime-local" @bind="receivedTo" @bind:format="yyyy-MM-ddTHH:mm" />
+    </label>
+    <button class="clear-filters" type="button" disabled="@(!HasFilters)" @onclick="ClearFilters">Clear filters</button>
+</section>
+
+@{
+    var navigationTree = GetNavigationTree();
+}
+<nav class="alert-navigation" aria-label="Alert history by subscription, resource group, and target">
+    <div class="tree-heading">
+        <div>
+            <strong>Alert navigation</strong>
+            <span>Seen in last 7 days / active counts</span>
+        </div>
+        <span class="tree-total">@navigationTree.Sum(subscription => subscription.Count) open</span>
+    </div>
+    <div class="tree-root">
+        <button type="button" class="tree-node tree-node-root @(IsTreeSelection(string.Empty, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode()">
+            <span>All subscriptions</span>
+            <span class="tree-count" style="@TreeCountStyle(navigationTree.Sum(subscription => subscription.Count))">@navigationTree.Sum(subscription => subscription.Count)</span>
+        </button>
+        @foreach (var subscription in navigationTree)
+        {
+            var subscriptionExpanded = expandedSubscriptions.Contains(subscription.Name);
+            <div class="tree-branch">
+                <div class="tree-row tree-level-1">
+                    <button type="button" class="tree-toggle" title="@(subscriptionExpanded ? "Collapse subscription" : "Expand subscription")" aria-label="@(subscriptionExpanded ? "Collapse subscription" : "Expand subscription")" aria-expanded="@subscriptionExpanded" @onclick="() => ToggleSubscription(subscription.Name)">
+                        <span aria-hidden="true"></span>
+                    </button>
+                    <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name)">
+                        <span title="@subscription.Name">@Display(subscription.Name)</span>
+                        <span class="tree-count" style="@TreeCountStyle(subscription.Count)">@subscription.Count</span>
+                    </button>
+                </div>
+                @if (subscriptionExpanded)
+                {
+                    @foreach (var resourceGroup in subscription.ResourceGroups)
+                    {
+                        var resourceGroupKey = TreeKey(subscription.Name, resourceGroup.Name);
+                        var resourceGroupExpanded = expandedResourceGroups.Contains(resourceGroupKey);
+                        <div class="tree-branch">
+                            <div class="tree-row tree-level-2">
+                                <button type="button" class="tree-toggle" title="@(resourceGroupExpanded ? "Collapse resource group" : "Expand resource group")" aria-label="@(resourceGroupExpanded ? "Collapse resource group" : "Expand resource group")" aria-expanded="@resourceGroupExpanded" @onclick="() => ToggleResourceGroup(resourceGroupKey)">
+                                    <span aria-hidden="true"></span>
+                                </button>
+                                <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, resourceGroup.Name, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name, resourceGroup.Name)">
+                                    <span title="@resourceGroup.Name">@Display(resourceGroup.Name)</span>
+                                    <span class="tree-count" style="@TreeCountStyle(resourceGroup.Count)">@resourceGroup.Count</span>
+                                </button>
+                            </div>
+                            @if (resourceGroupExpanded)
+                            {
+                                @foreach (var target in resourceGroup.Targets)
+                                {
+                                    <div class="tree-row tree-level-3">
+                                        <span class="tree-leaf-marker" aria-hidden="true"></span>
+                                        <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, resourceGroup.Name, target.Name) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name, resourceGroup.Name, target.Name)">
+                                            <span title="@target.Name">@Display(target.Name)</span>
+                                            <span class="tree-count" style="@TreeCountStyle(target.Count)">@target.Count</span>
+                                        </button>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
+</nav>
+
+@if (!IsTimeRangeValid)
+{
+    <p class="filter-error" role="alert">“Received from” must be earlier than “Received to”.</p>
+}
+
+<section class="table-region" aria-live="polite">
+    <div class="result-summary">Showing @FilteredAlerts.Count() of @ViewAlerts.Count() alerts in this view</div>
+    <div class="table-scroll">
+        <table class="alert-table">
+            <colgroup>
+                <col class="column-received" />
+                <col class="column-alert" />
+                <col class="column-target" />
+                <col class="column-query" />
+                <col class="column-search-result" />
+                <col class="column-comments" />
+                <col class="column-results" />
+            </colgroup>
+            <thead>
+                <tr>
+                    <th><button type="button" @onclick="() => SortBy(nameof(AlertRecord.ReceivedAt))">Received <span class="column-zone">@SelectedTimeZone.Label</span> @SortIndicator(nameof(AlertRecord.ReceivedAt))</button></th>
+                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.Name))">Alert @SortIndicator(nameof(AlertRecord.Name))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Alert column" aria-valuemin="140" aria-valuenow="190" tabindex="0" data-column-index="1" data-column-key="alert" data-min-width="140"></span></th>
+                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.TargetName))">Target name @SortIndicator(nameof(AlertRecord.TargetName))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Target name column" aria-valuemin="120" aria-valuenow="150" tabindex="0" data-column-index="2" data-column-key="target" data-min-width="120"></span></th>
+                    <th class="resizable-column">Search query<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Query column" aria-valuemin="220" aria-valuenow="340" tabindex="0" data-column-index="3" data-column-key="query" data-min-width="220"></span></th>
+                    <th class="resizable-column">Search Result<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Result column" aria-valuemin="110" aria-valuenow="140" tabindex="0" data-column-index="4" data-column-key="search-result" data-min-width="110"></span></th>
+                    <th>Comments</th>
+                    <th>Log Analytics dashboard</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!FilteredAlerts.Any())
+                {
+                    <tr>
+                        <td colspan="7" class="empty-state">
+                            <strong>@(alerts.Count == 0 ? "Waiting for the first alert" : "No alerts match these filters")</strong>
+                            <span>@(alerts.Count == 0 ? "POST an Azure Monitor payload to /api/alerts." : "Adjust the search or filter values.")</span>
+                        </td>
+                    </tr>
+                }
+                @foreach (var alert in FilteredAlerts)
+                {
+                    <tr class="@(expandedAlertId == alert.Id ? "selected" : null)">
+                        <td class="timestamp" title="@($"{alert.ReceivedAt.ToUniversalTime():O} UTC")">@FormatTimestamp(alert.ReceivedAt)</td>
+                        <td>
+                            <button class="alert-name-button @AlertTitleClass(alert.MonitorCondition)" type="button" title="Show alert details" aria-expanded="@(expandedAlertId == alert.Id ? "true" : "false")" @onclick="() => ToggleDetails(alert)">
+                                @Display(alert.Name)
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(alert.Description))
+                            {
+                                <span class="cell-secondary">@alert.Description</span>
+                            }
+                        </td>
+                        <td class="target" title="@alert.Target">@Display(alert.TargetName)</td>
+                        <td><div class="search-query">@Display(alert.SearchQuery)</div></td>
+                        <td class="search-result-placeholder">tbd</td>
+                        <td class="comments-preview" title="@alert.Comments">@Display(alert.Comments)</td>
+                        <td>
+                            @if (string.IsNullOrWhiteSpace(alert.SearchResultsUrl))
+                            {
+                                <span>-</span>
+                            }
+                            else
+                            {
+                                <a class="search-results-link" href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">Open</a>
+                            }
+                        </td>
+                    </tr>
+                    @if (expandedAlertId == alert.Id)
+                    {
+                        <tr class="payload-row">
+                            <td colspan="7">
+                                <div class="comment-editor">
+                                    <label for="comment-@alert.Id">Worker comments</label>
+                                    <textarea id="comment-@alert.Id" maxlength="4000" rows="3" @bind="commentDraft"></textarea>
+                                    <div class="comment-actions">
+                                        <span>@commentDraft.Length / 4000</span>
+                                        @if (!string.IsNullOrWhiteSpace(commentSaveError))
+                                        {
+                                            <span class="comment-error" role="alert">@commentSaveError</span>
+                                        }
+                                        <button type="button" disabled="@isSavingComment" @onclick="() => SaveCommentsAsync(alert.Id)">
+                                            @(isSavingComment ? "Saving..." : "Save comments")
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="payload-heading">
+                                    <strong>Raw payload</strong>
+                                    <span>Alert ID: @Display(alert.AlertId)</span>
+                                </div>
+                                <pre>@alert.RawJson</pre>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    private IReadOnlyList<AlertRecord> alerts = [];
+    private string viewMode = "active";
+    private string searchText = string.Empty;
+    private string resourceGroupFilter = string.Empty;
+    private string subscriptionFilter = string.Empty;
+    private string targetNameFilter = string.Empty;
+    private string selectedTimeZoneId = "utc";
+    private DateTime? receivedFrom;
+    private DateTime? receivedTo;
+    private string sortColumn = nameof(AlertRecord.ReceivedAt);
+    private bool sortAscending;
+    private Guid? expandedAlertId;
+    private string commentDraft = string.Empty;
+    private string commentSaveError = string.Empty;
+    private bool isSavingComment;
+    private readonly HashSet<string> expandedSubscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> expandedResourceGroups = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource clockCancellation = new();
+    private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
+    private Task? clockTask;
+
+    private const double ChartWidth = 640;
+    private const double ChartTop = 10;
+    private const double ChartBottom = 110;
+
+    private bool IsTimeRangeValid => receivedFrom is null || receivedTo is null || receivedFrom <= receivedTo;
+    private AlertTimeZoneOption SelectedTimeZone => AlertTimeZones.Get(selectedTimeZoneId);
+
+    private static string TreeCountStyle(int count)
+    {
+        var hue = 120 - Math.Min(Math.Max(count, 0), 10) * 12;
+        return $"--tree-count-hue: {hue}";
+    }
+
+    private bool HasFilters =>
+        !string.IsNullOrWhiteSpace(searchText) ||
+        !string.IsNullOrWhiteSpace(resourceGroupFilter) ||
+        !string.IsNullOrWhiteSpace(subscriptionFilter) ||
+        !string.IsNullOrWhiteSpace(targetNameFilter) ||
+        receivedFrom is not null ||
+        receivedTo is not null;
+
+    private IEnumerable<AlertRecord> ViewAlerts => viewMode == "history"
+        ? alerts
+        : ActiveAlerts;
+
+    private IReadOnlyList<AlertRecord> ActiveAlerts => AlertLifecycle.GetActiveAlerts(alerts);
+
+    private IReadOnlyList<SubscriptionNode> GetNavigationTree() =>
+        AlertNavigation.Build(alerts, ActiveAlerts, currentTimeUtc.AddDays(-7));
+
+    private IEnumerable<AlertRecord> FilteredAlerts
+    {
+        get
+        {
+            var filtered = ViewAlerts.Where(alert =>
+                IsTimeRangeValid &&
+                (string.IsNullOrWhiteSpace(resourceGroupFilter) || alert.ResourceGroup.Equals(resourceGroupFilter, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(subscriptionFilter) || alert.SubscriptionId.Equals(subscriptionFilter, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(targetNameFilter) || alert.TargetName.Equals(targetNameFilter, StringComparison.OrdinalIgnoreCase)) &&
+                (receivedFrom is null || ToDisplayTime(alert.ReceivedAt) >= receivedFrom) &&
+                (receivedTo is null || ToDisplayTime(alert.ReceivedAt) <= receivedTo) &&
+                (string.IsNullOrWhiteSpace(searchText) || SearchableText(alert).Contains(searchText, StringComparison.OrdinalIgnoreCase)));
+
+            return (sortColumn, sortAscending) switch
+            {
+                (nameof(AlertRecord.Name), true) => filtered.OrderBy(alert => alert.Name),
+                (nameof(AlertRecord.Name), false) => filtered.OrderByDescending(alert => alert.Name),
+                (nameof(AlertRecord.SubscriptionId), true) => filtered.OrderBy(alert => alert.SubscriptionId),
+                (nameof(AlertRecord.SubscriptionId), false) => filtered.OrderByDescending(alert => alert.SubscriptionId),
+                (nameof(AlertRecord.TargetName), true) => filtered.OrderBy(alert => alert.TargetName),
+                (nameof(AlertRecord.TargetName), false) => filtered.OrderByDescending(alert => alert.TargetName),
+                (_, true) => filtered.OrderBy(alert => alert.ReceivedAt),
+                _ => filtered.OrderByDescending(alert => alert.ReceivedAt)
+            };
+        }
+    }
+
+    private IReadOnlyList<HourlyAlertCount> GetHourlyAlertCounts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var currentHour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, TimeSpan.Zero);
+        var firstHour = currentHour.AddHours(-47);
+
+        return Enumerable.Range(0, 48)
+            .Select(offset =>
+            {
+                var hour = firstHour.AddHours(offset);
+                var count = alerts.Count(alert => alert.ReceivedAt >= hour && alert.ReceivedAt < hour.AddHours(1));
+                return new HourlyAlertCount(hour, count);
+            })
+            .ToArray();
+    }
+
+    private static string ChartPoints(IReadOnlyList<HourlyAlertCount> buckets, int maximumCount) =>
+        string.Join(' ', buckets.Select((bucket, index) =>
+        {
+            var x = index * ChartWidth / (buckets.Count - 1);
+            var y = ChartBottom - bucket.Count * (ChartBottom - ChartTop) / maximumCount;
+            return FormattableString.Invariant($"{x:0.##},{y:0.##}");
+        }));
+
+    private static string ChartDescription(IReadOnlyList<HourlyAlertCount> buckets)
+    {
+        var total = buckets.Sum(bucket => bucket.Count);
+        var maximum = buckets.Max(bucket => bucket.Count);
+        return $"Alerts received per hour over the last 48 hours. {total} total, with a maximum of {maximum} in one hour.";
+    }
+
+    private DateTime ToDisplayTime(DateTimeOffset timestamp) =>
+        AlertTimeZones.ToDisplayTime(timestamp, selectedTimeZoneId);
+
+    private string FormatTimestamp(DateTimeOffset timestamp) =>
+        ToDisplayTime(timestamp).ToString("yyyy-MM-dd HH:mm:ss");
+
+    private string FormatChartTime(DateTimeOffset timestamp) =>
+        ToDisplayTime(timestamp).ToString("ddd HH:mm");
+
+    private string FormatCurrentTime() =>
+        ToDisplayTime(currentTimeUtc).ToString("yyyy-MM-dd HH:mm:ss");
+
+    private string FormatUtcOffset()
+    {
+        var offset = SelectedTimeZone.TimeZone.GetUtcOffset(currentTimeUtc);
+        var sign = offset < TimeSpan.Zero ? '-' : '+';
+        return $"UTC{sign}{Math.Abs(offset.Hours):00}:{Math.Abs(offset.Minutes):00}";
+    }
+
+    private void ChangeTimeZone(ChangeEventArgs eventArgs)
+    {
+        var newTimeZoneId = eventArgs.Value?.ToString() ?? "utc";
+        if (newTimeZoneId.Equals(selectedTimeZoneId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (receivedFrom is not null)
+        {
+            receivedFrom = AlertTimeZones.ConvertWallClock(receivedFrom.Value, selectedTimeZoneId, newTimeZoneId);
+        }
+
+        if (receivedTo is not null)
+        {
+            receivedTo = AlertTimeZones.ConvertWallClock(receivedTo.Value, selectedTimeZoneId, newTimeZoneId);
+        }
+
+        selectedTimeZoneId = newTimeZoneId;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        alerts = await AlertStore.GetAllAsync();
+        AlertStore.Changed += HandleStoreChanged;
+        clockTask = RunClockAsync(clockCancellation.Token);
+    }
+
+    private async Task RunClockAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                currentTimeUtc = DateTimeOffset.UtcNow;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void HandleStoreChanged()
+    {
+        _ = ReloadAlertsAsync();
+    }
+
+    private async Task ReloadAlertsAsync()
+    {
+        alerts = await AlertStore.GetAllAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SortBy(string column)
+    {
+        sortAscending = sortColumn == column ? !sortAscending : true;
+        sortColumn = column;
+    }
+
+    private string SortIndicator(string column) => sortColumn == column
+        ? sortAscending ? "(asc)" : "(desc)"
+        : string.Empty;
+
+    private void ToggleDetails(AlertRecord alert)
+    {
+        expandedAlertId = expandedAlertId == alert.Id ? null : alert.Id;
+        commentDraft = expandedAlertId is null ? string.Empty : alert.Comments;
+        commentSaveError = string.Empty;
+    }
+
+    private async Task SaveCommentsAsync(Guid id)
+    {
+        isSavingComment = true;
+        commentSaveError = string.Empty;
+
+        try
+        {
+            if (!await AlertStore.UpdateCommentsAsync(id, commentDraft))
+            {
+                commentSaveError = "This alert no longer exists.";
+            }
+        }
+        catch
+        {
+            commentSaveError = "Comments could not be saved.";
+        }
+        finally
+        {
+            isSavingComment = false;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchText = string.Empty;
+        resourceGroupFilter = string.Empty;
+        subscriptionFilter = string.Empty;
+        targetNameFilter = string.Empty;
+        receivedFrom = null;
+        receivedTo = null;
+    }
+
+    private void SelectTreeNode(
+        string subscriptionId = "",
+        string resourceGroup = "",
+        string targetName = "")
+    {
+        subscriptionFilter = subscriptionId;
+        resourceGroupFilter = resourceGroup;
+        targetNameFilter = targetName;
+    }
+
+    private bool IsTreeSelection(string subscriptionId, string resourceGroup, string targetName) =>
+        subscriptionFilter.Equals(subscriptionId, StringComparison.OrdinalIgnoreCase) &&
+        resourceGroupFilter.Equals(resourceGroup, StringComparison.OrdinalIgnoreCase) &&
+        targetNameFilter.Equals(targetName, StringComparison.OrdinalIgnoreCase);
+
+    private void ToggleSubscription(string subscriptionId)
+    {
+        if (!expandedSubscriptions.Remove(subscriptionId))
+        {
+            expandedSubscriptions.Add(subscriptionId);
+        }
+    }
+
+    private void ToggleResourceGroup(string key)
+    {
+        if (!expandedResourceGroups.Remove(key))
+        {
+            expandedResourceGroups.Add(key);
+        }
+    }
+
+    private static string TreeKey(string subscriptionId, string resourceGroup) => $"{subscriptionId}\u001f{resourceGroup}";
+
+    private static string Display(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static string? AlertTitleClass(string monitorCondition) => monitorCondition.ToUpperInvariant() switch
+    {
+        "FIRED" => "alert-title-fired",
+        "RESOLVED" => "alert-title-resolved",
+        _ => null
+    };
+
+    private static string SearchableText(AlertRecord alert) => string.Join(' ',
+        alert.Name,
+        alert.Description,
+        alert.Severity,
+        alert.Status,
+        alert.SignalType,
+        alert.MonitorCondition,
+        alert.Target,
+        alert.ResourceGroup,
+        alert.SearchQuery,
+        alert.SubscriptionId,
+        alert.AlertId,
+        alert.Comments);
+
+    private sealed record HourlyAlertCount(DateTimeOffset Hour, int Count);
+    public void Dispose()
+    {
+        AlertStore.Changed -= HandleStoreChanged;
+        clockCancellation.Cancel();
+        clockCancellation.Dispose();
+    }
+}

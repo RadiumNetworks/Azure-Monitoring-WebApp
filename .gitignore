@@ -1,0 +1,34 @@
+# .NET build output
+**/bin/
+**/obj/
+**/TestResults/
+**/publish/
+
+# IDE and user-specific settings
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs and local diagnostics
+*.log
+
+# Local deployment configuration
+/alertconsole.local.json
+
+# Playwright output and authentication state
+**/playwright-report/
+**/playwright/.cache/
+**/playwright/.auth/
+*.storage-state.json
+auth.json
+
+# Captured alert data
+AlertConsoleCli/clean_output.json
+AlertConsoleCli/temp_parsed.json
+
+# Deployment-specific database setup; publish the template instead
+MonitoringApp/Database/CreateMonitoringDatabase.sql
+*.txt
+*.md

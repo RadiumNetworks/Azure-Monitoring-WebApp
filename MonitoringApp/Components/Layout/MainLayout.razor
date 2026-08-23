@@ -1,0 +1,19 @@
+@inherits LayoutComponentBase
+
+<header class="app-header">
+    <div class="header-inner">
+        <a class="brand" href="/" aria-label="Alert Console home">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Alert Console</span>
+        </a>
+        <div class="header-actions">
+            <nav class="view-navigation" aria-label="Alert views">
+                <NavLink href="/" Match="NavLinkMatch.All">Inbox</NavLink>
+                <NavLink href="/graph">Graph</NavLink>
+            </nav>
+            <span class="environment">Azure Monitor</span>
+        </div>
+    </div>
+</header>
+
+<main>@Body</main>

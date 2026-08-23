@@ -1,0 +1,5 @@
+bin/
+obj/
+data/
+playwright/.auth/
+*.storage-state.json

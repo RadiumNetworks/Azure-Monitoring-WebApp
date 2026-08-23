@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.55.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\AlertConsoleUrlResolver.cs" Link="Configuration\AlertConsoleUrlResolver.cs" />
+    <None Include="..\alertconsole.local.json"
+          Link="alertconsole.local.json"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="Never"
+          Condition="Exists('..\alertconsole.local.json')" />
+  </ItemGroup>
+
+</Project>
