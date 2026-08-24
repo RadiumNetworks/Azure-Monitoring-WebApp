@@ -15,6 +15,12 @@
       "metadata": {
         "description": "Workspace ID (GUID), not the Azure resource ID, of the Log Analytics workspace containing DCDiagData_CL."
       }
+    },
+    "userAssignedIdentityResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full Azure resource ID of an existing user-assigned managed identity."
+      }
     }
   },
   "resources": [
@@ -24,7 +30,10 @@
       "name": "[parameters('workflowName')]",
       "location": "[parameters('location')]",
       "identity": {
-        "type": "SystemAssigned"
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[parameters('userAssignedIdentityResourceId')]": {}
+        }
       },
       "properties": {
         "state": "Enabled",
@@ -147,6 +156,7 @@
                         },
                         "authentication": {
                           "type": "ManagedServiceIdentity",
+                          "identity": "[parameters('userAssignedIdentityResourceId')]",
                           "audience": "https://api.loganalytics.io"
                         },
                         "retryPolicy": {
@@ -243,9 +253,9 @@
       "type": "string",
       "value": "[parameters('workflowName')]"
     },
-    "principalId": {
+    "userAssignedIdentityResourceId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Logic/workflows', parameters('workflowName')), '2019-05-01', 'Full').identity.principalId]"
+      "value": "[parameters('userAssignedIdentityResourceId')]"
     }
   }
 }

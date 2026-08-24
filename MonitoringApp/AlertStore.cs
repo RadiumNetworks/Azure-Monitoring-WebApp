@@ -22,10 +22,15 @@ public sealed record AlertRecord(
     string Comments,
     string RawJson)
 {
-    public string TargetName => GetTargetName(GetDimensionValue() ?? GetConfigurationItem() ?? Target);
+    public string TargetName => GetTargetName(
+        GetDimensionValue("SourceDSA", "Computer") ?? GetConfigurationItem() ?? Target);
+    public string SiteName => GetDimensionValue("Site", "SourceDSASite") ?? string.Empty;
+    public string TargetDisplayName => string.IsNullOrWhiteSpace(SiteName)
+        ? TargetName
+        : $"{TargetName} ({SiteName})";
     public string SearchQuery => GetSearchQuery(RawJson);
 
-    private string? GetDimensionValue()
+    private string? GetDimensionValue(params string[] names)
     {
         if (string.IsNullOrWhiteSpace(RawJson))
         {
@@ -54,7 +59,10 @@ public sealed record AlertRecord(
 
                 foreach (var dimension in dimensions.EnumerateArray())
                 {
-                    if (dimension.TryGetProperty("value", out var valueElement) &&
+                    if (dimension.TryGetProperty("name", out var nameElement) &&
+                        nameElement.ValueKind == JsonValueKind.String &&
+                        names.Contains(nameElement.GetString(), StringComparer.OrdinalIgnoreCase) &&
+                        dimension.TryGetProperty("value", out var valueElement) &&
                         valueElement.ValueKind == JsonValueKind.String &&
                         valueElement.GetString() is { } value &&
                         IsMeaningfulTarget(value))

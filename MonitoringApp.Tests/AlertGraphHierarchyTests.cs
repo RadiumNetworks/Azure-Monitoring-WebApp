@@ -43,12 +43,41 @@ public sealed class AlertGraphHierarchyTests
     {
         Assert.Equal([AlertGraphLayer.Subscription], AlertGraphHierarchy.ChoicesForLevel(1).Select(choice => choice.Value));
         Assert.Equal(
-            [AlertGraphLayer.AlertName, AlertGraphLayer.ResourceGroup],
+            [AlertGraphLayer.AlertName, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Site],
             AlertGraphHierarchy.ChoicesForLevel(2).Select(choice => choice.Value));
         Assert.Equal([AlertGraphLayer.Target], AlertGraphHierarchy.ChoicesForLevel(3).Select(choice => choice.Value));
     }
 
-    private static AlertRecord CreateAlert(string alertId, string name, string resourceGroup, string target) => new(
+    [Fact]
+    public void LayerTwoCanGroupBySiteDimensionWithTargetChildren()
+    {
+        var alerts = new[]
+        {
+            CreateAlert("alert-1", "Disk space", "rg-app", "server-1", "Site", "Berlin"),
+            CreateAlert("alert-2", "CPU load", "rg-app", "server-2", "SourceDSASite", "Munich"),
+            CreateAlert("alert-3", "Disk space", "rg-app", "server-3")
+        };
+
+        var hierarchy = AlertGraphHierarchy.Build(
+            alerts,
+            AlertLifecycle.GetActiveAlerts(alerts),
+            BaseTime.AddDays(-7),
+            AlertGraphLayer.Subscription,
+            AlertGraphLayer.Site,
+            AlertGraphLayer.Target);
+
+        var sites = Assert.Single(hierarchy).Children;
+        Assert.Equal(["-", "Berlin", "Munich"], sites.Select(node => node.Name));
+        Assert.Equal(3, sites.Sum(node => node.Children.Count));
+    }
+
+    private static AlertRecord CreateAlert(
+        string alertId,
+        string name,
+        string resourceGroup,
+        string target,
+        string? dimensionName = null,
+        string? dimensionValue = null) => new(
         Guid.NewGuid(),
         BaseTime,
         alertId,
@@ -64,5 +93,23 @@ public sealed class AlertGraphHierarchyTests
         string.Empty,
         string.Empty,
         string.Empty,
-        "{}");
+                dimensionName is null
+                        ? "{}"
+                        : $$"""
+                                {
+                                    "data": {
+                                        "alertContext": {
+                                            "condition": {
+                                                "allOf": [
+                                                    {
+                                                        "dimensions": [
+                                                            { "name": "{{dimensionName}}", "value": "{{dimensionValue}}" }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                                """);
 }

@@ -50,7 +50,7 @@ public sealed class AlertQueryTests
     }
 
         [Fact]
-        public void TargetNamePrefersDimensionValueOverConfigurationItem()
+        public void TargetNameUsesSupportedDimensionAndIgnoresOtherDimensions()
         {
                 var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
                         {
@@ -63,6 +63,8 @@ public sealed class AlertQueryTests
                                         "allOf": [
                                             {
                                                 "dimensions": [
+                                                    { "name": "Site", "value": "BERLIN" },
+                                                    { "name": "Status", "value": "Failed" },
                                                     { "name": "SourceDSA", "value": "SV253651" }
                                                 ]
                                             }
@@ -74,6 +76,39 @@ public sealed class AlertQueryTests
                         """);
 
                 Assert.Equal("SV253651", alert.TargetName);
+                Assert.Equal("BERLIN", alert.SiteName);
+                Assert.Equal("SV253651 (BERLIN)", alert.TargetDisplayName);
+        }
+
+        [Fact]
+        public void TargetAndSiteSupportComputerAndSourceDsaSiteAcrossCriteria()
+        {
+                var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
+                        {
+                            "data": {
+                                "alertContext": {
+                                    "condition": {
+                                        "allOf": [
+                                            {
+                                                "dimensions": [
+                                                    { "name": "Result", "value": "Failed" },
+                                                    { "name": "SourceDSASite", "value": "MUNICH" }
+                                                ]
+                                            },
+                                            {
+                                                "dimensions": [
+                                                    { "name": "Computer", "value": "DC-02" }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                        """);
+
+                Assert.Equal("DC-02", alert.TargetName);
+                Assert.Equal("MUNICH", alert.SiteName);
         }
 
         [Fact]
@@ -101,6 +136,7 @@ public sealed class AlertQueryTests
                         """);
 
                 Assert.Equal("web-01", alert.TargetName);
+                Assert.Equal("web-01", alert.TargetDisplayName);
         }
 
         [Fact]

@@ -22,7 +22,8 @@ public static class AlertGraphHierarchy
         2 =>
         [
             new(AlertGraphLayer.AlertName, "AlertName"),
-            new(AlertGraphLayer.ResourceGroup, "Resourcegroup")
+            new(AlertGraphLayer.ResourceGroup, "Resourcegroup"),
+            new(AlertGraphLayer.Site, "Site")
         ],
         3 => [new(AlertGraphLayer.Target, "Target")],
         _ => throw new ArgumentOutOfRangeException(nameof(level))
@@ -34,6 +35,7 @@ public static class AlertGraphHierarchy
         AlertGraphLayer.AlertName => "AlertName",
         AlertGraphLayer.ResourceGroup => "Resourcegroup",
         AlertGraphLayer.Target => "Target",
+        AlertGraphLayer.Site => "Site",
         _ => throw new ArgumentOutOfRangeException(nameof(layer))
     };
 
@@ -69,6 +71,7 @@ public static class AlertGraphHierarchy
         AlertGraphLayer.AlertName => alert.Name,
         AlertGraphLayer.ResourceGroup => alert.ResourceGroup,
         AlertGraphLayer.Target => alert.TargetName,
+        AlertGraphLayer.Site => string.IsNullOrWhiteSpace(alert.SiteName) ? "-" : alert.SiteName,
         _ => throw new ArgumentOutOfRangeException(nameof(layer))
     };
 }
@@ -87,5 +90,6 @@ public enum AlertGraphLayer
     Subscription,
     AlertName,
     ResourceGroup,
-    Target
+    Target,
+    Site
 }

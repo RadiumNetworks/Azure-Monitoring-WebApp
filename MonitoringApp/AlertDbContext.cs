@@ -27,6 +27,8 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         alert.Property(record => record.Comments).HasMaxLength(4000);
         alert.Property(record => record.RawJson).HasColumnType("nvarchar(max)");
         alert.Ignore(record => record.TargetName);
+        alert.Ignore(record => record.SiteName);
+        alert.Ignore(record => record.TargetDisplayName);
         alert.Ignore(record => record.SearchQuery);
         alert.HasIndex(record => record.ReceivedAt);
         alert.HasIndex(record => new { record.AlertId, record.MonitorCondition });
