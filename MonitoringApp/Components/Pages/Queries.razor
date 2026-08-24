@@ -1,0 +1,115 @@
+@page "/queries"
+@rendermode InteractiveServer
+@using System.Text.Json
+@inject AlertStore AlertStore
+@inject NavigationManager Navigation
+
+<PageTitle>Query Examples</PageTitle>
+
+<section class="query-heading">
+    <div>
+        <p class="eyebrow">Integration</p>
+        <h1>Query examples</h1>
+        <p class="subtitle">Ready-to-use API requests with results from the current alert data.</p>
+    </div>
+    <button class="query-refresh" type="button" disabled="@isLoading" @onclick="LoadResultsAsync">
+        @(isLoading ? "Refreshing..." : "Refresh results")
+    </button>
+</section>
+
+<div class="query-grid">
+    @foreach (var example in examples)
+    {
+        <section class="query-example" aria-labelledby="@example.Id">
+            <div class="query-example-heading">
+                <div>
+                    <span>@example.Label</span>
+                    <h2 id="@example.Id">@example.Title</h2>
+                </div>
+                <span class="query-count">@example.Response.Count results</span>
+            </div>
+            <a class="query-url" href="@example.Url" target="_blank" rel="noopener noreferrer">@example.Url</a>
+            <div class="query-result-heading">
+                <strong>Response</strong>
+                <span>HTTP 200 · application/json</span>
+            </div>
+            <pre class="query-result">@Serialize(example.Response)</pre>
+        </section>
+    }
+</div>
+
+@code {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
+    private IReadOnlyList<QueryExample> examples = [];
+    private bool isLoading;
+
+    protected override Task OnInitializedAsync() => LoadResultsAsync();
+
+    private async Task LoadResultsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var alerts = await AlertStore.GetAllAsync();
+            examples =
+            [
+                CreateExample(
+                    "active-query",
+                    "Active alerts",
+                    "Last 120 minutes",
+                    "api/query?activeMinutes=120",
+                    "active",
+                    now.AddMinutes(-120),
+                    now,
+                    AlertQuery.GetActiveSince(alerts, now.AddMinutes(-120))),
+                CreateExample(
+                    "event-query",
+                    "Alert events",
+                    "Last 2 hours",
+                    "api/query?eventHours=2",
+                    "events",
+                    now.AddHours(-2),
+                    now,
+                    AlertQuery.GetEventsSince(alerts, now.AddHours(-2)))
+            ];
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private QueryExample CreateExample(
+        string id,
+        string label,
+        string title,
+        string relativeUrl,
+        string mode,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        IReadOnlyList<AlertRecord> matches)
+    {
+        var items = matches.Select(AlertQueryItem.FromAlert).ToArray();
+        return new QueryExample(
+            id,
+            label,
+            title,
+            new Uri(new Uri(Navigation.BaseUri), relativeUrl).AbsoluteUri,
+            new AlertQueryResponse(mode, from, to, items.Length, items));
+    }
+
+    private static string Serialize(AlertQueryResponse response) =>
+        JsonSerializer.Serialize(response, SerializerOptions);
+
+    private sealed record QueryExample(
+        string Id,
+        string Label,
+        string Title,
+        string Url,
+        AlertQueryResponse Response);
+}
