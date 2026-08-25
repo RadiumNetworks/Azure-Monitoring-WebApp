@@ -1,6 +1,9 @@
 @MonitoringApp_HostAddress = http://localhost:5078
+@AlertAccessToken = replace-with-logic-app-uami-access-token
 
+# Remove the Authorization header while AlertIngestionAuthentication is disabled.
 POST {{MonitoringApp_HostAddress}}/api/alerts
+Authorization: Bearer {{AlertAccessToken}}
 Content-Type: application/json
 
 {

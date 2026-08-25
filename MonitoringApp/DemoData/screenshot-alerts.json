@@ -1,0 +1,114 @@
+[
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "demo-dcdiag-orion-07",
+        "alertRule": "Northwind Directory Health",
+        "severity": "Sev1",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-demo-directory",
+        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
+        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
+        "firedDateTime": "2026-08-25T15:42:00Z",
+        "description": "Directory diagnostics detected one failed test."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [{
+            "searchQuery": "DCDiagData_CL\n| where TimeGenerated > ago(1h)\n| summarize arg_max(TimeGenerated, *) by Computer",
+            "dimensions": [
+              { "name": "Computer", "value": "DC-ORION-07" },
+              { "name": "Site", "value": "Northbridge" }
+            ]
+          }]
+        }
+      }
+    },
+    "queryResult": {
+      "type": "DCDiag",
+      "computer": "DC-ORION-07",
+      "columns": [
+        { "name": "Computer", "type": "string" },
+        { "name": "Site", "type": "string" },
+        { "name": "TimeGenerated", "type": "datetime" },
+        { "name": "Status", "type": "dynamic" }
+      ],
+      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:41:18Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Passed\",\"DNS\":\"Failed\",\"Replications\":\"Passed\",\"Services\":\"Passed\"}"]],
+      "rowCount": 1
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "demo-replication-atlas-12",
+        "alertRule": "Directory Replication Delay",
+        "severity": "Sev2",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-demo-directory",
+        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
+        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "firedDateTime": "2026-08-25T15:35:00Z",
+        "description": "Replication failures were reported between two directory sites."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [{
+            "searchQuery": "DCReplicationData_CL\n| summarize arg_max(TimeGenerated, *) by SourceDSA\n| where toint(NumberOfFailures) > 0",
+            "dimensions": [
+              { "name": "SourceDSA", "value": "DC-ATLAS-12" },
+              { "name": "SourceDSASite", "value": "Cedarfield" }
+            ]
+          }]
+        }
+      }
+    },
+    "queryResult": {
+      "type": "Replication",
+      "sourceDSA": "DC-ATLAS-12",
+      "columns": [
+        { "name": "SourceDSA", "type": "string" },
+        { "name": "TimeGenerated", "type": "datetime" },
+        { "name": "DestDSASite", "type": "string" },
+        { "name": "DestDSA", "type": "string" },
+        { "name": "NC", "type": "string" },
+        { "name": "SourceDSASite", "type": "string" },
+        { "name": "Protocol", "type": "string" },
+        { "name": "NumberOfFailures", "type": "string" },
+        { "name": "LastFailureTime", "type": "string" },
+        { "name": "LastSuccessTime", "type": "datetime" },
+        { "name": "LastErrorStatus", "type": "string" }
+      ],
+      "rows": [["DC-ATLAS-12", "2026-08-25T15:34:24Z", "Harborview", "DC-LUMEN-04", "DC=demo,DC=example", "Cedarfield", "RPC", "3", "2026-08-25T15:32:08Z", "2026-08-25T14:58:31Z", "1722"]],
+      "rowCount": 1
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "demo-heartbeat-nimbus-03",
+        "alertRule": "Directory Server Heartbeat",
+        "severity": "Sev3",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-demo-directory",
+        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
+        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-NIMBUS-03"],
+        "firedDateTime": "2026-08-25T15:28:00Z",
+        "description": "No heartbeat was received during the evaluation window."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [{
+            "searchQuery": "Heartbeat\n| where TimeGenerated > ago(15m)\n| summarize LastSeen=max(TimeGenerated) by Computer",
+            "dimensions": [{ "name": "Computer", "value": "DC-NIMBUS-03" }]
+          }]
+        }
+      }
+    }
+  }
+]

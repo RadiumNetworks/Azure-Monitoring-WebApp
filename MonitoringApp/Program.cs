@@ -1,10 +1,22 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using MonitoringApp;
 using MonitoringApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+var ingestionAuthentication = builder.Configuration
+    .GetSection(AlertIngestionAuthenticationOptions.SectionName)
+    .Get<AlertIngestionAuthenticationOptions>() ?? new AlertIngestionAuthenticationOptions();
+var ingestionAuthenticationErrors = ingestionAuthentication.Validate();
+if (ingestionAuthentication.Enabled && ingestionAuthenticationErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid alert ingestion authentication configuration: {string.Join(" ", ingestionAuthenticationErrors)}");
+}
+
 var alertsConnectionString = builder.Configuration.GetConnectionString("AlertsDatabase");
 var databaseConfigurationError = string.Empty;
 SqlConnectionStringBuilder sqlConnection;
@@ -41,6 +53,35 @@ var effectiveConnectionString = databaseConfiguration.IsValid
     : "Server=127.0.0.1,1;Database=Unavailable;Connect Timeout=1;Encrypt=False";
 
 builder.Services.AddOpenApi();
+builder.Services.AddSingleton(ingestionAuthentication);
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = "https://login.microsoftonline.com/organizations/v2.0";
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = true,
+            ValidAudience = ingestionAuthentication.Audience,
+            ValidateIssuer = true,
+            ValidIssuers = ingestionAuthentication.Sources.Select(source =>
+                $"https://login.microsoftonline.com/{source.TenantId}/v2.0")
+        };
+    });
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("LogicAppAlertWriter", policy =>
+    {
+        if (ingestionAuthentication.Enabled)
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireAssertion(context =>
+                AlertIngestionAuthorization.IsAuthorized(context.User, ingestionAuthentication));
+        }
+        else
+        {
+            policy.RequireAssertion(_ => true);
+        }
+    });
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddDbContextFactory<AlertDbContext>(options =>
@@ -48,6 +89,8 @@ builder.Services.AddDbContextFactory<AlertDbContext>(options =>
         sqlServerOptions.EnableRetryOnFailure()));
 builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddSingleton(new QueryResultPresenter(
+    Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
 builder.Services.AddHostedService<DatabaseStartupCheck>();
 
 var app = builder.Build();
@@ -75,6 +118,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler("/error", createScopeForErrors: true);
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 app.MapStaticAssets();
 
@@ -109,8 +154,11 @@ app.MapPost("/api/alerts", async (JsonElement payload, AlertStore store, Cancell
 })
 .WithName("IngestAlert")
 .WithSummary("Receives an Azure Monitor alert payload")
+.RequireAuthorization("LogicAppAlertWriter")
 .Produces(StatusCodes.Status201Created)
 .Produces(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status403Forbidden)
 .ProducesProblem(StatusCodes.Status400BadRequest)
 .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 

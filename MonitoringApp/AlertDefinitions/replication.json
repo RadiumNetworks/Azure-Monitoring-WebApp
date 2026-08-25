@@ -1,0 +1,28 @@
+{
+  "type": "Replication",
+  "label": "Replication query summary",
+  "summary": [
+    { "operation": "sum", "column": "NumberOfFailures", "label": "failures", "tone": "failure", "zeroTone": "success" },
+    { "operation": "row-count", "label": "links", "singularLabel": "link", "tone": "info" }
+  ],
+  "row": {
+    "title": "{SourceDSA} to {DestDSA}",
+    "metadata": [
+      { "column": "SourceDSASite", "label": "Source site" },
+      { "column": "DestDSASite", "label": "Destination site" },
+      { "column": "Protocol" },
+      { "column": "TimeGenerated", "format": "datetime" }
+    ],
+    "alerts": [
+      { "column": "NumberOfFailures", "label": "Replication failures", "hideWhen": "0", "tone": "failure" },
+      { "column": "LastErrorStatus", "label": "Error status", "hideWhen": "0", "tone": "failure" }
+    ],
+    "facts": [
+      { "column": "LastFailureTime", "label": "Last failure", "format": "datetime", "hideWhen": "0" },
+      { "column": "LastSuccessTime", "label": "Last success", "format": "datetime" }
+    ],
+    "details": [
+      { "column": "NC", "label": "Naming context" }
+    ]
+  }
+}

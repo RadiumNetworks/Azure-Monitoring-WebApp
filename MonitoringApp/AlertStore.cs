@@ -4,6 +4,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MonitoringApp;
 
+/// <summary>
+/// Represents one persisted Azure Monitor alert event together with its original JSON payload. Computed properties derive display names, site information, and the search query from that payload.
+/// </summary>
 public sealed record AlertRecord(
     Guid Id,
     DateTimeOffset ReceivedAt,
@@ -30,6 +33,9 @@ public sealed record AlertRecord(
         : $"{TargetName} ({SiteName})";
     public string SearchQuery => GetSearchQuery(RawJson);
 
+    /// <summary>
+    /// Finds the first meaningful value for any requested dimension name in the alert criteria. Missing or invalid payload data returns null.
+    /// </summary>
     private string? GetDimensionValue(params string[] names)
     {
         if (string.IsNullOrWhiteSpace(RawJson))
@@ -80,6 +86,9 @@ public sealed record AlertRecord(
         }
     }
 
+    /// <summary>
+    /// Returns the first meaningful configuration item from the Common Alert Schema essentials. Missing or invalid payload data returns null.
+    /// </summary>
     private string? GetConfigurationItem()
     {
         if (string.IsNullOrWhiteSpace(RawJson))
@@ -110,10 +119,16 @@ public sealed record AlertRecord(
         }
     }
 
+    /// <summary>
+    /// Checks whether a target value contains usable content rather than the Azure Monitor empty placeholder. Whitespace-only values are rejected.
+    /// </summary>
     private static bool IsMeaningfulTarget(string value) =>
         !string.IsNullOrWhiteSpace(value) &&
         !value.Equals("<EMPTY_VALUE>", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Extracts the final segment from a slash- or backslash-delimited target path. A plain name is returned unchanged.
+    /// </summary>
     private static string GetTargetName(string value)
     {
         var normalizedValue = value.TrimEnd('/', '\\');
@@ -121,6 +136,9 @@ public sealed record AlertRecord(
         return separatorIndex >= 0 ? normalizedValue[(separatorIndex + 1)..] : normalizedValue;
     }
 
+    /// <summary>
+    /// Parses an alert payload and searches it for the first searchQuery property. Empty or invalid JSON returns an empty string.
+    /// </summary>
     private static string GetSearchQuery(string rawJson)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
@@ -139,6 +157,9 @@ public sealed record AlertRecord(
         }
     }
 
+    /// <summary>
+    /// Recursively searches JSON objects and arrays for a string-valued searchQuery property. It returns null when no query is present.
+    /// </summary>
     private static string? FindSearchQuery(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -174,14 +195,23 @@ public sealed record AlertRecord(
     }
 }
 
+/// <summary>
+/// Reports the alert returned by ingestion and whether a new database row was created. Duplicate events return the existing record with Created set to false.
+/// </summary>
 public sealed record AddAlertResult(AlertRecord Alert, bool Created);
 
+/// <summary>
+/// Provides database-backed alert ingestion, retrieval, and comment updates. It centralizes persistence errors, duplicate detection, and change notifications.
+/// </summary>
 public sealed class AlertStore
 {
     private readonly IDbContextFactory<AlertDbContext> contextFactory;
     private readonly DatabaseConfigurationStatus databaseConfiguration;
     private readonly ILogger<AlertStore> logger;
 
+    /// <summary>
+    /// Creates an alert store with its database factory, validated configuration state, and logger. Database contexts are opened per operation.
+    /// </summary>
     public AlertStore(
         IDbContextFactory<AlertDbContext> contextFactory,
         DatabaseConfigurationStatus databaseConfiguration,
@@ -194,6 +224,9 @@ public sealed class AlertStore
 
     public event Action? Changed;
 
+    /// <summary>
+    /// Loads all stored alerts with the newest records first. Configuration or database failures are logged and return an empty list for the UI.
+    /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         if (!databaseConfiguration.IsValid)
@@ -217,6 +250,9 @@ public sealed class AlertStore
         }
     }
 
+    /// <summary>
+    /// Loads alerts received on or after the supplied timestamp, ordered newest first. Unlike the UI loader, configuration and database failures are propagated to the caller.
+    /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetSinceRequiredAsync(
         DateTimeOffset since,
         CancellationToken cancellationToken = default)
@@ -239,6 +275,9 @@ public sealed class AlertStore
         }
     }
 
+    /// <summary>
+    /// Converts a Common Alert Schema payload into an AlertRecord and stores it transactionally. An existing alert with the same alert ID and monitor condition is returned instead of creating a duplicate.
+    /// </summary>
     public async Task<AddAlertResult> AddAsync(JsonElement payload, CancellationToken cancellationToken = default)
     {
         EnsureDatabaseIsConfigured();
@@ -326,6 +365,9 @@ public sealed class AlertStore
         return result;
     }
 
+    /// <summary>
+    /// Trims and updates operator comments for one alert record. It returns false when the record no longer exists and rejects comments longer than 4,000 characters.
+    /// </summary>
     public async Task<bool> UpdateCommentsAsync(
         Guid id,
         string comments,
@@ -363,6 +405,9 @@ public sealed class AlertStore
         return updatedRows > 0;
     }
 
+    /// <summary>
+    /// Ensures the parsed database configuration is valid before a required operation starts. Invalid configuration raises an InvalidOperationException with the recorded reason.
+    /// </summary>
     private void EnsureDatabaseIsConfigured()
     {
         if (!databaseConfiguration.IsValid)
@@ -371,6 +416,9 @@ public sealed class AlertStore
         }
     }
 
+    /// <summary>
+    /// Walks a property path through nested JSON objects. A missing segment or non-object value returns the default JsonElement.
+    /// </summary>
     private static JsonElement GetObject(JsonElement source, params string[] path)
     {
         var current = source;
@@ -386,6 +434,9 @@ public sealed class AlertStore
         return current;
     }
 
+    /// <summary>
+    /// Reads the first available property from a list of alternative names. String values are returned directly and other JSON values are converted to text.
+    /// </summary>
     private static string GetString(JsonElement source, params string[] names)
     {
         if (source.ValueKind != JsonValueKind.Object)
@@ -406,6 +457,9 @@ public sealed class AlertStore
         return string.Empty;
     }
 
+    /// <summary>
+    /// Recursively finds the first valid HTTP or HTTPS URL stored under the requested property name. Missing and invalid URLs produce an empty string.
+    /// </summary>
     private static string GetHttpUrl(JsonElement source, string propertyName)
     {
         if (source.ValueKind == JsonValueKind.Object)
@@ -445,6 +499,9 @@ public sealed class AlertStore
         return string.Empty;
     }
 
+    /// <summary>
+    /// Returns the first value from a named JSON array. Missing, non-array, or empty properties return null.
+    /// </summary>
     private static string? GetFirstArrayValue(JsonElement source, string name)
     {
         if (source.ValueKind == JsonValueKind.Object &&
@@ -460,6 +517,9 @@ public sealed class AlertStore
         return null;
     }
 
+    /// <summary>
+    /// Extracts and URL-decodes the value following a named segment in an Azure resource ID. The method returns an empty string when the segment is absent.
+    /// </summary>
     private static string GetResourceIdSegment(string resourceId, string segmentName)
     {
         var segments = resourceId.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -474,9 +534,15 @@ public sealed class AlertStore
         return string.Empty;
     }
 
+    /// <summary>
+    /// Returns the preferred value when it contains text, otherwise the fallback value. This is used to combine explicit payload fields with resource-ID-derived values.
+    /// </summary>
     private static string FirstNonEmpty(string preferred, string fallback) =>
         string.IsNullOrWhiteSpace(preferred) ? fallback : preferred;
 
+    /// <summary>
+    /// Reads the first matching JSON property and parses it as a timestamp. Missing or invalid values return null.
+    /// </summary>
     private static DateTimeOffset? GetDateTime(JsonElement source, params string[] names)
     {
         var value = GetString(source, names);

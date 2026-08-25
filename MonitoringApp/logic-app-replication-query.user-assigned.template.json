@@ -4,7 +4,7 @@
   "parameters": {
     "workflowName": {
       "type": "string",
-      "defaultValue": "dcdiag-alert-details"
+      "defaultValue": "replication-alert-details"
     },
     "location": {
       "type": "string",
@@ -13,7 +13,7 @@
     "workspaceId": {
       "type": "string",
       "metadata": {
-        "description": "Workspace ID (GUID), not the Azure resource ID, of the Log Analytics workspace containing DCDiagData_CL."
+        "description": "Workspace ID (GUID), not the Azure resource ID, of the Log Analytics workspace containing DCReplicationData_CL."
       }
     },
     "webhookUrl": {
@@ -146,26 +146,26 @@
             }
           },
           "actions": {
-            "Filter_Computer_Dimension": {
+            "Filter_SourceDSA_Dimension": {
               "type": "Query",
               "inputs": {
                 "from": "@coalesce(triggerBody()?['data']?['alertContext']?['condition']?['allOf']?[0]?['dimensions'], json('[]'))",
-                "where": "@equals(toLower(string(item()?['name'])), 'computer')"
+                "where": "@equals(toLower(string(item()?['name'])), 'sourcedsa')"
               },
               "runAfter": {}
             },
-            "Computer_Dimension_Found": {
+            "SourceDSA_Dimension_Found": {
               "type": "If",
-              "expression": "@greater(length(body('Filter_Computer_Dimension')), 0)",
+              "expression": "@greater(length(body('Filter_SourceDSA_Dimension')), 0)",
               "actions": {
-                "Computer": {
+                "SourceDSA": {
                   "type": "Compose",
-                  "inputs": "@trim(string(first(body('Filter_Computer_Dimension'))?['value']))",
+                  "inputs": "@trim(string(first(body('Filter_SourceDSA_Dimension'))?['value']))",
                   "runAfter": {}
                 },
-                "Computer_Value_Is_Safe": {
+                "SourceDSA_Value_Is_Safe": {
                   "type": "If",
-                  "expression": "@and(not(empty(outputs('Computer'))), not(equals(toUpper(outputs('Computer')), '<EMPTY_VALUE>')), not(contains(outputs('Computer'), decodeUriComponent('%22'))), not(contains(outputs('Computer'), decodeUriComponent('%5C'))), not(contains(outputs('Computer'), decodeUriComponent('%0A'))), not(contains(outputs('Computer'), decodeUriComponent('%0D'))))",
+                  "expression": "@and(not(empty(outputs('SourceDSA'))), not(equals(toUpper(outputs('SourceDSA')), '<EMPTY_VALUE>')), not(contains(outputs('SourceDSA'), decodeUriComponent('%22'))), not(contains(outputs('SourceDSA'), decodeUriComponent('%5C'))), not(contains(outputs('SourceDSA'), decodeUriComponent('%0A'))), not(contains(outputs('SourceDSA'), decodeUriComponent('%0D'))))",
                   "actions": {
                     "Run_Log_Analytics_Query": {
                       "type": "Http",
@@ -177,7 +177,7 @@
                           "Prefer": "wait=30"
                         },
                         "body": {
-                          "query": "@concat('DCDiagData_CL\n| where TimeGenerated > ago(1h)\n| where tostring(Computer) =~ \"', outputs('Computer'), '\"\n| project-away Passed, Failed, Type\n| mv-expand Status\n| where tostring(Status) has \"Failed\" and tostring(Status) !has \"DFSREvent\"\n| summarize arg_max(TimeGenerated, *) by TimeGenerated, Computer\n| order by TimeGenerated desc')",
+                          "query": "@concat('DCReplicationData_CL\n| where TimeGenerated > ago(1h)\n| where tostring(SourceDSA) =~ \"', outputs('SourceDSA'), '\"\n| summarize arg_max(TimeGenerated, *) by SourceDSA\n| where toint(NumberOfFailures) > 0\n| order by TimeGenerated desc')",
                           "timespan": "PT1H"
                         },
                         "authentication": {
@@ -207,8 +207,8 @@
                           "schemaId": "@triggerBody()?['schemaId']",
                           "data": "@triggerBody()?['data']",
                           "queryResult": {
-                            "type": "DCDiag",
-                            "computer": "@outputs('Computer')",
+                            "type": "Replication",
+                            "sourceDSA": "@outputs('SourceDSA')",
                             "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
                             "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
                             "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))"
@@ -242,7 +242,7 @@
                           "Content-Type": "application/json"
                         },
                         "body": {
-                          "computer": "@outputs('Computer')",
+                          "sourceDSA": "@outputs('SourceDSA')",
                           "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
                           "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
                           "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))",
@@ -260,7 +260,7 @@
                   },
                   "else": {
                     "actions": {
-                      "Return_Invalid_Computer": {
+                      "Return_Invalid_SourceDSA": {
                         "type": "Response",
                         "kind": "Http",
                         "inputs": {
@@ -269,8 +269,8 @@
                             "Content-Type": "application/json"
                           },
                           "body": {
-                            "error": "The Computer dimension is empty, contains a placeholder, or contains unsupported characters.",
-                            "computer": "@outputs('Computer')"
+                            "error": "The SourceDSA dimension is empty, contains a placeholder, or contains unsupported characters.",
+                            "sourceDSA": "@outputs('SourceDSA')"
                           }
                         },
                         "runAfter": {}
@@ -278,7 +278,7 @@
                     }
                   },
                   "runAfter": {
-                    "Computer": [
+                    "SourceDSA": [
                       "Succeeded"
                     ]
                   }
@@ -286,7 +286,7 @@
               },
               "else": {
                 "actions": {
-                  "Return_Missing_Computer": {
+                  "Return_Missing_SourceDSA": {
                     "type": "Response",
                     "kind": "Http",
                     "inputs": {
@@ -295,7 +295,7 @@
                         "Content-Type": "application/json"
                       },
                       "body": {
-                        "error": "The alert payload does not contain a Computer dimension at data.alertContext.condition.allOf[0].dimensions."
+                        "error": "The alert payload does not contain a SourceDSA dimension at data.alertContext.condition.allOf[0].dimensions."
                       }
                     },
                     "runAfter": {}
@@ -303,7 +303,7 @@
                 }
               },
               "runAfter": {
-                "Filter_Computer_Dimension": [
+                "Filter_SourceDSA_Dimension": [
                   "Succeeded"
                 ]
               }

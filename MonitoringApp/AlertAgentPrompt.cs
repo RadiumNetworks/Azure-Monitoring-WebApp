@@ -2,6 +2,9 @@ using System.Text;
 
 namespace MonitoringApp;
 
+/// <summary>
+/// Selects which alert fields are included in a generated incident-triage prompt. All optional sections are enabled by default.
+/// </summary>
 public sealed record AlertAgentPromptOptions(
     bool IncludeTargets = true,
     bool IncludeSearchQueries = true,
@@ -9,8 +12,14 @@ public sealed record AlertAgentPromptOptions(
     bool IncludeDescriptions = true,
     bool IncludeComments = true);
 
+/// <summary>
+/// Creates a structured prompt from a snapshot of monitoring alerts. Alert content is clearly treated as untrusted data rather than instructions.
+/// </summary>
 public static class AlertAgentPrompt
 {
+    /// <summary>
+    /// Builds an incident-triage prompt from the supplied alerts and field-selection options. The generated timestamp and alert count are included for context.
+    /// </summary>
     public static string Build(
         IEnumerable<AlertRecord> alerts,
         DateTimeOffset generatedAt,
@@ -68,9 +77,15 @@ public static class AlertAgentPrompt
         return prompt.ToString().TrimEnd();
     }
 
+    /// <summary>
+    /// Collapses repeated whitespace into single spaces for compact prompt fields. This keeps user-provided values on one readable line.
+    /// </summary>
     private static string Normalize(string value) =>
         string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
+    /// <summary>
+    /// Appends a labeled multi-line value while preserving its line structure. Each content line is indented below the label.
+    /// </summary>
     private static void AppendMultiline(StringBuilder prompt, string label, string value)
     {
         prompt.AppendLine($"- {label}:");

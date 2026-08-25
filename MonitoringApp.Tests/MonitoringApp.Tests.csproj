@@ -22,4 +22,10 @@
     <ProjectReference Include="..\MonitoringApp\MonitoringApp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\MonitoringApp\AlertDefinitions\*.json"
+             Link="AlertDefinitions\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

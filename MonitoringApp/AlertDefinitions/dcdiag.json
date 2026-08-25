@@ -1,0 +1,21 @@
+{
+  "type": "DCDiag",
+  "label": "DCDiag test summary",
+  "summary": [
+    { "operation": "object-value-count", "column": "Status", "match": "Passed", "label": "passed", "tone": "success" },
+    { "operation": "object-value-count", "column": "Status", "exclude": "Passed", "label": "failed", "tone": "failure", "omitWhenZero": true }
+  ],
+  "row": {
+    "title": "{Computer}",
+    "metadata": [
+      { "column": "Site" },
+      { "column": "TimeGenerated", "format": "datetime" }
+    ],
+    "alerts": [
+      { "source": "object-entries", "column": "Status", "exclude": "Passed", "tone": "failure" }
+    ],
+    "details": [
+      { "source": "object-entries", "column": "Status", "label": "All {count} tests", "successValue": "Passed", "tone": "failure", "failureFirst": true }
+    ]
+  }
+}

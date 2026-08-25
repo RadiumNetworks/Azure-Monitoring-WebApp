@@ -3,16 +3,25 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MonitoringApp;
 
+/// <summary>
+/// Records whether the alert database configuration is usable and retains its parsed connection settings. Invalid configuration can be reported without exposing the full connection string.
+/// </summary>
 public sealed record DatabaseConfigurationStatus(
     bool IsValid,
     string? Error,
     SqlConnectionStringBuilder Connection);
 
+/// <summary>
+/// Performs a database connectivity check when the application starts. It logs actionable diagnostics without preventing the web host from serving health information.
+/// </summary>
 public sealed class DatabaseStartupCheck(
     IDbContextFactory<AlertDbContext> contextFactory,
     DatabaseConfigurationStatus configuration,
     ILogger<DatabaseStartupCheck> logger) : BackgroundService
 {
+    /// <summary>
+    /// Validates the configured database connection and reports the result through structured logs. The check stops early when startup configuration is already known to be invalid.
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!configuration.IsValid)
@@ -69,6 +78,9 @@ public sealed class DatabaseStartupCheck(
         }
     }
 
+    /// <summary>
+    /// Masks a managed-identity client ID for safe diagnostic logging. Missing or unusually short values are reported as missing.
+    /// </summary>
     private static string MaskClientId(string clientId) => clientId.Length < 8
         ? "(missing)"
         : $"{clientId[..4]}...{clientId[^4..]}";

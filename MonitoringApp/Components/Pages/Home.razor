@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @inject AlertStore AlertStore
+@inject QueryResultPresenter QueryResultPresenter
 
 <PageTitle>Alert Console</PageTitle>
 
@@ -169,7 +170,7 @@
                     <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.Name))">Alert @SortIndicator(nameof(AlertRecord.Name))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Alert column" aria-valuemin="140" aria-valuenow="190" tabindex="0" data-column-index="1" data-column-key="alert" data-min-width="140"></span></th>
                     <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.TargetName))">Target name @SortIndicator(nameof(AlertRecord.TargetName))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Target name column" aria-valuemin="120" aria-valuenow="150" tabindex="0" data-column-index="2" data-column-key="target" data-min-width="120"></span></th>
                     <th class="resizable-column">Search query<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Query column" aria-valuemin="220" aria-valuenow="340" tabindex="0" data-column-index="3" data-column-key="query" data-min-width="220"></span></th>
-                    <th class="resizable-column">Search Result<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Result column" aria-valuemin="110" aria-valuenow="140" tabindex="0" data-column-index="4" data-column-key="search-result" data-min-width="110"></span></th>
+                    <th class="resizable-column">Search Result<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Result column" aria-valuemin="240" aria-valuenow="320" tabindex="0" data-column-index="4" data-column-key="search-result" data-min-width="240"></span></th>
                     <th>Comments</th>
                     <th>Log Analytics dashboard</th>
                 </tr>
@@ -186,6 +187,7 @@
                 }
                 @foreach (var alert in FilteredAlerts)
                 {
+                    var queryResult = QueryResultPresenter.Parse(alert.RawJson);
                     <tr class="@(expandedAlertId == alert.Id ? "selected" : null)">
                         <td class="timestamp" title="@($"{alert.ReceivedAt.ToUniversalTime():O} UTC")">@FormatTimestamp(alert.ReceivedAt)</td>
                         <td>
@@ -199,7 +201,78 @@
                         </td>
                         <td class="target" title="@alert.TargetDisplayName">@Display(alert.TargetDisplayName)</td>
                         <td><div class="search-query">@Display(alert.SearchQuery)</div></td>
-                        <td class="search-result-placeholder">tbd</td>
+                        <td class="search-result-cell">
+                            @if (queryResult is null)
+                            {
+                                <span class="search-result-empty">-</span>
+                            }
+                            else
+                            {
+                                <div class="test-summary" aria-label="@queryResult.Label">
+                                    @foreach (var badge in queryResult.Summary)
+                                    {
+                                        <span class="test-count presentation-@badge.Tone">@badge.Text</span>
+                                    }
+                                </div>
+                                @foreach (var resultRow in queryResult.Rows)
+                                {
+                                    <div class="query-result-row">
+                                        @if (!string.IsNullOrWhiteSpace(resultRow.Title))
+                                        {
+                                            <strong class="query-result-title">@resultRow.Title</strong>
+                                        }
+                                        <div class="query-result-meta">
+                                            @foreach (var value in resultRow.Metadata)
+                                            {
+                                                <span>
+                                                    @if (!string.IsNullOrWhiteSpace(value.Label))
+                                                    {
+                                                        <strong>@value.Label:</strong>
+                                                    }
+                                                    @FormatPresentationValue(value)
+                                                </span>
+                                            }
+                                        </div>
+                                        @if (resultRow.Alerts.Count > 0)
+                                        {
+                                            <div class="failed-tests" aria-label="Alert details">
+                                                @foreach (var item in resultRow.Alerts)
+                                                {
+                                                    <span><strong>@item.Label</strong> @item.Value</span>
+                                                }
+                                            </div>
+                                        }
+                                        @if (resultRow.Facts.Count > 0)
+                                        {
+                                            <div class="query-result-facts">
+                                                @foreach (var value in resultRow.Facts)
+                                                {
+                                                    <span><strong>@value.Label</strong> @FormatPresentationValue(value)</span>
+                                                }
+                                            </div>
+                                        }
+                                        @foreach (var details in resultRow.Details)
+                                        {
+                                            <details class="test-details">
+                                                <summary>@details.Label</summary>
+                                                <ul>
+                                                    @foreach (var item in details.Items)
+                                                    {
+                                                        <li class="presentation-@item.Tone">
+                                                            @if (!item.Label.Equals(details.Label, StringComparison.OrdinalIgnoreCase))
+                                                            {
+                                                                <span>@item.Label</span>
+                                                            }
+                                                            <strong>@item.Value</strong>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </details>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </td>
                         <td class="comments-preview" title="@alert.Comments">@Display(alert.Comments)</td>
                         <td>
                             @if (string.IsNullOrWhiteSpace(alert.SearchResultsUrl))
@@ -359,6 +432,12 @@
 
     private string FormatTimestamp(DateTimeOffset timestamp) =>
         ToDisplayTime(timestamp).ToString("yyyy-MM-dd HH:mm:ss");
+
+    private string FormatPresentationValue(QueryResultValue value) =>
+        value.Format.Equals("datetime", StringComparison.OrdinalIgnoreCase) &&
+        DateTimeOffset.TryParse(value.Value, out var timestamp)
+            ? FormatTimestamp(timestamp)
+            : value.Value;
 
     private string FormatChartTime(DateTimeOffset timestamp) =>
         ToDisplayTime(timestamp).ToString("ddd HH:mm");

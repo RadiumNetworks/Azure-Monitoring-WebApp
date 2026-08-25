@@ -2,10 +2,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MonitoringApp;
 
+/// <summary>
+/// Provides the Entity Framework Core session for stored alert records. Its primary constructor receives the database options configured at application startup.
+/// </summary>
 public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : DbContext(options)
 {
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
 
+    /// <summary>
+    /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
+    /// </summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var alert = modelBuilder.Entity<AlertRecord>();

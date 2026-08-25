@@ -1,5 +1,8 @@
 namespace MonitoringApp;
 
+/// <summary>
+/// Calculates node and edge coordinates for the alert hierarchy graph. Root groups are arranged as radial clusters within a responsive grid.
+/// </summary>
 public static class AlertGraphLayout
 {
     public const double NodeWidth = 190;
@@ -12,6 +15,9 @@ public static class AlertGraphLayout
     private const double PreferredViewportWidth = 1200;
     private const double PreferredViewportHeight = 650;
 
+    /// <summary>
+    /// Builds a complete graph layout from hierarchy roots, including viewport size, positioned nodes, and edges. An empty hierarchy returns a default-sized empty layout.
+    /// </summary>
     public static AlertGraphLayoutResult Build(IReadOnlyList<AlertGraphHierarchyNode> roots)
     {
         if (roots.Count == 0)
@@ -55,6 +61,9 @@ public static class AlertGraphLayout
             edges);
     }
 
+    /// <summary>
+    /// Combines target nodes with the same label across root clusters and aggregates their counts. Incoming edges are redirected to the remaining canonical target node.
+    /// </summary>
     private static void MergeSharedTargets(List<AlertGraphNode> nodes, List<AlertGraphEdge> edges)
     {
         var targetGroups = nodes
@@ -93,6 +102,9 @@ public static class AlertGraphLayout
         }
     }
 
+    /// <summary>
+    /// Creates one radial cluster with a root at the center, middle nodes on the inner ring, and targets on the outer ring. Duplicate leaf names within the cluster share a node.
+    /// </summary>
     private static GraphCluster BuildCluster(
         AlertGraphHierarchyNode root,
         int rootIndex)
@@ -170,6 +182,9 @@ public static class AlertGraphLayout
         return new GraphCluster(nodes, edges);
     }
 
+    /// <summary>
+    /// Creates a positioned graph node from a center point, radius, and angle. Cartesian coordinates are calculated for the final node record.
+    /// </summary>
     private static AlertGraphNode CreateNode(
         string id,
         string label,
@@ -188,18 +203,30 @@ public static class AlertGraphLayout
             centerX + radius * Math.Cos(angle),
             centerY + radius * Math.Sin(angle));
 
+    /// <summary>
+    /// Calculates the ring radius needed to maintain the preferred arc spacing for a node count. Negative counts are treated as zero.
+    /// </summary>
     private static double RadiusForNodeCount(int count) =>
         Math.Max(0, count) * NodeArcSpacing / (2 * Math.PI);
 
+    /// <summary>
+    /// Converts a circular slot into an angle, starting at the top of the ring. A zero slot count is treated as one to avoid division by zero.
+    /// </summary>
     private static double AngleForSlot(double slot, int slotCount) =>
         -Math.PI / 2 + 2 * Math.PI * slot / Math.Max(1, slotCount);
 
+    /// <summary>
+    /// Chooses the cluster-grid column count that best fits the preferred viewport proportions. It balances horizontal and vertical scaling.
+    /// </summary>
     private static int GetColumnCount(int clusterCount, double cellWidth, double cellHeight) =>
         Enumerable.Range(1, clusterCount)
             .MinBy(columns => Math.Max(
                 columns * cellWidth / PreferredViewportWidth,
                 Math.Ceiling((double)clusterCount / columns) * cellHeight / PreferredViewportHeight));
 
+    /// <summary>
+    /// Holds the local nodes, edges, and calculated bounds for one root cluster. The bounds are used to position clusters without overlap.
+    /// </summary>
     private sealed record GraphCluster(
         IReadOnlyList<AlertGraphNode> Nodes,
         IReadOnlyList<AlertGraphEdge> Edges)
@@ -213,12 +240,18 @@ public static class AlertGraphLayout
     }
 }
 
+/// <summary>
+/// Contains the final graph viewport dimensions and positioned graph elements. The UI uses this result directly to render the SVG graph.
+/// </summary>
 public sealed record AlertGraphLayoutResult(
     double Width,
     double Height,
     IReadOnlyList<AlertGraphNode> Nodes,
     IReadOnlyList<AlertGraphEdge> Edges);
 
+/// <summary>
+/// Represents one positioned graph node with its display label, hierarchy layer, and alert counts. Coordinates identify the center of the node.
+/// </summary>
 public sealed record AlertGraphNode(
     string Id,
     string Label,
@@ -228,8 +261,14 @@ public sealed record AlertGraphNode(
     double X,
     double Y);
 
+/// <summary>
+/// Represents a straight graph edge between two coordinate pairs. Edges connect related hierarchy nodes in the SVG view.
+/// </summary>
 public sealed record AlertGraphEdge(double X1, double Y1, double X2, double Y2)
 {
+    /// <summary>
+    /// Creates an edge between the center coordinates of two graph nodes. The start and end nodes themselves are not retained.
+    /// </summary>
     public static AlertGraphEdge Between(AlertGraphNode start, AlertGraphNode end) =>
         new(start.X, start.Y, end.X, end.Y);
 }
