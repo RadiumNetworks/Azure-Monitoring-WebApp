@@ -46,11 +46,51 @@ public static class AlertGraphLayout
             }));
         }
 
+        MergeSharedTargets(nodes, edges);
+
         return new AlertGraphLayoutResult(
             Math.Max(960, columnCount * cellWidth),
             Math.Max(560, rowCount * cellHeight),
             nodes,
             edges);
+    }
+
+    private static void MergeSharedTargets(List<AlertGraphNode> nodes, List<AlertGraphEdge> edges)
+    {
+        var targetGroups = nodes
+            .Where(node => node.Layer == AlertGraphLayer.Target)
+            .GroupBy(node => node.Label, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var positions = new Dictionary<(double X, double Y), (double X, double Y)>();
+        var mergedTargets = new List<AlertGraphNode>(targetGroups.Length);
+
+        foreach (var group in targetGroups)
+        {
+            var targetNodes = group.ToArray();
+            var canonical = targetNodes[0] with
+            {
+                Count = targetNodes.Sum(node => node.Count),
+                HistoryCount = targetNodes.Sum(node => node.HistoryCount)
+            };
+            mergedTargets.Add(canonical);
+
+            foreach (var target in targetNodes)
+            {
+                positions[(target.X, target.Y)] = (canonical.X, canonical.Y);
+            }
+        }
+
+        nodes.RemoveAll(node => node.Layer == AlertGraphLayer.Target);
+        nodes.AddRange(mergedTargets);
+
+        for (var edgeIndex = 0; edgeIndex < edges.Count; edgeIndex++)
+        {
+            var edge = edges[edgeIndex];
+            if (positions.TryGetValue((edge.X2, edge.Y2), out var targetPosition))
+            {
+                edges[edgeIndex] = edge with { X2 = targetPosition.X, Y2 = targetPosition.Y };
+            }
+        }
     }
 
     private static GraphCluster BuildCluster(
@@ -70,17 +110,41 @@ public static class AlertGraphLayout
             0);
         nodes.Add(rootNode);
 
-        var leafCount = root.Children.Sum(middle => middle.Children.Count);
+        var leaves = root.Children
+            .SelectMany(middle => middle.Children)
+            .GroupBy(leaf => leaf.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select((group, index) => new
+            {
+                Name = group.Key,
+                Layer = group.First().Layer,
+                Count = group.Sum(leaf => leaf.Count),
+                HistoryCount = group.Sum(leaf => leaf.HistoryCount),
+                Index = index
+            })
+            .ToArray();
+        var leafCount = leaves.Length;
         var middleCount = root.Children.Count;
         var innerRadius = Math.Max(MinimumInnerRadius, RadiusForNodeCount(middleCount));
         var outerRadius = Math.Max(innerRadius + RingSpacing, RadiusForNodeCount(leafCount));
-        var leafIndex = 0;
+        var leafNodes = leaves.ToDictionary(
+            leaf => leaf.Name,
+            leaf => CreateNode(
+                $"{rootId}-leaf-{leaf.Index}",
+                leaf.Name,
+                leaf.Layer,
+                leaf.Count,
+                leaf.HistoryCount,
+                0,
+                0,
+                outerRadius,
+                AngleForSlot(leaf.Index + 0.5, leafCount)),
+            StringComparer.OrdinalIgnoreCase);
 
         for (var middleIndex = 0; middleIndex < middleCount; middleIndex++)
         {
             var middle = root.Children[middleIndex];
-            var middleLeafCount = middle.Children.Count;
-            var middleAngle = AngleForSlot(leafIndex + middleLeafCount / 2d, leafCount);
+            var middleAngle = AngleForSlot(middleIndex + 0.5, middleCount);
             var middleNode = CreateNode(
                 $"{rootId}-middle-{middleIndex}",
                 middle.Name,
@@ -94,26 +158,14 @@ public static class AlertGraphLayout
             nodes.Add(middleNode);
             edges.Add(AlertGraphEdge.Between(rootNode, middleNode));
 
-            for (var localLeafIndex = 0; localLeafIndex < middleLeafCount; localLeafIndex++)
+            foreach (var leaf in middle.Children
+                .DistinctBy(leaf => leaf.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var leaf = middle.Children[localLeafIndex];
-                var leafAngle = AngleForSlot(leafIndex + localLeafIndex + 0.5, leafCount);
-                var leafNode = CreateNode(
-                    $"{middleNode.Id}-leaf-{localLeafIndex}",
-                    leaf.Name,
-                    leaf.Layer,
-                    leaf.Count,
-                    leaf.HistoryCount,
-                    0,
-                    0,
-                    outerRadius,
-                    leafAngle);
-                nodes.Add(leafNode);
-                edges.Add(AlertGraphEdge.Between(middleNode, leafNode));
+                edges.Add(AlertGraphEdge.Between(middleNode, leafNodes[leaf.Name]));
             }
-
-            leafIndex += middleLeafCount;
         }
+
+        nodes.AddRange(leaves.Select(leaf => leafNodes[leaf.Name]));
 
         return new GraphCluster(nodes, edges);
     }

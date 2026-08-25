@@ -1,0 +1,236 @@
+@page "/prompt"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject AlertStore AlertStore
+@inject IJSRuntime JS
+
+<PageTitle>Copilot Prompt</PageTitle>
+
+<section class="agent-heading">
+    <div>
+        <p class="eyebrow">Assisted triage</p>
+        <h1>Copilot prompt</h1>
+        <p class="subtitle">Prepare a controlled alert snapshot for review in Microsoft Copilot.</p>
+    </div>
+    <div class="agent-status" aria-label="Selected alert summary">
+        <strong>@SelectedAlerts.Count</strong>
+        <span>selected of @VisibleAlerts.Count</span>
+    </div>
+</section>
+
+<div class="agent-notice" role="note">
+    <strong>Human-controlled handoff</strong>
+    <span>No alert data is sent automatically. Review the prompt, copy it, then paste it into Copilot using an approved account. Copilot protection depends on your account and tenant policy.</span>
+</div>
+
+<section class="agent-controls" aria-label="Copilot prompt settings">
+    <label>
+        <span>Alert scope</span>
+        <select value="@scope" @onchange="ChangeScope">
+            <option value="active">Active alerts</option>
+            <option value="recent">Recent events</option>
+        </select>
+    </label>
+    <label>
+        <span>Time range</span>
+        <select value="@lookbackHours" @onchange="ChangeTimeRange">
+            <option value="1">1 hour</option>
+            <option value="4">4 hours</option>
+            <option value="24">1 day</option>
+            <option value="168">7 days</option>
+        </select>
+    </label>
+    <fieldset class="agent-detail-options">
+        <legend>Include in prompt</legend>
+        <label><input type="checkbox" @bind="includeTargets" @bind:after="PromptChanged" /> Targets and sites</label>
+        <label><input type="checkbox" @bind="includeSearchQueries" @bind:after="PromptChanged" /> Search queries</label>
+        <label><input type="checkbox" @bind="includeSearchResults" @bind:after="PromptChanged" /> Search results</label>
+        <label><input type="checkbox" @bind="includeDescriptions" @bind:after="PromptChanged" /> Descriptions</label>
+        <label><input type="checkbox" @bind="includeComments" @bind:after="PromptChanged" /> Operator comments</label>
+    </fieldset>
+</section>
+
+<div class="agent-workspace">
+    <section class="agent-alerts" aria-labelledby="agent-alerts-heading">
+        <div class="agent-section-heading">
+            <div>
+                <p class="eyebrow">Source</p>
+                <h2 id="agent-alerts-heading">Observed alerts</h2>
+            </div>
+            <div class="agent-selection-actions">
+                <button type="button" @onclick="SelectAll" disabled="@(!VisibleAlerts.Any())">Select all</button>
+                <button type="button" @onclick="ClearSelection" disabled="@(!selectedAlertIds.Any())">Clear</button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <p class="agent-empty">Loading alerts...</p>
+        }
+        else if (!VisibleAlerts.Any())
+        {
+            <p class="agent-empty">No alerts match this scope.</p>
+        }
+        else
+        {
+            <div class="agent-alert-list">
+                @foreach (var alert in VisibleAlerts)
+                {
+                    <label class="agent-alert-row">
+                        <input type="checkbox" checked="@selectedAlertIds.Contains(alert.Id)" @onchange="args => ToggleAlert(alert.Id, args)" />
+                        <span class="agent-alert-copy">
+                            <strong>@alert.Name</strong>
+                            <span>@alert.TargetDisplayName</span>
+                        </span>
+                        <span class="severity @SeverityClass(alert.Severity)">@alert.Severity</span>
+                        <time datetime="@alert.ReceivedAt.ToString("O")">@alert.ReceivedAt.ToLocalTime().ToString("g")</time>
+                    </label>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="agent-prompt" aria-labelledby="agent-prompt-heading">
+        <div class="agent-section-heading">
+            <div>
+                <p class="eyebrow">Preview</p>
+                <h2 id="agent-prompt-heading">Copilot prompt</h2>
+            </div>
+            <span class="agent-prompt-size">@GeneratedPrompt.Length characters</span>
+        </div>
+
+        <textarea class="agent-prompt-preview" readonly aria-label="Generated Copilot prompt" value="@GeneratedPrompt"></textarea>
+
+        <div class="agent-handoff">
+            <span class="agent-copy-status" role="status">@copyStatus</span>
+            <button class="agent-copy" type="button" disabled="@(!SelectedAlerts.Any())" @onclick="CopyPromptAsync">Copy prompt</button>
+            <a class="agent-open" href="https://copilot.microsoft.com/" target="_blank" rel="noopener noreferrer">Open Copilot</a>
+        </div>
+        <p class="agent-footnote">All detail fields are included by default. Raw alert JSON is never added; review search queries and results for sensitive identifiers before copying.</p>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<AlertRecord> alerts = [];
+    private readonly HashSet<Guid> selectedAlertIds = [];
+    private string scope = "active";
+    private int lookbackHours = 24;
+    private bool includeTargets = true;
+    private bool includeSearchQueries = true;
+    private bool includeSearchResults = true;
+    private bool includeDescriptions = true;
+    private bool includeComments = true;
+    private bool isLoading = true;
+    private string copyStatus = string.Empty;
+    private DateTimeOffset promptGeneratedAt = DateTimeOffset.UtcNow;
+
+    private IReadOnlyList<AlertRecord> VisibleAlerts => (scope == "active"
+            ? AlertLifecycle.GetActiveAlerts(alerts)
+            : alerts)
+        .Where(alert => alert.ReceivedAt >= DateTimeOffset.UtcNow.AddHours(-lookbackHours))
+        .OrderByDescending(alert => alert.ReceivedAt)
+        .ToArray();
+
+    private IReadOnlyList<AlertRecord> SelectedAlerts => VisibleAlerts
+        .Where(alert => selectedAlertIds.Contains(alert.Id))
+        .ToArray();
+
+    private string GeneratedPrompt => SelectedAlerts.Any()
+        ? AlertAgentPrompt.Build(
+            SelectedAlerts,
+            promptGeneratedAt,
+            new AlertAgentPromptOptions(
+                IncludeTargets: includeTargets,
+                IncludeSearchQueries: includeSearchQueries,
+                IncludeSearchResults: includeSearchResults,
+                IncludeDescriptions: includeDescriptions,
+                IncludeComments: includeComments))
+        : "Select at least one alert to prepare a Copilot prompt.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAlertsAsync(selectDefaults: true);
+        AlertStore.Changed += HandleStoreChanged;
+    }
+
+    private void HandleStoreChanged() => _ = ReloadAlertsAsync(selectDefaults: false);
+
+    private async Task ReloadAlertsAsync(bool selectDefaults)
+    {
+        alerts = await AlertStore.GetAllAsync();
+        isLoading = false;
+        SyncSelection(selectDefaults);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ChangeScope(ChangeEventArgs args)
+    {
+        scope = args.Value?.ToString() == "recent" ? "recent" : "active";
+        SyncSelection(selectDefaults: true);
+    }
+
+    private void ChangeTimeRange(ChangeEventArgs args)
+    {
+        lookbackHours = ParseOption(args, 24, 1, 4, 24, 168);
+        SyncSelection(selectDefaults: true);
+    }
+
+    private void ToggleAlert(Guid alertId, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedAlertIds.Add(alertId);
+        }
+        else
+        {
+            selectedAlertIds.Remove(alertId);
+        }
+
+        PromptChanged();
+    }
+
+    private void SelectAll()
+    {
+        selectedAlertIds.Clear();
+        selectedAlertIds.UnionWith(VisibleAlerts.Select(alert => alert.Id));
+        PromptChanged();
+    }
+
+    private void ClearSelection()
+    {
+        selectedAlertIds.Clear();
+        PromptChanged();
+    }
+
+    private void SyncSelection(bool selectDefaults)
+    {
+        var visibleIds = VisibleAlerts.Select(alert => alert.Id).ToHashSet();
+        selectedAlertIds.RemoveWhere(id => !visibleIds.Contains(id));
+        if (selectDefaults)
+        {
+            selectedAlertIds.Clear();
+            selectedAlertIds.UnionWith(visibleIds);
+        }
+
+        PromptChanged();
+    }
+
+    private async Task CopyPromptAsync()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GeneratedPrompt);
+        copyStatus = "Prompt copied. Review it once more before pasting.";
+    }
+
+    private void PromptChanged()
+    {
+        promptGeneratedAt = DateTimeOffset.UtcNow;
+        copyStatus = string.Empty;
+    }
+
+    private static int ParseOption(ChangeEventArgs args, int fallback, params int[] allowed) =>
+        int.TryParse(args.Value?.ToString(), out var value) && allowed.Contains(value) ? value : fallback;
+
+    private static string SeverityClass(string severity) => $"severity-{severity.ToLowerInvariant()}";
+
+    public void Dispose() => AlertStore.Changed -= HandleStoreChanged;
+}
