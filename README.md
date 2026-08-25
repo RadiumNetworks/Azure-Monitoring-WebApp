@@ -21,3 +21,4 @@ The Web Interface is shown here
 
 ![Header](./Media/Graph.png)
 
+![Header](./Media/Prompt.png)
