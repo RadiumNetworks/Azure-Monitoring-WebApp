@@ -3,18 +3,9 @@
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
     "contentVersion": "1.0.0.0",
     "parameters": {
-      "workspaceId": {
-        "type": "String",
-        "defaultValue": ""
-      },
-      "webhookUrl": {
-        "type": "String",
-        "defaultValue": ""
-      },
-      "webhookAudience": {
-        "type": "String",
-        "defaultValue": ""
-      }
+      "workspaceId": { "type": "String", "defaultValue": "" },
+      "webhookUrl": { "type": "String", "defaultValue": "" },
+      "webhookAudience": { "type": "String", "defaultValue": "" }
     },
     "triggers": {
       "When_an_Azure_Monitor_alert_is_received": {
@@ -69,26 +60,26 @@
       }
     },
     "actions": {
-      "Filter_Computer_Dimension": {
+      "{{filterAction}}": {
         "type": "Query",
         "inputs": {
           "from": "@coalesce(triggerBody()?['data']?['alertContext']?['condition']?['allOf']?[0]?['dimensions'], json('[]'))",
-          "where": "@equals(toLower(string(item()?['name'])), 'computer')"
+          "where": "{{dimensionFilterExpression}}"
         },
         "runAfter": {}
       },
-      "Computer_Dimension_Found": {
+      "{{dimensionFoundAction}}": {
         "type": "If",
-        "expression": "@greater(length(body('Filter_Computer_Dimension')), 0)",
+        "expression": "{{dimensionFoundExpression}}",
         "actions": {
-          "Computer": {
+          "{{dimensionName}}": {
             "type": "Compose",
-            "inputs": "@trim(string(first(body('Filter_Computer_Dimension'))?['value']))",
+            "inputs": "{{dimensionValueExpression}}",
             "runAfter": {}
           },
-          "Computer_Value_Is_Safe": {
+          "{{safeValueAction}}": {
             "type": "If",
-            "expression": "@and(not(empty(outputs('Computer'))), not(equals(toUpper(outputs('Computer')), '<EMPTY_VALUE>')), not(contains(outputs('Computer'), decodeUriComponent('%22'))), not(contains(outputs('Computer'), decodeUriComponent('%5C'))), not(contains(outputs('Computer'), decodeUriComponent('%0A'))), not(contains(outputs('Computer'), decodeUriComponent('%0D'))))",
+            "expression": "{{safeValueExpression}}",
             "actions": {
               "Run_Log_Analytics_Query": {
                 "type": "Http",
@@ -100,8 +91,8 @@
                     "Prefer": "wait=30"
                   },
                   "body": {
-                    "query": "@concat('ConnectionResults_CL\n| where TimeGenerated > ago(1h)\n| where tostring(RemoteSystem) =~ \"', outputs('Computer'), '\"\n| mv-expand Status\n| where tostring(Status) has \"failed\"\n| order by TimeGenerated desc')",
-                    "timespan": "PT1H"
+                    "query": "{{queryExpression}}",
+                    "timespan": "{{timespan}}"
                   },
                   "authentication": {
                     "type": "ManagedServiceIdentity",
@@ -128,8 +119,8 @@
                     "schemaId": "@triggerBody()?['schemaId']",
                     "data": "@triggerBody()?['data']",
                     "queryResult": {
-                      "type": "DCPort",
-                      "computer": "@outputs('Computer')",
+                      "type": "{{queryResultType}}",
+                      "{{contextProperty}}": "{{dimensionOutputExpression}}",
                       "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
                       "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
                       "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))"
@@ -148,9 +139,7 @@
                     "maximumInterval": "PT30S"
                   }
                 },
-                "runAfter": {
-                  "Run_Log_Analytics_Query": ["Succeeded"]
-                }
+                "runAfter": { "Run_Log_Analytics_Query": ["Succeeded"] }
               },
               "Return_Query_Result": {
                 "type": "Response",
@@ -159,7 +148,7 @@
                   "statusCode": 200,
                   "headers": { "Content-Type": "application/json" },
                   "body": {
-                    "computer": "@outputs('Computer')",
+                    "{{contextProperty}}": "{{dimensionOutputExpression}}",
                     "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
                     "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
                     "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))",
@@ -168,52 +157,44 @@
                     "alert": "@triggerBody()"
                   }
                 },
-                "runAfter": {
-                  "Forward_Alert_To_Webhook": ["Succeeded"]
-                }
+                "runAfter": { "Forward_Alert_To_Webhook": ["Succeeded"] }
               }
             },
             "else": {
               "actions": {
-                "Return_Invalid_Computer": {
+                "{{invalidResponseAction}}": {
                   "type": "Response",
                   "kind": "Http",
                   "inputs": {
                     "statusCode": 400,
                     "headers": { "Content-Type": "application/json" },
                     "body": {
-                      "error": "The Computer dimension is empty, contains a placeholder, or contains unsupported characters.",
-                      "computer": "@outputs('Computer')"
+                      "error": "{{invalidDimensionError}}",
+                      "{{contextProperty}}": "{{dimensionOutputExpression}}"
                     }
                   },
                   "runAfter": {}
                 }
               }
             },
-            "runAfter": {
-              "Computer": ["Succeeded"]
-            }
+            "runAfter": { "{{dimensionName}}": ["Succeeded"] }
           }
         },
         "else": {
           "actions": {
-            "Return_Missing_Computer": {
+            "{{missingResponseAction}}": {
               "type": "Response",
               "kind": "Http",
               "inputs": {
                 "statusCode": 400,
                 "headers": { "Content-Type": "application/json" },
-                "body": {
-                  "error": "The alert payload does not contain a Computer dimension at data.alertContext.condition.allOf[0].dimensions."
-                }
+                "body": { "error": "{{missingDimensionError}}" }
               },
               "runAfter": {}
             }
           }
         },
-        "runAfter": {
-          "Filter_Computer_Dimension": ["Succeeded"]
-        }
+        "runAfter": { "{{filterAction}}": ["Succeeded"] }
       }
     },
     "outputs": {}

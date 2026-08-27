@@ -30,5 +30,6 @@ AlertConsoleCli/temp_parsed.json
 
 # Deployment-specific database setup; publish the template instead
 MonitoringApp/Database/CreateMonitoringDatabase.sql
+MonitoringApp/logic-app-*.codeview.json
 *.txt
 *.md

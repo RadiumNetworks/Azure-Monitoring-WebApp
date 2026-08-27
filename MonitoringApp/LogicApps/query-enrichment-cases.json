@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "DCDiag",
+      "outputFile": "logic-app-dcdiag-query.user-assigned.codeview.json",
+      "queryResultType": "DCDiag",
+      "dimensionName": "Computer",
+      "contextProperty": "computer",
+      "timespan": "PT1H",
+      "kql": "DCDiagData_CL\n| where TimeGenerated > ago(1h)\n| where tostring(Computer) =~ \"{{dimensionValue}}\"\n| project-away Passed, Failed, Type\n| mv-expand Status\n| where tostring(Status) has \"Failed\" and tostring(Status) !has \"DFSREvent\"\n| summarize arg_max(TimeGenerated, *) by TimeGenerated, Computer\n| order by TimeGenerated desc"
+    },
+    {
+      "name": "Replication",
+      "outputFile": "logic-app-replication-query.user-assigned.codeview.json",
+      "queryResultType": "Replication",
+      "dimensionName": "SourceDSA",
+      "contextProperty": "sourceDSA",
+      "timespan": "PT1H",
+      "kql": "DCReplicationData_CL\n| where TimeGenerated > ago(1h)\n| where tostring(SourceDSA) =~ \"{{dimensionValue}}\"\n| summarize arg_max(TimeGenerated, *) by SourceDSA\n| where toint(NumberOfFailures) > 0\n| order by TimeGenerated desc"
+    },
+    {
+      "name": "DC Port",
+      "outputFile": "logic-app-dcport-query.user-assigned.codeview.json",
+      "queryResultType": "DCPort",
+      "dimensionName": "Computer",
+      "contextProperty": "computer",
+      "timespan": "PT1H",
+      "kql": "ConnectionResults_CL\n| where TimeGenerated > ago(1h)\n| where tostring(RemoteSystem) =~ \"{{dimensionValue}}\"\n| mv-expand Status\n| where tostring(Status) has \"failed\"\n| order by TimeGenerated desc"
+    },
+    {
+      "name": "Heartbeat",
+      "outputFile": "logic-app-heartbeat-query.user-assigned.codeview.json",
+      "queryResultType": "Heartbeat",
+      "dimensionName": "Computer",
+      "contextProperty": "computer",
+      "timespan": "P1D",
+      "kql": "let TargetComputer = \"{{dimensionValue}}\";\nlet Sites = DCDiagData_CL\n| where isnotempty(Site)\n| extend ComputerKey = substring(tostring(Computer), 0, 8)\n| summarize Site = any(Site) by ComputerKey;\nHeartbeat\n| where TimeGenerated > ago(24h)\n| summarize arg_max(TimeGenerated, *) by Computer\n| extend ComputerKey = substring(tostring(Computer), 0, 8)\n| where ComputerKey =~ TargetComputer\n| extend Status = iff(TimeGenerated < ago(5m), \"Delayed\", \"Current\"), DelayMinutes = datetime_diff(\"minute\", now(), TimeGenerated)\n| join kind=leftouter Sites on ComputerKey\n| project TimeGenerated, Computer = ComputerKey, Site, Status, DelayMinutes\n| order by TimeGenerated desc"
+    }
+  ]
+}
