@@ -1,0 +1,62 @@
+{
+  "cases": [
+    {
+      "name": "separated two dimensional clusters",
+      "roots": [
+        { "name": "sub-a", "layer": "Subscription", "count": 3, "historyCount": 8, "children": [
+          { "name": "rg-a", "layer": "ResourceGroup", "count": 2, "historyCount": 5, "children": [
+            { "name": "target-a1", "layer": "Target", "count": 1, "historyCount": 2 },
+            { "name": "target-a2", "layer": "Target", "count": 1, "historyCount": 3 }
+          ] },
+          { "name": "rg-b", "layer": "ResourceGroup", "count": 1, "historyCount": 3, "children": [
+            { "name": "target-b1", "layer": "Target", "count": 1, "historyCount": 3 }
+          ] }
+        ] },
+        { "name": "sub-b", "layer": "Subscription", "count": 0, "historyCount": 2, "children": [
+          { "name": "rg-c", "layer": "ResourceGroup", "count": 0, "historyCount": 2, "children": [
+            { "name": "target-c1", "layer": "Target", "count": 0, "historyCount": 1 },
+            { "name": "target-c2", "layer": "Target", "count": 0, "historyCount": 1 }
+          ] }
+        ] }
+      ],
+      "expectedNodes": 10, "expectedEdges": 8, "expectedSubscriptions": 2,
+      "expectedMiddleNodes": 3, "expectedTargets": 5,
+      "expectedLabel": "sub-a", "expectedLabelCount": 3, "expectedLabelHistoryCount": 8,
+      "minimumDistinctX": 3, "minimumDistinctY": 3, "assertNoOverlap": true
+    },
+    {
+      "name": "shared target within subscription",
+      "roots": [{ "name": "sub-a", "layer": "Subscription", "count": 2, "historyCount": 3, "children": [
+        { "name": "alert-a", "layer": "AlertName", "count": 1, "historyCount": 1, "children": [
+          { "name": "server-1", "layer": "Target", "count": 1, "historyCount": 1 }
+        ] },
+        { "name": "alert-b", "layer": "AlertName", "count": 1, "historyCount": 2, "children": [
+          { "name": "SERVER-1", "layer": "Target", "count": 1, "historyCount": 2 }
+        ] }
+      ] }],
+      "expectedNodes": 4, "expectedEdges": 4, "expectedSubscriptions": 1,
+      "expectedMiddleNodes": 2, "expectedTargets": 1, "minimumDistinctX": 1, "minimumDistinctY": 1,
+      "sharedTarget": "server-1", "sharedTargetCount": 2, "sharedTargetHistoryCount": 3,
+      "sharedTargetIncomingEdges": 2, "assertMiddlePositionsDistinct": true
+    },
+    {
+      "name": "shared target across subscriptions",
+      "roots": [
+        { "name": "sub-a", "layer": "Subscription", "count": 1, "historyCount": 1, "children": [
+          { "name": "rg-a", "layer": "ResourceGroup", "count": 1, "historyCount": 1, "children": [
+            { "name": "server-1", "layer": "Target", "count": 1, "historyCount": 1 }
+          ] }
+        ] },
+        { "name": "sub-b", "layer": "Subscription", "count": 1, "historyCount": 2, "children": [
+          { "name": "rg-b", "layer": "ResourceGroup", "count": 1, "historyCount": 2, "children": [
+            { "name": "SERVER-1", "layer": "Target", "count": 1, "historyCount": 2 }
+          ] }
+        ] }
+      ],
+      "expectedNodes": 5, "expectedEdges": 4, "expectedSubscriptions": 2,
+      "expectedMiddleNodes": 2, "expectedTargets": 1, "minimumDistinctX": 1, "minimumDistinctY": 1,
+      "sharedTarget": "server-1", "sharedTargetCount": 2, "sharedTargetHistoryCount": 3,
+      "sharedTargetIncomingEdges": 2
+    }
+  ]
+}

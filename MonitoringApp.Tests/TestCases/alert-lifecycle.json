@@ -1,0 +1,97 @@
+{
+  "defaults": {
+    "name": "Test alert", "severity": "Sev2", "signalType": "Metric",
+    "target": "target", "resourceGroup": "rg", "subscriptionId": "sub"
+  },
+  "activeCases": [
+    {
+      "name": "fired alert is active",
+      "alerts": [{ "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z" }],
+      "expectedKeys": ["alert-1|target|Fired|2026-08-22T08:00:00.0000000+00:00"]
+    },
+    {
+      "name": "later resolved event closes alert",
+      "alerts": [
+        { "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z" },
+        { "alertId": "alert-1", "condition": "Resolved", "receivedAt": "2026-08-22T08:01:00Z" }
+      ],
+      "expectedKeys": []
+    },
+    {
+      "name": "later fired event reopens alert",
+      "alerts": [
+        { "alertId": "alert-1", "condition": "Resolved", "receivedAt": "2026-08-22T08:00:00Z" },
+        { "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z" }
+      ],
+      "expectedKeys": ["alert-1|target|Fired|2026-08-22T08:01:00.0000000+00:00"]
+    },
+    {
+      "name": "duplicate IDs are case insensitive",
+      "alerts": [
+        { "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z" },
+        { "alertId": "ALERT-1", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z" }
+      ],
+      "expectedKeys": ["ALERT-1|target|Fired|2026-08-22T08:01:00.0000000+00:00"]
+    },
+    {
+      "name": "alerts without IDs remain independent",
+      "alerts": [
+        { "alertId": "", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "target": "target-1" },
+        { "alertId": " ", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z", "target": "target-2" }
+      ],
+      "expectedKeys": [" |target-2|Fired|2026-08-22T08:01:00.0000000+00:00", "|target-1|Fired|2026-08-22T08:00:00.0000000+00:00"]
+    },
+    {
+      "name": "resolved comments close alerts",
+      "alerts": [
+        { "alertId": "comment-1", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "comments": "Resolved" },
+        { "alertId": "comment-2", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z", "comments": "Resolved by operator" },
+        { "alertId": "comment-3", "condition": "Fired", "receivedAt": "2026-08-22T08:02:00Z", "comments": "manually RESOLVED after validation" }
+      ],
+      "expectedKeys": []
+    },
+    {
+      "name": "unresolved comment remains active",
+      "alerts": [{ "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "comments": "Still unresolved" }],
+      "expectedKeys": ["alert-1|target|Fired|2026-08-22T08:00:00.0000000+00:00"]
+    }
+  ],
+  "navigation": {
+    "alerts": [
+      { "alertId": "open", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "sub-a", "resourceGroup": "rg-1", "target": "target-open" },
+      { "alertId": "resolved", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "sub-a", "resourceGroup": "rg-1", "target": "target-resolved" },
+      { "alertId": "resolved", "condition": "Resolved", "receivedAt": "2026-08-22T08:01:00Z", "subscriptionId": "sub-a", "resourceGroup": "rg-1", "target": "target-resolved" },
+      { "alertId": "manual", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "comments": "Resolved by operator", "subscriptionId": "sub-a", "resourceGroup": "rg-1", "target": "target-manual" },
+      { "alertId": "duplicate", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "sub-a", "resourceGroup": "rg-2", "target": "target-duplicate" },
+      { "alertId": "DUPLICATE", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z", "subscriptionId": "sub-a", "resourceGroup": "rg-2", "target": "target-duplicate" },
+      { "alertId": "", "condition": "Fired", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "sub-b", "resourceGroup": "rg-3", "target": "target-no-id-1" },
+      { "alertId": "", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z", "subscriptionId": "sub-b", "resourceGroup": "rg-3", "target": "target-no-id-2" },
+      { "alertId": "reopened", "condition": "Resolved", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "sub-b", "resourceGroup": "rg-4", "target": "target-reopened" },
+      { "alertId": "reopened", "condition": "Fired", "receivedAt": "2026-08-22T08:01:00Z", "subscriptionId": "sub-b", "resourceGroup": "rg-4", "target": "target-reopened" }
+    ],
+    "expectedActiveCount": 5,
+    "counts": [
+      { "subscriptionId": "sub-a", "expected": 2 },
+      { "subscriptionId": "sub-a", "resourceGroup": "rg-1", "expected": 1 },
+      { "subscriptionId": "sub-a", "resourceGroup": "rg-2", "expected": 1 },
+      { "subscriptionId": "sub-a", "resourceGroup": "rg-2", "target": "target-duplicate", "expected": 1 },
+      { "subscriptionId": "sub-b", "expected": 3 },
+      { "subscriptionId": "sub-b", "resourceGroup": "rg-3", "expected": 2 },
+      { "subscriptionId": "sub-b", "resourceGroup": "rg-4", "expected": 1 }
+    ]
+  },
+  "recentNavigation": {
+    "cutoff": "2026-08-15T08:00:00Z",
+    "alerts": [
+      { "alertId": "at-cutoff", "condition": "Fired", "receivedAt": "2026-08-15T08:00:00Z", "subscriptionId": "recent-sub", "resourceGroup": "recent-rg", "target": "recent-target" },
+      { "alertId": "old", "condition": "Fired", "receivedAt": "2026-08-15T07:59:59.9999999Z", "subscriptionId": "old-sub", "resourceGroup": "old-rg", "target": "old-target" },
+      { "alertId": "resolved", "condition": "Resolved", "receivedAt": "2026-08-22T08:00:00Z", "subscriptionId": "resolved-sub", "resourceGroup": "resolved-rg", "target": "resolved-target" }
+    ],
+    "expectedSubscriptions": ["recent-sub", "resolved-sub"],
+    "excludedSubscriptions": ["old-sub"],
+    "branches": [
+      { "subscriptionId": "recent-sub", "count": 1, "historyCount": 1, "resourceGroupHistoryCount": 1, "targetHistoryCount": 1 },
+      { "subscriptionId": "resolved-sub", "count": 0, "historyCount": 1, "resourceGroupHistoryCount": 1, "targetHistoryCount": 1 }
+    ]
+  }
+}

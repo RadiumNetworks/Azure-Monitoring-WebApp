@@ -1,0 +1,89 @@
+{
+  "defaults": {
+    "name": "Test alert",
+    "severity": "Sev2",
+    "signalType": "Metric",
+    "target": "/subscriptions/demo-subscription/resourceGroups/rg-demo/providers/Microsoft.Compute/virtualMachines/fallback",
+    "resourceGroup": "rg-demo",
+    "subscriptionId": "demo-subscription",
+    "description": "Test description"
+  },
+  "activeQuery": {
+    "since": "2026-08-22T11:30:00Z",
+    "alerts": [
+      { "alertId": "recent-open", "condition": "Fired", "receivedAt": "2026-08-22T11:55:00Z" },
+      { "alertId": "old-open", "condition": "Fired", "receivedAt": "2026-08-22T11:15:00Z" },
+      { "alertId": "recent-resolved", "condition": "Fired", "receivedAt": "2026-08-22T11:50:00Z" },
+      { "alertId": "recent-resolved", "condition": "Resolved", "receivedAt": "2026-08-22T11:58:00Z" },
+      { "alertId": "recent-manual", "condition": "Fired", "receivedAt": "2026-08-22T11:57:00Z", "comments": "Resolved by operator" }
+    ],
+    "expectedAlertIds": ["recent-open"]
+  },
+  "eventQuery": {
+    "since": "2026-08-21T12:00:00Z",
+    "alerts": [
+      { "alertId": "old", "condition": "Fired", "receivedAt": "2026-08-21T11:00:00Z" },
+      { "alertId": "alert-1", "condition": "Fired", "receivedAt": "2026-08-22T10:00:00Z" },
+      { "alertId": "alert-1", "condition": "Resolved", "receivedAt": "2026-08-22T11:00:00Z" }
+    ],
+    "expectedAlertIds": ["alert-1", "alert-1"]
+  },
+  "queryItem": {
+    "payload": { "data": { "essentials": { "configurationItems": ["DOMAIN\\servers\\web-01"] } } },
+    "expectedTarget": "web-01",
+    "expectedSearchResultLink": null
+  },
+  "identities": [
+    {
+      "name": "replication dimensions",
+      "payload": {
+        "queryResult": { "type": "Replication" },
+        "data": { "alertContext": { "condition": { "allOf": [{ "dimensions": [
+          { "name": "Site", "value": "Willowgate" }, { "name": "Status", "value": "Failed" },
+          { "name": "SourceDSA", "value": "DC-EMBER-05" }
+        ] }] } } }
+      },
+      "expectedTarget": "DC-EMBER-05",
+      "expectedSite": "Willowgate",
+      "expectedDisplayName": "DC-EMBER-05 (Willowgate)"
+    },
+    {
+      "name": "dimensions across criteria",
+      "payload": {
+        "queryResult": { "type": "Replication" },
+        "data": { "alertContext": { "condition": { "allOf": [
+          { "dimensions": [{ "name": "SourceDSASite", "value": "Pinehaven" }] },
+          { "dimensions": [{ "name": "Computer", "value": "DC-02" }] }
+        ] } } }
+      },
+      "expectedTarget": "DC-02",
+      "expectedSite": "Pinehaven",
+      "expectedDisplayName": "DC-02 (Pinehaven)"
+    },
+    {
+      "name": "empty placeholder fallback",
+      "payload": { "data": { "essentials": { "configurationItems": ["DOMAIN\\servers\\web-01"] }, "alertContext": { "condition": { "allOf": [{ "dimensions": [{ "name": "_ResourceId", "value": "<EMPTY_VALUE>" }] }] } } } },
+      "expectedTarget": "web-01",
+      "expectedSite": "",
+      "expectedDisplayName": "web-01"
+    },
+    {
+      "name": "legacy default definition",
+      "payload": { "data": { "alertContext": { "condition": { "allOf": [{ "dimensions": [{ "name": "Computer", "value": "DC-LEGACY-01" }, { "name": "Site", "value": "Oldtown" }] }] } } } },
+      "expectedTarget": "DC-LEGACY-01",
+      "expectedSite": "Oldtown",
+      "expectedDisplayName": "DC-LEGACY-01 (Oldtown)"
+    },
+    {
+      "name": "dc port remote identity",
+      "payload": { "queryResult": { "type": "DCPort", "columns": [{ "name": "LocalSystem" }, { "name": "RemoteSystem" }, { "name": "RemoteSite" }, { "name": "Status" }], "rows": [["DC-01", "DC-02", "Harborview", "failed"]] } },
+      "expectedTarget": "DC-02",
+      "expectedSite": "Harborview",
+      "expectedDisplayName": "DC-02 (Harborview)"
+    }
+  ],
+  "searchQuery": {
+    "payload": { "data": { "alertContext": { "condition": { "allOf": [{ "searchQuery": "Heartbeat\n| where TimeGenerated \u003e ago(5m)" }] } } } },
+    "expected": "Heartbeat\n| where TimeGenerated > ago(5m)"
+  }
+}

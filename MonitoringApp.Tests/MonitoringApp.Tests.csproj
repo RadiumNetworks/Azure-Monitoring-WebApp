@@ -26,6 +26,11 @@
     <Content Include="..\MonitoringApp\AlertDefinitions\*.json"
              Link="AlertDefinitions\%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\DemoData\screenshot-alerts.json"
+             Link="TestCases\correlated-alerts.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestCases\*.json"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

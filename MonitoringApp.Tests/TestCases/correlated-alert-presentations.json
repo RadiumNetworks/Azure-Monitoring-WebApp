@@ -1,0 +1,48 @@
+{
+  "alerts": [
+    {
+      "alertId": "demo-heartbeat-orion-07",
+      "targetName": "DC-ORION-07",
+      "siteName": "Northbridge",
+      "collapseRows": false,
+      "summary": ["1 heartbeat record"],
+      "rowTitles": ["DC-ORION-07"],
+      "metadata": ["Site=Northbridge", "Observed=2026-08-25T15:08:00Z"],
+      "alerts": [],
+      "facts": []
+    },
+    {
+      "alertId": "demo-dcdiag-orion-07",
+      "targetName": "DC-ORION-07",
+      "siteName": "Northbridge",
+      "collapseRows": false,
+      "summary": ["2 passed", "3 failed"],
+      "rowTitles": ["DC-ORION-07"],
+      "metadata": ["Site=Northbridge", "Observed=2026-08-25T15:41:18Z"],
+      "alerts": ["Connectivity=Failed", "DNS=Failed", "Replications=Failed"],
+      "facts": []
+    },
+    {
+      "alertId": "demo-replication-atlas-to-orion",
+      "targetName": "DC-ATLAS-12",
+      "siteName": "Cedarfield",
+      "collapseRows": true,
+      "summary": ["4 failures", "1 link"],
+      "rowTitles": ["DC-ATLAS-12 to DC-ORION-07"],
+      "metadata": ["Source site=Cedarfield", "Destination site=Northbridge", "Protocol=RPC"],
+      "alerts": ["Replication failures=4", "Error status=1722"],
+      "facts": ["Last failure=2026-08-25T15:32:08Z", "Last success=2026-08-25T14:58:31Z"]
+    },
+    {
+      "alertId": "demo-dcport-atlas-to-orion",
+      "targetName": "DC-ORION-07",
+      "siteName": "Northbridge",
+      "collapseRows": true,
+      "summary": ["4 failed checks"],
+      "rowTitles": ["DC-ORION-07", "DC-ORION-07", "DC-ORION-07", "DC-ORION-07"],
+      "metadata": ["Remote site=Northbridge"],
+      "alerts": ["Port status=failed"],
+      "facts": ["Source=DC-ATLAS-12", "Port=88", "Port=135", "Port=389", "Port=445", "Protocol=TCP"]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "baseTime": "2026-08-23T08:00:00Z",
+  "groupingAlerts": [
+    { "alertId": "alert-1", "name": "Disk space", "resourceGroup": "rg-app", "target": "server-1", "subscriptionId": "sub-a", "condition": "Fired" },
+    { "alertId": "alert-2", "name": "CPU load", "resourceGroup": "rg-app", "target": "server-2", "subscriptionId": "sub-a", "condition": "Fired" },
+    { "alertId": "alert-3", "name": "Disk space", "resourceGroup": "rg-data", "target": "server-3", "subscriptionId": "sub-a", "condition": "Fired" }
+  ],
+  "groupings": [
+    { "layers": ["Subscription", "ResourceGroup", "Target"], "expectedMiddleNames": ["rg-app", "rg-data"], "expectedRootCount": 3, "expectedLeafCount": 3 },
+    { "layers": ["Subscription", "AlertName", "Target"], "expectedMiddleNames": ["CPU load", "Disk space"], "expectedRootCount": 3, "expectedLeafCount": 3 }
+  ],
+  "siteAlerts": [
+    { "alertId": "alert-1", "name": "Disk space", "resourceGroup": "rg-app", "target": "server-1", "subscriptionId": "sub-a", "condition": "Fired", "dimensionName": "Site", "dimensionValue": "Berlin" },
+    { "alertId": "alert-2", "name": "CPU load", "resourceGroup": "rg-app", "target": "server-2", "subscriptionId": "sub-a", "condition": "Fired", "dimensionName": "SourceDSASite", "dimensionValue": "Munich" },
+    { "alertId": "alert-3", "name": "Disk space", "resourceGroup": "rg-app", "target": "server-3", "subscriptionId": "sub-a", "condition": "Fired" }
+  ],
+  "siteGrouping": {
+    "layers": ["Subscription", "Site", "Target"],
+    "expectedMiddleNames": ["-", "Berlin", "Munich"],
+    "expectedRootCount": 3,
+    "expectedLeafCount": 3
+  },
+  "choices": [
+    { "level": 1, "expectedValues": ["Subscription"], "expectedLabels": ["Subscription"] },
+    { "level": 2, "expectedValues": ["AlertName", "ResourceGroup", "Site"], "expectedLabels": ["AlertName", "Resourcegroup", "Site"] },
+    { "level": 3, "expectedValues": ["Target"], "expectedLabels": ["Target"] }
+  ]
+}
