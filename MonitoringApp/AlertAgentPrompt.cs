@@ -64,7 +64,11 @@ public static class AlertAgentPrompt
 
             if (options.IncludeTargets)
             {
-                prompt.AppendLine($"- Target: {Normalize(alert.TargetDisplayName)}");
+                var identity = queryResultPresenter?.ResolveIdentity(alert) ?? alert.DisplayIdentity;
+                var targetDisplayName = identity is null || string.IsNullOrWhiteSpace(identity.SiteName)
+                    ? identity?.TargetName ?? alert.TargetName
+                    : $"{identity.TargetName} ({identity.SiteName})";
+                prompt.AppendLine($"- Target: {Normalize(targetDisplayName)}");
             }
 
             if (options.IncludeSearchQueries && !string.IsNullOrWhiteSpace(alert.SearchQuery))

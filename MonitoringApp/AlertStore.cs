@@ -25,9 +25,9 @@ public sealed record AlertRecord(
     string Comments,
     string RawJson)
 {
-    public string TargetName => GetTargetName(
-        GetDimensionValue("SourceDSA", "Computer") ?? GetConfigurationItem() ?? Target);
-    public string SiteName => GetDimensionValue("Site", "SourceDSASite") ?? string.Empty;
+    public AlertDisplayIdentity? DisplayIdentity { get; init; }
+    public string TargetName => DisplayIdentity?.TargetName ?? GetTargetName(GetConfigurationItem() ?? Target);
+    public string SiteName => DisplayIdentity?.SiteName ?? string.Empty;
     public string TargetDisplayName => string.IsNullOrWhiteSpace(SiteName)
         ? TargetName
         : $"{TargetName} ({SiteName})";
@@ -36,7 +36,7 @@ public sealed record AlertRecord(
     /// <summary>
     /// Finds the first meaningful value for any requested dimension name in the alert criteria. Missing or invalid payload data returns null.
     /// </summary>
-    private string? GetDimensionValue(params string[] names)
+    internal string? GetDimensionValue(params string[] names)
     {
         if (string.IsNullOrWhiteSpace(RawJson))
         {
@@ -122,14 +122,14 @@ public sealed record AlertRecord(
     /// <summary>
     /// Checks whether a target value contains usable content rather than the Azure Monitor empty placeholder. Whitespace-only values are rejected.
     /// </summary>
-    private static bool IsMeaningfulTarget(string value) =>
+    internal static bool IsMeaningfulTarget(string value) =>
         !string.IsNullOrWhiteSpace(value) &&
         !value.Equals("<EMPTY_VALUE>", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Extracts the final segment from a slash- or backslash-delimited target path. A plain name is returned unchanged.
     /// </summary>
-    private static string GetTargetName(string value)
+    internal static string GetTargetName(string value)
     {
         var normalizedValue = value.TrimEnd('/', '\\');
         var separatorIndex = normalizedValue.LastIndexOfAny(['/', '\\']);
@@ -207,6 +207,7 @@ public sealed class AlertStore
 {
     private readonly IDbContextFactory<AlertDbContext> contextFactory;
     private readonly DatabaseConfigurationStatus databaseConfiguration;
+    private readonly QueryResultPresenter queryResultPresenter;
     private readonly ILogger<AlertStore> logger;
 
     /// <summary>
@@ -215,10 +216,12 @@ public sealed class AlertStore
     public AlertStore(
         IDbContextFactory<AlertDbContext> contextFactory,
         DatabaseConfigurationStatus databaseConfiguration,
+        QueryResultPresenter queryResultPresenter,
         ILogger<AlertStore> logger)
     {
         this.contextFactory = contextFactory;
         this.databaseConfiguration = databaseConfiguration;
+        this.queryResultPresenter = queryResultPresenter;
         this.logger = logger;
     }
 
@@ -238,10 +241,11 @@ public sealed class AlertStore
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-            return await context.Alerts
+            var alerts = await context.Alerts
                 .AsNoTracking()
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
+            return alerts.Select(ResolveDisplayIdentity).ToArray();
         }
         catch (Exception exception)
         {
@@ -262,11 +266,12 @@ public sealed class AlertStore
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-            return await context.Alerts
+            var alerts = await context.Alerts
                 .AsNoTracking()
                 .Where(alert => alert.ReceivedAt >= since)
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
+            return alerts.Select(ResolveDisplayIdentity).ToArray();
         }
         catch (Exception exception)
         {
@@ -362,8 +367,11 @@ public sealed class AlertStore
             Changed?.Invoke();
         }
 
-        return result;
+        return result with { Alert = ResolveDisplayIdentity(result.Alert) };
     }
+
+    private AlertRecord ResolveDisplayIdentity(AlertRecord alert) =>
+        alert with { DisplayIdentity = queryResultPresenter.ResolveIdentity(alert) };
 
     /// <summary>
     /// Trims and updates operator comments for one alert record. It returns false when the record no longer exists and rejects comments longer than 4,000 characters.

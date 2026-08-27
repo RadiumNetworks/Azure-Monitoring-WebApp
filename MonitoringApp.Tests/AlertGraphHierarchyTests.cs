@@ -51,12 +51,13 @@ public sealed class AlertGraphHierarchyTests
     [Fact]
     public void LayerTwoCanGroupBySiteDimensionWithTargetChildren()
     {
+        var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
         var alerts = new[]
         {
             CreateAlert("alert-1", "Disk space", "rg-app", "server-1", "Site", "Berlin"),
             CreateAlert("alert-2", "CPU load", "rg-app", "server-2", "SourceDSASite", "Munich"),
             CreateAlert("alert-3", "Disk space", "rg-app", "server-3")
-        };
+        }.Select(alert => alert with { DisplayIdentity = presenter.ResolveIdentity(alert) }).ToArray();
 
         var hierarchy = AlertGraphHierarchy.Build(
             alerts,

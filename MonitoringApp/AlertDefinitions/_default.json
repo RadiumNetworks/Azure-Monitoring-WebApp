@@ -1,0 +1,10 @@
+{
+  "type": "*",
+  "label": "Default alert identity",
+  "identity": {
+    "targetDimensions": ["SourceDSA", "Computer"],
+    "siteDimensions": ["Site", "SourceDSASite"]
+  },
+  "summary": [],
+  "row": {}
+}

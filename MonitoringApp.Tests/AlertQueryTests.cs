@@ -54,6 +54,7 @@ public sealed class AlertQueryTests
         {
                 var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
                         {
+                            "queryResult": { "type": "Replication" },
                             "data": {
                                 "essentials": {
                                     "configurationItems": ["/subscriptions/sub/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/log-workspace"]
@@ -75,9 +76,11 @@ public sealed class AlertQueryTests
                         }
                         """);
 
-                Assert.Equal("DC-EMBER-05", alert.TargetName);
-                Assert.Equal("Willowgate", alert.SiteName);
-                Assert.Equal("DC-EMBER-05 (Willowgate)", alert.TargetDisplayName);
+                var resolved = ResolveIdentity(alert);
+
+                Assert.Equal("DC-EMBER-05", resolved.TargetName);
+                Assert.Equal("Willowgate", resolved.SiteName);
+                Assert.Equal("DC-EMBER-05 (Willowgate)", resolved.TargetDisplayName);
         }
 
         [Fact]
@@ -85,6 +88,7 @@ public sealed class AlertQueryTests
         {
                 var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
                         {
+                            "queryResult": { "type": "Replication" },
                             "data": {
                                 "alertContext": {
                                     "condition": {
@@ -107,8 +111,10 @@ public sealed class AlertQueryTests
                         }
                         """);
 
-                Assert.Equal("DC-02", alert.TargetName);
-                Assert.Equal("Pinehaven", alert.SiteName);
+                var resolved = ResolveIdentity(alert);
+
+                Assert.Equal("DC-02", resolved.TargetName);
+                Assert.Equal("Pinehaven", resolved.SiteName);
         }
 
         [Fact]
@@ -138,6 +144,61 @@ public sealed class AlertQueryTests
                 Assert.Equal("web-01", alert.TargetName);
                 Assert.Equal("web-01", alert.TargetDisplayName);
         }
+
+        [Fact]
+        public void DefaultDefinitionResolvesLegacyAlertWithoutQueryResultType()
+        {
+                var alert = CreateAlert("legacy", "Fired", Now, rawJson: """
+                        {
+                            "data": {
+                                "alertContext": {
+                                    "condition": {
+                                        "allOf": [{
+                                            "dimensions": [
+                                                { "name": "Computer", "value": "DC-LEGACY-01" },
+                                                { "name": "Site", "value": "Oldtown" }
+                                            ]
+                                        }]
+                                    }
+                                }
+                            }
+                        }
+                        """);
+                var resolved = ResolveIdentity(alert);
+
+                Assert.Equal("DC-LEGACY-01", resolved.TargetName);
+                Assert.Equal("Oldtown", resolved.SiteName);
+        }
+
+            [Fact]
+            public void DcPortIdentityUsesRemoteSystemAndSiteFromDefinition()
+            {
+                var alert = CreateAlert("dc-port", "Fired", Now, rawJson: """
+                    {
+                        "queryResult": {
+                        "type": "DCPort",
+                        "columns": [
+                            { "name": "LocalSystem" },
+                            { "name": "RemoteSystem" },
+                            { "name": "RemoteSite" },
+                            { "name": "Status" }
+                        ],
+                        "rows": [["DC-01", "DC-02", "Harborview", "{\"88\":\"failed\"}"]]
+                        }
+                    }
+                    """);
+                var resolved = ResolveIdentity(alert);
+
+                Assert.Equal("DC-02", resolved.TargetName);
+                Assert.Equal("Harborview", resolved.SiteName);
+                Assert.Equal("DC-02 (Harborview)", resolved.TargetDisplayName);
+            }
+
+            private static AlertRecord ResolveIdentity(AlertRecord alert)
+            {
+                var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+                return alert with { DisplayIdentity = presenter.ResolveIdentity(alert) };
+            }
 
         [Fact]
         public void SearchQueryIsDecodedAndPreservesLineBreaks()

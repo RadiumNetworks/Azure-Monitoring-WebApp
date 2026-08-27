@@ -1,6 +1,12 @@
 {
   "type": "Replication",
   "label": "Replication query summary",
+  "identity": {
+    "targetColumns": ["SourceDSA"],
+    "siteColumns": ["SourceDSASite"],
+    "targetDimensions": ["SourceDSA", "Computer"],
+    "siteDimensions": ["Site", "SourceDSASite"]
+  },
   "collapseRows": true,
   "summary": [
     { "operation": "sum", "column": "NumberOfFailures", "label": "failures", "tone": "failure", "zeroTone": "success" },

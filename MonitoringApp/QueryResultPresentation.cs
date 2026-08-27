@@ -67,6 +67,69 @@ public sealed class QueryResultPresenter
     }
 
     /// <summary>
+    /// Resolves the target and site for an alert using the identity columns and dimensions configured for its query-result type.
+    /// </summary>
+    public AlertDisplayIdentity ResolveIdentity(AlertRecord alert)
+    {
+        var fallbackTarget = alert.TargetName;
+        if (string.IsNullOrWhiteSpace(alert.RawJson))
+        {
+            return new AlertDisplayIdentity(fallbackTarget, string.Empty);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(alert.RawJson);
+            var hasQueryResult = document.RootElement.TryGetProperty("queryResult", out var queryResult);
+            var definition = hasQueryResult && TryGetString(queryResult, "type", out var type) && definitions.TryGetValue(type, out var typedDefinition)
+                ? typedDefinition
+                : definitions.GetValueOrDefault("*");
+            if (definition is null)
+            {
+                return new AlertDisplayIdentity(fallbackTarget, string.Empty);
+            }
+
+            var rows = hasQueryResult ? ReadRows(queryResult) : [];
+            var target = FirstMeaningfulColumn(rows, definition.Identity.TargetColumns)
+                ?? alert.GetDimensionValue(definition.Identity.TargetDimensions.ToArray())
+                ?? fallbackTarget;
+            var site = FirstMeaningfulColumn(rows, definition.Identity.SiteColumns)
+                ?? alert.GetDimensionValue(definition.Identity.SiteDimensions.ToArray())
+                ?? string.Empty;
+
+            return new AlertDisplayIdentity(AlertRecord.GetTargetName(target), site);
+        }
+        catch (JsonException)
+        {
+            return new AlertDisplayIdentity(fallbackTarget, string.Empty);
+        }
+    }
+
+    private static IReadOnlyList<QueryResultRowValues> ReadRows(JsonElement queryResult)
+    {
+        if (!queryResult.TryGetProperty("columns", out var columns) || columns.ValueKind != JsonValueKind.Array ||
+            !queryResult.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var columnIndexes = columns.EnumerateArray()
+            .Select((column, index) => (Name: GetString(column, "name"), Index: index))
+            .Where(column => !string.IsNullOrWhiteSpace(column.Name))
+            .ToDictionary(column => column.Name, column => column.Index, StringComparer.OrdinalIgnoreCase);
+        return rows.EnumerateArray()
+            .Where(row => row.ValueKind == JsonValueKind.Array)
+            .Select(row => new QueryResultRowValues(row.EnumerateArray().ToArray(), columnIndexes))
+            .ToArray();
+    }
+
+    private static string? FirstMeaningfulColumn(
+        IReadOnlyList<QueryResultRowValues> rows,
+        IReadOnlyList<string> columns) => columns
+        .SelectMany(column => rows.Select(row => row.Get(column)))
+        .FirstOrDefault(AlertRecord.IsMeaningfulTarget);
+
+    /// <summary>
     /// Reads and deserializes one alert-definition file. Property names are matched without regard to letter casing.
     /// </summary>
     private static QueryResultDefinition LoadDefinition(string path) =>
@@ -297,12 +360,18 @@ public sealed record QueryResultItem(string Label, string Value, string Tone);
 public sealed record QueryResultDetails(string Label, IReadOnlyList<QueryResultItem> Items);
 
 /// <summary>
+/// Contains the descriptor-resolved target and site used consistently throughout the Web UI and query API.
+/// </summary>
+public sealed record AlertDisplayIdentity(string TargetName, string SiteName);
+
+/// <summary>
 /// Models one JSON alert-definition file after deserialization. Its type selects matching payloads and its rules describe the complete presentation.
 /// </summary>
 public sealed class QueryResultDefinition
 {
     public string Type { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
+    public AlertIdentityDefinition Identity { get; set; } = new();
     public bool CollapseRows { get; set; }
     public IReadOnlyList<QueryResultSummaryRule> Summary { get; set; } = [];
     public QueryResultRowDefinition Row { get; set; } = new();
@@ -362,4 +431,15 @@ public sealed class QueryResultItemRule
     public string Tone { get; set; } = string.Empty;
     public string SuccessValue { get; set; } = string.Empty;
     public bool FailureFirst { get; set; }
+}
+
+/// <summary>
+/// Defines ordered query-result columns and alert dimensions used to resolve an alert's target and site.
+/// </summary>
+public sealed class AlertIdentityDefinition
+{
+    public IReadOnlyList<string> TargetColumns { get; set; } = [];
+    public IReadOnlyList<string> SiteColumns { get; set; } = [];
+    public IReadOnlyList<string> TargetDimensions { get; set; } = [];
+    public IReadOnlyList<string> SiteDimensions { get; set; } = [];
 }

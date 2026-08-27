@@ -1,6 +1,12 @@
 {
   "type": "Heartbeat",
   "label": "Heartbeat query summary",
+  "identity": {
+    "targetColumns": ["Computer"],
+    "siteColumns": ["Site"],
+    "targetDimensions": ["Computer"],
+    "siteDimensions": ["Site"]
+  },
   "summary": [
     { "operation": "row-count", "label": "heartbeat records", "singularLabel": "heartbeat record", "tone": "info" }
   ],

@@ -1,6 +1,11 @@
 {
   "type": "DCPort",
   "label": "DC port check summary",
+  "identity": {
+    "targetColumns": ["RemoteSystem"],
+    "siteColumns": ["RemoteSite"],
+    "targetDimensions": ["Computer"]
+  },
   "collapseRows": true,
   "summary": [
     { "operation": "row-count", "label": "failed checks", "singularLabel": "failed check", "tone": "failure" }

@@ -7,7 +7,8 @@ public sealed class AlertAgentPromptTests
     [Fact]
     public void DefaultPromptIncludesUsefulAlertDetailsButNotRawPayload()
     {
-        var prompt = AlertAgentPrompt.Build([CreateAlert()], GeneratedAt, new AlertAgentPromptOptions());
+      var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+      var prompt = AlertAgentPrompt.Build([CreateAlert()], GeneratedAt, new AlertAgentPromptOptions(), presenter);
         var normalizedPrompt = prompt.Replace("\r\n", "\n", StringComparison.Ordinal);
 
         Assert.Contains("Alert: CPU pressure", prompt);
