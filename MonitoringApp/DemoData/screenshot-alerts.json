@@ -35,7 +35,7 @@
         { "name": "TimeGenerated", "type": "datetime" },
         { "name": "Status", "type": "dynamic" }
       ],
-      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:41:18Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Passed\",\"DNS\":\"Failed\",\"Replications\":\"Passed\",\"Services\":\"Passed\"}"]],
+      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:41:18Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Failed\",\"DNS\":\"Failed\",\"Replications\":\"Failed\",\"Services\":\"Passed\"}"]],
       "rowCount": 1
     }
   },
@@ -43,7 +43,7 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-replication-atlas-12",
+        "alertId": "demo-replication-atlas-to-orion",
         "alertRule": "Directory Replication Delay",
         "severity": "Sev2",
         "signalType": "Log",
@@ -52,7 +52,7 @@
         "targetSubscriptionId": "demo-subscription",
         "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
         "firedDateTime": "2026-08-25T15:35:00Z",
-        "description": "Replication failures were reported between two directory sites."
+        "description": "Replication to the destination controller failed over RPC."
       },
       "alertContext": {
         "condition": {
@@ -82,7 +82,7 @@
         { "name": "LastSuccessTime", "type": "datetime" },
         { "name": "LastErrorStatus", "type": "string" }
       ],
-      "rows": [["DC-ATLAS-12", "2026-08-25T15:34:24Z", "Harborview", "DC-LUMEN-04", "DC=demo,DC=example", "Cedarfield", "RPC", "3", "2026-08-25T15:32:08Z", "2026-08-25T14:58:31Z", "1722"]],
+      "rows": [["DC-ATLAS-12", "2026-08-25T15:34:24Z", "Northbridge", "DC-ORION-07", "DC=demo,DC=example", "Cedarfield", "RPC", "4", "2026-08-25T15:32:08Z", "2026-08-25T14:58:31Z", "1722"]],
       "rowCount": 1
     }
   },
@@ -90,14 +90,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-heartbeat-nimbus-03",
+        "alertId": "demo-heartbeat-orion-07",
         "alertRule": "Directory Server Heartbeat",
         "severity": "Sev3",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
         "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-NIMBUS-03"],
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
         "firedDateTime": "2026-08-25T15:28:00Z",
         "description": "No heartbeat was received during the evaluation window."
       },
@@ -105,10 +105,71 @@
         "condition": {
           "allOf": [{
             "searchQuery": "Heartbeat\n| where TimeGenerated > ago(15m)\n| summarize LastSeen=max(TimeGenerated) by Computer",
-            "dimensions": [{ "name": "Computer", "value": "DC-NIMBUS-03" }]
+            "dimensions": [
+              { "name": "Computer", "value": "DC-ORION-07" },
+              { "name": "Site", "value": "Northbridge" }
+            ]
           }]
         }
       }
+    },
+    "queryResult": {
+      "type": "Heartbeat",
+      "columns": [
+        { "name": "Computer", "type": "string" },
+        { "name": "Site", "type": "string" },
+        { "name": "TimeGenerated", "type": "datetime" },
+        { "name": "Delayed", "type": "long" }
+      ],
+      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:08:00Z", 1]],
+      "rowCount": 1
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "demo-dcport-atlas-to-orion",
+        "alertRule": "Domain Controller Port Monitoring",
+        "severity": "Sev1",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-demo-directory",
+        "targetSubscriptionId": "demo-subscription",
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "firedDateTime": "2026-08-25T15:31:00Z",
+        "description": "Required Active Directory ports failed from the source controller to the destination controller."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [{
+            "searchQuery": "ConnectionResults_CL\n| mv-expand Status\n| where Status has \"failed\"",
+            "dimensions": [
+              { "name": "Computer", "value": "DC-ATLAS-12" },
+              { "name": "Site", "value": "Cedarfield" }
+            ]
+          }]
+        }
+      }
+    },
+    "queryResult": {
+      "type": "DCPort",
+      "columns": [
+        { "name": "LocalSystem", "type": "string" },
+        { "name": "RemoteSystem", "type": "string" },
+        { "name": "RemoteSite", "type": "string" },
+        { "name": "TimeGenerated", "type": "datetime" },
+        { "name": "Port", "type": "string" },
+        { "name": "Protocol", "type": "string" },
+        { "name": "Status", "type": "string" }
+      ],
+      "rows": [
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "88", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "135", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "389", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "445", "TCP", "failed"]
+      ],
+      "rowCount": 4
     }
   }
 ]

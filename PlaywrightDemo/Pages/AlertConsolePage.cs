@@ -105,16 +105,9 @@ public sealed class AlertConsolePage(IPage page)
 
     public async Task ExpandFirstSubscriptionAsync()
     {
-        var toggle = page.GetByRole(AriaRole.Button, new() { Name = "Expand subscription" }).First;
+        var toggle = page.Locator("button[aria-label='Expand subscription']:visible").First;
         await toggle.ClickAsync();
-        await toggle.WaitForAsync();
-    }
-
-    public async Task ExpandFirstResourceGroupAsync()
-    {
-        var toggle = page.GetByRole(AriaRole.Button, new() { Name = "Expand resource group" }).First;
-        await toggle.ClickAsync();
-        await toggle.WaitForAsync();
+        await page.Locator("button[aria-label='Collapse subscription']:visible").First.WaitForAsync();
     }
 
     public Task SortByAsync(string column) =>

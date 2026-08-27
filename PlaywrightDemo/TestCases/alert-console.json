@@ -1,0 +1,100 @@
+{
+  "historyView": "history",
+  "rootNodeName": "All subscriptions",
+  "noMatchSearch": "__playwright_no_match__",
+  "emptyResultText": "Showing 0 of",
+  "alertSortColumn": "Alert",
+  "commentPrefix": "Playwright demo",
+  "dateRange": {
+    "from": "2026-01-01T00:00",
+    "to": "2026-12-31T23:59"
+  },
+  "mobileViewport": {
+    "width": 390,
+    "height": 844
+  },
+  "timeZones": [
+    { "value": "germany", "receivedHeader": "^Received Germany" },
+    { "value": "singapore", "receivedHeader": "^Received Singapore" },
+    { "value": "new-york", "receivedHeader": "^Received New York" }
+  ],
+  "correlatedAlerts": [
+    {
+      "alertId": "demo-heartbeat-orion-07",
+      "alertName": "Directory Server Heartbeat",
+      "targetName": "DC-ORION-07 (Northbridge)",
+      "resultContains": ["1 heartbeat record", "DC-ORION-07", "Northbridge"]
+    },
+    {
+      "alertId": "demo-dcdiag-orion-07",
+      "alertName": "Northwind Directory Health",
+      "targetName": "DC-ORION-07 (Northbridge)",
+      "resultContains": ["3 failed", "Connectivity Failed", "DNS Failed", "Replications Failed"]
+    },
+    {
+      "alertId": "demo-replication-atlas-to-orion",
+      "alertName": "Directory Replication Delay",
+      "targetName": "DC-ATLAS-12 (Cedarfield)",
+      "resultContains": ["4 failures", "DC-ATLAS-12 to DC-ORION-07", "Northbridge", "Error status 1722"]
+    },
+    {
+      "alertId": "demo-dcport-atlas-to-orion",
+      "alertName": "Domain Controller Port Monitoring",
+      "targetName": "DC-ORION-07 (Northbridge)",
+      "resultContains": ["4 failed checks", "Source DC-ATLAS-12", "Port 135", "Port 389", "Port 445"]
+    }
+  ],
+  "graph": {
+    "layer1Options": ["Subscription"],
+    "layer2Options": ["AlertName", "Resourcegroup", "Site"],
+    "layer3Options": ["Target"],
+    "selectedLayer2": "AlertName"
+  },
+  "graphTopology": {
+    "runIdLength": 8,
+    "runPrefixTemplate": "e2e-{{runId}}",
+    "subscriptionTemplate": "{{runPrefix}}-sub-{{subscriptionIndex}}",
+    "resourceGroupTemplate": "{{runPrefix}}-rg-{{subscriptionIndex}}-{{resourceGroupIndex}}",
+    "targetTemplate": "{{runPrefix}}-target-{{subscriptionIndex}}-{{resourceGroupIndex}}-{{targetIndex}}",
+    "alertIdTemplate": "{{runPrefix}}-alert-{{subscriptionIndex}}-{{resourceGroupIndex}}-{{targetIndex}}",
+    "resourceGroupTargetCounts": [
+      [1],
+      [2, 4, 6],
+      [1, 3, 5, 6]
+    ],
+    "expectedSubscriptions": 3,
+    "expectedResourceGroups": 8,
+    "expectedTargets": 28,
+    "expectedActiveNodes": 39,
+    "alertPayloadTemplate": {
+      "schemaId": "azureMonitorCommonAlertSchema",
+      "data": {
+        "essentials": {
+          "alertId": "{{alertId}}",
+          "alertRule": "E2E graph topology",
+          "severity": "Sev2",
+          "signalType": "Log",
+          "monitorCondition": "Fired",
+          "targetResourceGroup": "{{resourceGroup}}",
+          "targetSubscriptionId": "{{subscription}}",
+          "alertTargetIDs": [
+            "/subscriptions/{{subscription}}/resourceGroups/{{resourceGroup}}/providers/Microsoft.HybridCompute/machines/{{target}}"
+          ],
+          "firedDateTime": "{{firedDateTime}}"
+        },
+        "alertContext": {
+          "condition": {
+            "allOf": [
+              {
+                "searchQuery": "Heartbeat | summarize LastSeen=max(TimeGenerated) by Computer",
+                "dimensions": [
+                  { "name": "Computer", "value": "{{target}}" }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

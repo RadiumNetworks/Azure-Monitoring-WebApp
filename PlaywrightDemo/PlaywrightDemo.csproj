@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\AlertConsoleUrlResolver.cs" Link="Configuration\AlertConsoleUrlResolver.cs" />
+    <Content Include="TestCases\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\alertconsole.local.json"
           Link="alertconsole.local.json"
           CopyToOutputDirectory="PreserveNewest"

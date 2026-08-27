@@ -1,0 +1,61 @@
+{
+  "resultSummaries": [
+    {
+      "input": "Showing 6 of 11 alerts in this view",
+      "shown": 6,
+      "available": 11
+    }
+  ],
+  "chartDescriptions": [
+    {
+      "input": "Alerts received per hour over the last 48 hours. 11 total, with a maximum of 4 in one hour.",
+      "total": 11,
+      "maximumPerHour": 4
+    }
+  ],
+  "navigationNodes": [
+    {
+      "input": "Production Subscription 12",
+      "name": "Production Subscription",
+      "count": 12
+    }
+  ],
+  "utcTooltips": [
+    {
+      "input": "2026-08-21T11:41:25.0000000+00:00 UTC",
+      "expected": "2026-08-21T11:41:25+00:00"
+    }
+  ],
+  "alertPayloads": [
+    {
+      "payload": {
+        "schemaId": "azureMonitorCommonAlertSchema",
+        "data": {
+          "essentials": {
+            "monitorCondition": "Fired",
+            "configurationItems": [
+              "/subscriptions/example/resourceGroups/example/providers/Microsoft.OperationalInsights/workspaces/log-workspace"
+            ]
+          },
+          "alertContext": {
+            "condition": {
+              "allOf": [
+                {
+                  "dimensions": [
+                    { "name": "Computer", "value": "web-01" }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "monitorCondition": "Fired",
+      "targetName": "web-01"
+    }
+  ],
+  "invalidCases": [
+    { "parser": "result-summary", "input": "No summary" },
+    { "parser": "common-alert", "input": "[1, 2, 3]" }
+  ]
+}
