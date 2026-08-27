@@ -1,0 +1,21 @@
+{
+  "type": "Heartbeat",
+  "label": "Heartbeat query summary",
+  "summary": [
+    { "operation": "row-count", "label": "heartbeat records", "singularLabel": "heartbeat record", "tone": "info" }
+  ],
+  "row": {
+    "title": "{Computer}",
+    "metadata": [
+      { "column": "Site", "label": "Site" },
+      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
+    ],
+    "alerts": [
+      { "column": "Status", "label": "Heartbeat status", "hideWhen": "Current", "tone": "failure" }
+    ],
+    "facts": [
+      { "column": "DelayMinutes", "label": "Minutes since heartbeat" }
+    ],
+    "details": []
+  }
+}

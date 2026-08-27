@@ -1,0 +1,331 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workflowName": {
+      "type": "string",
+      "defaultValue": "dcport-alert-details"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "workspaceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Workspace ID (GUID), not the Azure resource ID, of the Log Analytics workspace containing ConnectionResults_CL."
+      }
+    },
+    "webhookUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "HTTPS URL of the Monitoring App alert ingestion endpoint."
+      }
+    },
+    "webhookAudience": {
+      "type": "string",
+      "metadata": {
+        "description": "Application ID URI requested by the managed identity for the Monitoring App API."
+      }
+    },
+    "userAssignedIdentityResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full Azure resource ID of an existing user-assigned managed identity."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('workflowName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[parameters('userAssignedIdentityResourceId')]": {}
+        }
+      },
+      "properties": {
+        "state": "Enabled",
+        "parameters": {
+          "workspaceId": {
+            "value": "[parameters('workspaceId')]"
+          },
+          "webhookUrl": {
+            "value": "[parameters('webhookUrl')]"
+          },
+          "webhookAudience": {
+            "value": "[parameters('webhookAudience')]"
+          }
+        },
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "workspaceId": {
+              "type": "String",
+              "defaultValue": ""
+            },
+            "webhookUrl": {
+              "type": "String",
+              "defaultValue": ""
+            },
+            "webhookAudience": {
+              "type": "String",
+              "defaultValue": ""
+            }
+          },
+          "triggers": {
+            "When_an_Azure_Monitor_alert_is_received": {
+              "type": "Request",
+              "kind": "Http",
+              "inputs": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "schemaId": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "alertContext"
+                      ],
+                      "properties": {
+                        "essentials": {
+                          "type": "object"
+                        },
+                        "alertContext": {
+                          "type": "object",
+                          "required": [
+                            "condition"
+                          ],
+                          "properties": {
+                            "condition": {
+                              "type": "object",
+                              "required": [
+                                "allOf"
+                              ],
+                              "properties": {
+                                "allOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "dimensions": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "actions": {
+            "Filter_Computer_Dimension": {
+              "type": "Query",
+              "inputs": {
+                "from": "@coalesce(triggerBody()?['data']?['alertContext']?['condition']?['allOf']?[0]?['dimensions'], json('[]'))",
+                "where": "@equals(toLower(string(item()?['name'])), 'computer')"
+              },
+              "runAfter": {}
+            },
+            "Computer_Dimension_Found": {
+              "type": "If",
+              "expression": "@greater(length(body('Filter_Computer_Dimension')), 0)",
+              "actions": {
+                "Computer": {
+                  "type": "Compose",
+                  "inputs": "@trim(string(first(body('Filter_Computer_Dimension'))?['value']))",
+                  "runAfter": {}
+                },
+                "Computer_Value_Is_Safe": {
+                  "type": "If",
+                  "expression": "@and(not(empty(outputs('Computer'))), not(equals(toUpper(outputs('Computer')), '<EMPTY_VALUE>')), not(contains(outputs('Computer'), decodeUriComponent('%22'))), not(contains(outputs('Computer'), decodeUriComponent('%5C'))), not(contains(outputs('Computer'), decodeUriComponent('%0A'))), not(contains(outputs('Computer'), decodeUriComponent('%0D'))))",
+                  "actions": {
+                    "Run_Log_Analytics_Query": {
+                      "type": "Http",
+                      "inputs": {
+                        "uri": "@concat('https://api.loganalytics.azure.com/v1/workspaces/', parameters('workspaceId'), '/query')",
+                        "method": "POST",
+                        "headers": {
+                          "Content-Type": "application/json",
+                          "Prefer": "wait=30"
+                        },
+                        "body": {
+                          "query": "@concat('ConnectionResults_CL\n| where TimeGenerated > ago(1h)\n| where tostring(RemoteSystem) =~ \"', outputs('Computer'), '\"\n| mv-expand Status\n| where tostring(Status) has \"failed\"\n| order by TimeGenerated desc')",
+                          "timespan": "PT1H"
+                        },
+                        "authentication": {
+                          "type": "ManagedServiceIdentity",
+                          "identity": "[parameters('userAssignedIdentityResourceId')]",
+                          "audience": "https://api.loganalytics.io"
+                        },
+                        "retryPolicy": {
+                          "type": "exponential",
+                          "count": 3,
+                          "interval": "PT5S",
+                          "minimumInterval": "PT5S",
+                          "maximumInterval": "PT30S"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Forward_Alert_To_Webhook": {
+                      "type": "Http",
+                      "inputs": {
+                        "uri": "@parameters('webhookUrl')",
+                        "method": "POST",
+                        "headers": {
+                          "Content-Type": "application/json"
+                        },
+                        "body": {
+                          "schemaId": "@triggerBody()?['schemaId']",
+                          "data": "@triggerBody()?['data']",
+                          "queryResult": {
+                            "type": "DCPort",
+                            "computer": "@outputs('Computer')",
+                            "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
+                            "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
+                            "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))"
+                          }
+                        },
+                        "authentication": {
+                          "type": "ManagedServiceIdentity",
+                          "identity": "[parameters('userAssignedIdentityResourceId')]",
+                          "audience": "@parameters('webhookAudience')"
+                        },
+                        "retryPolicy": {
+                          "type": "exponential",
+                          "count": 3,
+                          "interval": "PT5S",
+                          "minimumInterval": "PT5S",
+                          "maximumInterval": "PT30S"
+                        }
+                      },
+                      "runAfter": {
+                        "Run_Log_Analytics_Query": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Return_Query_Result": {
+                      "type": "Response",
+                      "kind": "Http",
+                      "inputs": {
+                        "statusCode": 200,
+                        "headers": {
+                          "Content-Type": "application/json"
+                        },
+                        "body": {
+                          "computer": "@outputs('Computer')",
+                          "columns": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['columns'], json('[]'))",
+                          "rows": "@coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]'))",
+                          "rowCount": "@length(coalesce(body('Run_Log_Analytics_Query')?['tables']?[0]?['rows'], json('[]')))" ,
+                          "webhookStatusCode": "@outputs('Forward_Alert_To_Webhook')?['statusCode']",
+                          "webhookResponse": "@body('Forward_Alert_To_Webhook')",
+                          "alert": "@triggerBody()"
+                        }
+                      },
+                      "runAfter": {
+                        "Forward_Alert_To_Webhook": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Return_Invalid_Computer": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                          "statusCode": 400,
+                          "headers": {
+                            "Content-Type": "application/json"
+                          },
+                          "body": {
+                            "error": "The Computer dimension is empty, contains a placeholder, or contains unsupported characters.",
+                            "computer": "@outputs('Computer')"
+                          }
+                        },
+                        "runAfter": {}
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Computer": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Return_Missing_Computer": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 400,
+                      "headers": {
+                        "Content-Type": "application/json"
+                      },
+                      "body": {
+                        "error": "The alert payload does not contain a Computer dimension at data.alertContext.condition.allOf[0].dimensions."
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "runAfter": {
+                "Filter_Computer_Dimension": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "outputs": {}
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "workflowName": {
+      "type": "string",
+      "value": "[parameters('workflowName')]"
+    },
+    "userAssignedIdentityResourceId": {
+      "type": "string",
+      "value": "[parameters('userAssignedIdentityResourceId')]"
+    },
+    "webhookUrl": {
+      "type": "string",
+      "value": "[parameters('webhookUrl')]"
+    }
+  }
+}

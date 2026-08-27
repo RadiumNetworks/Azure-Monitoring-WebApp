@@ -1,0 +1,24 @@
+{
+  "type": "DCPort",
+  "label": "DC port check summary",
+  "collapseRows": true,
+  "summary": [
+    { "operation": "row-count", "label": "failed checks", "singularLabel": "failed check", "tone": "failure" }
+  ],
+  "row": {
+    "title": "{RemoteSystem}",
+    "metadata": [
+      { "column": "RemoteSite", "label": "Remote site" },
+      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
+    ],
+    "alerts": [
+      { "column": "Status", "label": "Port status", "tone": "failure" }
+    ],
+    "facts": [
+      { "column": "LocalSystem", "label": "Source" },
+      { "column": "Port", "label": "Port" },
+      { "column": "Protocol", "label": "Protocol" }
+    ],
+    "details": []
+  }
+}

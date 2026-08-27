@@ -185,6 +185,7 @@ public sealed class AlertQueryTests
                                                 """);
 
                                 var result = Assert.IsType<QueryResultPresentation>(CreatePresenter().Parse(alert.RawJson));
+                                Assert.False(result.CollapseRows);
                                 Assert.Collection(
                                     result.Summary,
                                     badge => Assert.Equal("2 passed", badge.Text),
@@ -249,6 +250,7 @@ public sealed class AlertQueryTests
                                                 """);
 
                                 var result = Assert.IsType<QueryResultPresentation>(CreatePresenter().Parse(alert.RawJson));
+                                Assert.True(result.CollapseRows);
                                 Assert.Collection(
                                     result.Summary,
                                     badge => Assert.Equal("2 failures", badge.Text),
@@ -265,6 +267,96 @@ public sealed class AlertQueryTests
                                 Assert.Contains(row.Facts, value => value.Label == "Last success" && value.Value == "2026-08-25T15:04:26Z");
                                 var details = Assert.Single(row.Details);
                                 Assert.Equal("CN=Schema,CN=Configuration,DC=example,DC=com", Assert.Single(details.Items).Value);
+                }
+
+                [Fact]
+                public void QueryResultPresentationMapsDcPortColumnsAndFailedStatus()
+                {
+                                var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
+                                                {
+                                                    "queryResult": {
+                                                        "type": "DCPort",
+                                                        "computer": "DC-LUMEN-04",
+                                                        "columns": [
+                                                            { "name": "Status", "type": "dynamic" },
+                                                            { "name": "RemoteSite", "type": "string" },
+                                                            { "name": "Port", "type": "int" },
+                                                            { "name": "TimeGenerated", "type": "datetime" },
+                                                            { "name": "LocalSystem", "type": "string" },
+                                                            { "name": "RemoteSystem", "type": "string" },
+                                                            { "name": "Protocol", "type": "string" }
+                                                        ],
+                                                        "rows": [[
+                                                            "{\"State\":\"Failed\",\"Message\":\"Connection timed out\"}",
+                                                            "Harborview",
+                                                            389,
+                                                            "2026-08-27T08:15:24Z",
+                                                            "DC-ATLAS-12",
+                                                            "DC-LUMEN-04",
+                                                            "TCP"
+                                                        ]],
+                                                        "rowCount": 1
+                                                    }
+                                                }
+                                                """);
+
+                                var result = Assert.IsType<QueryResultPresentation>(CreatePresenter().Parse(alert.RawJson));
+                                Assert.True(result.CollapseRows);
+                                Assert.Equal("1 failed check", Assert.Single(result.Summary).Text);
+                                var row = Assert.Single(result.Rows);
+                                Assert.Equal("DC-LUMEN-04", row.Title);
+                                Assert.Contains(row.Metadata, value => value.Label == "Remote site" && value.Value == "Harborview");
+                                Assert.Contains(row.Metadata, value => value.Value == "2026-08-27T08:15:24Z");
+                                Assert.Contains(row.Alerts, item => item.Label == "Port status" && item.Value.Contains("Failed"));
+                                Assert.Contains(row.Facts, value => value.Label == "Source" && value.Value == "DC-ATLAS-12");
+                                Assert.Contains(row.Facts, value => value.Label == "Port" && value.Value == "389");
+                                Assert.Contains(row.Facts, value => value.Label == "Protocol" && value.Value == "TCP");
+                }
+
+                [Fact]
+                public void QueryResultPresentationMapsHeartbeatColumnsAndOnlyAlertsWhenDelayed()
+                {
+                                var alert = CreateAlert("alert-1", "Fired", Now, rawJson: """
+                                                {
+                                                    "queryResult": {
+                                                        "type": "Heartbeat",
+                                                        "computer": "DC-NIMBUS-03",
+                                                        "columns": [
+                                                            { "name": "DelayMinutes", "type": "long" },
+                                                            { "name": "Site", "type": "string" },
+                                                            { "name": "Status", "type": "string" },
+                                                            { "name": "Computer", "type": "string" },
+                                                            { "name": "TimeGenerated", "type": "datetime" }
+                                                        ],
+                                                        "rows": [
+                                                            [17, "Northbridge", "Delayed", "DC-NIMBUS-03", "2026-08-27T08:15:24Z"],
+                                                            [2, "Northbridge", "Current", "DC-NIMBUS-03", "2026-08-27T08:30:24Z"]
+                                                        ],
+                                                        "rowCount": 2
+                                                    }
+                                                }
+                                                """);
+
+                                var result = Assert.IsType<QueryResultPresentation>(CreatePresenter().Parse(alert.RawJson));
+                                Assert.Equal("2 heartbeat records", Assert.Single(result.Summary).Text);
+                                Assert.Collection(
+                                    result.Rows,
+                                    delayed =>
+                                    {
+                                        Assert.Equal("DC-NIMBUS-03", delayed.Title);
+                                        Assert.Contains(delayed.Metadata, value => value.Label == "Site" && value.Value == "Northbridge");
+                                        Assert.Contains(delayed.Metadata, value => value.Value == "2026-08-27T08:15:24Z");
+                                        var status = Assert.Single(delayed.Alerts);
+                                        Assert.Equal("Heartbeat status", status.Label);
+                                        Assert.Equal("Delayed", status.Value);
+                                        Assert.Contains(delayed.Facts, value => value.Label == "Minutes since heartbeat" && value.Value == "17");
+                                    },
+                                    current =>
+                                    {
+                                        Assert.Equal("DC-NIMBUS-03", current.Title);
+                                        Assert.Empty(current.Alerts);
+                                        Assert.Contains(current.Facts, value => value.Label == "Minutes since heartbeat" && value.Value == "2");
+                                    });
                 }
 
                     private static QueryResultPresenter CreatePresenter() =>

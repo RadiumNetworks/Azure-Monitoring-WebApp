@@ -8,8 +8,8 @@
   "row": {
     "title": "{Computer}",
     "metadata": [
-      { "column": "Site" },
-      { "column": "TimeGenerated", "format": "datetime" }
+      { "column": "Site", "label": "Site" },
+      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
     ],
     "alerts": [
       { "source": "object-entries", "column": "Status", "exclude": "Passed", "tone": "failure" }

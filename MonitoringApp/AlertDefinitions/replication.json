@@ -1,6 +1,7 @@
 {
   "type": "Replication",
   "label": "Replication query summary",
+  "collapseRows": true,
   "summary": [
     { "operation": "sum", "column": "NumberOfFailures", "label": "failures", "tone": "failure", "zeroTone": "success" },
     { "operation": "row-count", "label": "links", "singularLabel": "link", "tone": "info" }
@@ -10,8 +11,8 @@
     "metadata": [
       { "column": "SourceDSASite", "label": "Source site" },
       { "column": "DestDSASite", "label": "Destination site" },
-      { "column": "Protocol" },
-      { "column": "TimeGenerated", "format": "datetime" }
+      { "column": "Protocol", "label": "Protocol" },
+      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
     ],
     "alerts": [
       { "column": "NumberOfFailures", "label": "Replication failures", "hideWhen": "0", "tone": "failure" },

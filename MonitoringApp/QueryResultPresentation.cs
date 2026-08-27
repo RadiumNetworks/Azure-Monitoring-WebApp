@@ -56,6 +56,7 @@ public sealed class QueryResultPresenter
 
             return new QueryResultPresentation(
                 definition.Label,
+                definition.CollapseRows,
                 BuildSummary(definition.Summary, rows),
                 rows.Select(row => BuildRow(definition.Row, row)).ToArray());
         }
@@ -262,6 +263,7 @@ public sealed class QueryResultPresenter
 /// </summary>
 public sealed record QueryResultPresentation(
     string Label,
+    bool CollapseRows,
     IReadOnlyList<QueryResultBadge> Summary,
     IReadOnlyList<QueryResultPresentationRow> Rows);
 
@@ -301,6 +303,7 @@ public sealed class QueryResultDefinition
 {
     public string Type { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
+    public bool CollapseRows { get; set; }
     public IReadOnlyList<QueryResultSummaryRule> Summary { get; set; } = [];
     public QueryResultRowDefinition Row { get; set; } = new();
 }

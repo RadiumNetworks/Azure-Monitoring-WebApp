@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @inject AlertStore AlertStore
+@inject QueryResultPresenter QueryResultPresenter
 @inject IJSRuntime JS
 
 <PageTitle>Copilot Prompt</PageTitle>
@@ -144,7 +145,8 @@
                 IncludeSearchQueries: includeSearchQueries,
                 IncludeSearchResults: includeSearchResults,
                 IncludeDescriptions: includeDescriptions,
-                IncludeComments: includeComments))
+                IncludeComments: includeComments),
+            QueryResultPresenter)
         : "Select at least one alert to prepare a Copilot prompt.";
 
     protected override async Task OnInitializedAsync()

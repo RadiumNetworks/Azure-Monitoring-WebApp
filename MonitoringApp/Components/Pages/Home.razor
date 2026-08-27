@@ -208,68 +208,29 @@
                             }
                             else
                             {
-                                <div class="test-summary" aria-label="@queryResult.Label">
-                                    @foreach (var badge in queryResult.Summary)
-                                    {
-                                        <span class="test-count presentation-@badge.Tone">@badge.Text</span>
-                                    }
-                                </div>
-                                @foreach (var resultRow in queryResult.Rows)
+                                @if (queryResult.CollapseRows)
                                 {
-                                    <div class="query-result-row">
-                                        @if (!string.IsNullOrWhiteSpace(resultRow.Title))
-                                        {
-                                            <strong class="query-result-title">@resultRow.Title</strong>
-                                        }
-                                        <div class="query-result-meta">
-                                            @foreach (var value in resultRow.Metadata)
-                                            {
-                                                <span>
-                                                    @if (!string.IsNullOrWhiteSpace(value.Label))
-                                                    {
-                                                        <strong>@value.Label:</strong>
-                                                    }
-                                                    @FormatPresentationValue(value)
-                                                </span>
-                                            }
-                                        </div>
-                                        @if (resultRow.Alerts.Count > 0)
-                                        {
-                                            <div class="failed-tests" aria-label="Alert details">
-                                                @foreach (var item in resultRow.Alerts)
+                                    <details class="query-result-details">
+                                        <summary class="query-result-summary" aria-label="@queryResult.Label">
+                                            <span class="test-summary">
+                                                @foreach (var badge in queryResult.Summary)
                                                 {
-                                                    <span><strong>@item.Label</strong> @item.Value</span>
+                                                    <span class="test-count presentation-@badge.Tone">@badge.Text</span>
                                                 }
-                                            </div>
-                                        }
-                                        @if (resultRow.Facts.Count > 0)
+                                            </span>
+                                        </summary>
+                                        <QueryResultRows Rows="queryResult.Rows" FormatValue="FormatPresentationValue" />
+                                    </details>
+                                }
+                                else
+                                {
+                                    <div class="test-summary" aria-label="@queryResult.Label">
+                                        @foreach (var badge in queryResult.Summary)
                                         {
-                                            <div class="query-result-facts">
-                                                @foreach (var value in resultRow.Facts)
-                                                {
-                                                    <span><strong>@value.Label</strong> @FormatPresentationValue(value)</span>
-                                                }
-                                            </div>
-                                        }
-                                        @foreach (var details in resultRow.Details)
-                                        {
-                                            <details class="test-details">
-                                                <summary>@details.Label</summary>
-                                                <ul>
-                                                    @foreach (var item in details.Items)
-                                                    {
-                                                        <li class="presentation-@item.Tone">
-                                                            @if (!item.Label.Equals(details.Label, StringComparison.OrdinalIgnoreCase))
-                                                            {
-                                                                <span>@item.Label</span>
-                                                            }
-                                                            <strong>@item.Value</strong>
-                                                        </li>
-                                                    }
-                                                </ul>
-                                            </details>
+                                            <span class="test-count presentation-@badge.Tone">@badge.Text</span>
                                         }
                                     </div>
+                                    <QueryResultRows Rows="queryResult.Rows" FormatValue="FormatPresentationValue" />
                                 }
                             }
                         </td>

@@ -9,8 +9,8 @@
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
-        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
+        "targetSubscriptionId": "demo-subscription",
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
         "firedDateTime": "2026-08-25T15:42:00Z",
         "description": "Directory diagnostics detected one failed test."
       },
@@ -49,8 +49,8 @@
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
-        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "targetSubscriptionId": "demo-subscription",
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
         "firedDateTime": "2026-08-25T15:35:00Z",
         "description": "Replication failures were reported between two directory sites."
       },
@@ -96,8 +96,8 @@
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "00000000-1111-2222-3333-444444444444",
-        "alertTargetIDs": ["/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-NIMBUS-03"],
+        "targetSubscriptionId": "demo-subscription",
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-NIMBUS-03"],
         "firedDateTime": "2026-08-25T15:28:00Z",
         "description": "No heartbeat was received during the evaluation window."
       },

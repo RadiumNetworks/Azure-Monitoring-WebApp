@@ -257,6 +257,8 @@ tbody tr:not(.payload-row):hover, tbody tr.selected { background: #f5faf8; }
 .test-count.presentation-success { color: #087a55; background: #def5ed; }
 .test-count.presentation-failure { color: #9b1c1c; background: #fee8e7; }
 .test-count.presentation-info { color: #155f83; background: #e1f3fb; }
+.query-result-summary { width: fit-content; color: var(--accent-dark); cursor: pointer; }
+.query-result-summary .test-summary { display: inline-flex; margin: 0 0 9px 4px; vertical-align: middle; }
 .query-result-row + .query-result-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .query-result-title { display: block; margin-bottom: 4px; color: var(--ink); font-size: .76rem; }
 .query-result-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; color: var(--muted); font-size: .7rem; }
