@@ -250,6 +250,160 @@ public sealed class AlertStore
         }
     }
 
+    public async Task<IReadOnlyList<AlertRule>> GetAllAlertRulesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.AlertRules
+            .AsNoTracking()
+            .OrderBy(rule => rule.Priority)
+            .ThenBy(rule => rule.Name)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<AlertRule> SaveAlertRuleAsync(
+        AlertRule rule,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        EnsureDatabaseConfigured();
+
+        var normalized = NormalizeAndValidateRule(rule);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var duplicateName = await context.AlertRules.AnyAsync(
+            candidate => candidate.Id != normalized.Id && candidate.Name == normalized.Name,
+            cancellationToken);
+        if (duplicateName)
+        {
+            throw new InvalidOperationException($"An alert rule named '{normalized.Name}' already exists.");
+        }
+
+        var stored = await context.AlertRules.FindAsync([normalized.Id], cancellationToken);
+        if (stored is null)
+        {
+            stored = normalized;
+            context.AlertRules.Add(stored);
+        }
+        else
+        {
+            CopyRuleValues(normalized, stored);
+        }
+
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            logger.LogError(exception, "Failed to save alert rule {AlertRuleId}.", normalized.Id);
+            throw new InvalidOperationException(
+                "The alert rule could not be saved. Verify that its name is unique and try again.",
+                exception);
+        }
+
+        Changed?.Invoke();
+        return stored;
+    }
+
+    private void EnsureDatabaseConfigured()
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            throw new InvalidOperationException(
+                $"Alert rules cannot be accessed: {databaseConfiguration.Error}");
+        }
+    }
+
+    private static AlertRule NormalizeAndValidateRule(AlertRule source)
+    {
+        var rule = new AlertRule
+        {
+            Id = source.Id == Guid.Empty ? Guid.NewGuid() : source.Id,
+            Name = source.Name.Trim(),
+            Enabled = source.Enabled,
+            Priority = source.Priority,
+            AlertNameContains = source.AlertNameContains.Trim(),
+            QueryResultType = source.QueryResultType.Trim(),
+            ConditionType = source.ConditionType.Trim(),
+            Threshold = source.Threshold,
+            FailedItemName = source.FailedItemName.Trim(),
+            CategoryName = source.CategoryName.Trim(),
+            ApplyToTarget = source.ApplyToTarget,
+            Collapsed = source.Collapsed,
+            Tone = source.Tone.Trim().ToLowerInvariant()
+        };
+
+        if (string.IsNullOrWhiteSpace(rule.Name) || rule.Name.Length > 256)
+        {
+            throw new InvalidOperationException("Rule name is required and may contain at most 256 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(rule.CategoryName) || rule.CategoryName.Length > 256)
+        {
+            throw new InvalidOperationException("Category name is required and may contain at most 256 characters.");
+        }
+
+        if (rule.Priority < 0)
+        {
+            throw new InvalidOperationException("Priority cannot be negative.");
+        }
+
+        if (rule.AlertNameContains.Length > 256 || rule.QueryResultType.Length > 128)
+        {
+            throw new InvalidOperationException("One or more matching fields exceed their maximum length.");
+        }
+
+        if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+        {
+            if (rule.Threshold < 0)
+            {
+                throw new InvalidOperationException("The row-count threshold cannot be negative.");
+            }
+
+            rule.FailedItemName = string.Empty;
+        }
+        else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItem)
+        {
+            if (string.IsNullOrWhiteSpace(rule.FailedItemName) || rule.FailedItemName.Length > 256)
+            {
+                throw new InvalidOperationException(
+                    "Failed item name is required for an OnlyFailedItem condition.");
+            }
+
+            rule.Threshold = 0;
+        }
+        else
+        {
+            throw new InvalidOperationException("Select a supported condition type.");
+        }
+
+        if (rule.Tone is not ("info" or "failure"))
+        {
+            throw new InvalidOperationException("Select either the info or failure category tone.");
+        }
+
+        return rule;
+    }
+
+    private static void CopyRuleValues(AlertRule source, AlertRule destination)
+    {
+        destination.Name = source.Name;
+        destination.Enabled = source.Enabled;
+        destination.Priority = source.Priority;
+        destination.AlertNameContains = source.AlertNameContains;
+        destination.QueryResultType = source.QueryResultType;
+        destination.ConditionType = source.ConditionType;
+        destination.Threshold = source.Threshold;
+        destination.FailedItemName = source.FailedItemName;
+        destination.CategoryName = source.CategoryName;
+        destination.ApplyToTarget = source.ApplyToTarget;
+        destination.Collapsed = source.Collapsed;
+        destination.Tone = source.Tone;
+    }
+
     /// <summary>
     /// Loads all stored alerts with the newest records first. Configuration or database failures are logged and return an empty list for the UI.
     /// </summary>

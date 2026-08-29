@@ -1,0 +1,293 @@
+@page "/admin/rules"
+@rendermode InteractiveServer
+@inject AlertStore AlertStore
+
+<PageTitle>Alert Rule Administration</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Alert rules</h1>
+        <p class="subtitle">Create and update the database rules that categorize alerts in the Inbox.</p>
+    </div>
+    <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+<div class="admin-workspace">
+    <section class="admin-rule-list" aria-labelledby="rules-heading">
+        <div class="admin-section-heading">
+            <div>
+                <h2 id="rules-heading">Current rules</h2>
+                <span>@RuleCountLabel(rules.Count)</span>
+            </div>
+            <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadRulesAsync">
+                @(isLoading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
+
+        @if (isLoading && rules.Count == 0)
+        {
+            <p class="admin-empty">Loading alert rules...</p>
+        }
+        else if (rules.Count == 0)
+        {
+            <p class="admin-empty">No alert rules are configured.</p>
+        }
+        else
+        {
+            <div class="admin-rule-cards">
+                @foreach (var rule in rules)
+                {
+                    <article class="admin-rule-card @(editingRule?.Id == rule.Id ? "selected" : null)">
+                        <div class="admin-rule-card-heading">
+                            <div>
+                                <span class="admin-status @(rule.Enabled ? "enabled" : "disabled")">
+                                    @(rule.Enabled ? "Enabled" : "Disabled")
+                                </span>
+                                <h3>@rule.Name</h3>
+                            </div>
+                            <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
+                        </div>
+                        <dl class="admin-rule-summary">
+                            <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                            <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
+                            <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
+                            <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
+                        </dl>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="admin-editor" aria-labelledby="editor-heading">
+        @if (editingRule is null)
+        {
+            <div class="admin-editor-placeholder">
+                <strong>Select or create a rule</strong>
+                <span>Choose an existing rule to update it, or create a new categorization rule.</span>
+            </div>
+        }
+        else
+        {
+            var rule = editingRule;
+            <div class="admin-section-heading">
+                <div>
+                    <p class="eyebrow">@(isCreating ? "New rule" : "Edit rule")</p>
+                    <h2 id="editor-heading">@(isCreating ? "Create alert rule" : rule.Name)</h2>
+                </div>
+            </div>
+
+            <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <label class="admin-field admin-field-wide">
+                    <span>Rule name</span>
+                    <input required maxlength="256" @bind="rule.Name" />
+                    <small>A unique name used to identify this rule.</small>
+                </label>
+
+                <label class="admin-field">
+                    <span>Priority</span>
+                    <input type="number" min="0" required @bind="rule.Priority" />
+                    <small>Lower values are evaluated first.</small>
+                </label>
+
+                <label class="admin-check">
+                    <input type="checkbox" @bind="rule.Enabled" />
+                    <span>Rule enabled</span>
+                </label>
+
+                <fieldset class="admin-fieldset">
+                    <legend>Alert matching</legend>
+                    <label class="admin-field">
+                        <span>Alert name contains</span>
+                        <input maxlength="256" @bind="rule.AlertNameContains" />
+                        <small>Optional, case-insensitive text match.</small>
+                    </label>
+                    <label class="admin-field">
+                        <span>Query-result type</span>
+                        <input maxlength="128" @bind="rule.QueryResultType" />
+                        <small>For example: DCPort or DCDiag.</small>
+                    </label>
+                    <label class="admin-field admin-field-wide">
+                        <span>Condition</span>
+                        <select @bind="rule.ConditionType">
+                            <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
+                            <option value="@AlertRuleConditionTypes.OnlyFailedItem">Only the specified item failed</option>
+                        </select>
+                    </label>
+                    @if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+                    {
+                        <label class="admin-field admin-field-wide">
+                            <span>Row-count threshold</span>
+                            <input type="number" min="0" required @bind="rule.Threshold" />
+                            <small>The rule matches only when the result contains more rows than this value.</small>
+                        </label>
+                    }
+                    else
+                    {
+                        <label class="admin-field admin-field-wide">
+                            <span>Failed item name</span>
+                            <input required maxlength="256" @bind="rule.FailedItemName" />
+                            <small>The rule matches when this is the only failed item.</small>
+                        </label>
+                    }
+                </fieldset>
+
+                <fieldset class="admin-fieldset">
+                    <legend>Category presentation</legend>
+                    <label class="admin-field admin-field-wide">
+                        <span>Category name</span>
+                        <input required maxlength="256" @bind="rule.CategoryName" />
+                    </label>
+                    <label class="admin-field">
+                        <span>Tone</span>
+                        <select @bind="rule.Tone">
+                            <option value="info">Information</option>
+                            <option value="failure">Failure</option>
+                        </select>
+                    </label>
+                    <div class="admin-check-group">
+                        <label class="admin-check">
+                            <input type="checkbox" @bind="rule.Collapsed" />
+                            <span>Collapsed by default</span>
+                        </label>
+                        <label class="admin-check">
+                            <input type="checkbox" @bind="rule.ApplyToTarget" />
+                            <span>Include all alerts for the target</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <div class="admin-form-actions">
+                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
+                    <button class="admin-primary" type="submit" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : isCreating ? "Create rule" : "Save changes")
+                    </button>
+                </div>
+            </form>
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<AlertRule> rules = [];
+    private AlertRule? editingRule;
+    private bool isCreating;
+    private bool isLoading;
+    private bool isSaving;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadRulesAsync();
+
+    private async Task LoadRulesAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            rules = await AlertStore.GetAllAlertRulesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginCreate()
+    {
+        editingRule = new AlertRule
+        {
+            Enabled = true,
+            Priority = rules.Count == 0 ? 10 : rules.Max(rule => rule.Priority) + 10,
+            ConditionType = AlertRuleConditionTypes.RowCountGreaterThan,
+            Collapsed = true,
+            Tone = "info"
+        };
+        isCreating = true;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void BeginEdit(AlertRule source)
+    {
+        editingRule = Clone(source);
+        isCreating = false;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        editingRule = null;
+        isCreating = false;
+        errorMessage = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editingRule is null || isSaving)
+        {
+            return;
+        }
+
+        isSaving = true;
+        errorMessage = null;
+        statusMessage = null;
+        try
+        {
+            var saved = await AlertStore.SaveAlertRuleAsync(editingRule);
+            statusMessage = $"Rule '{saved.Name}' was {(isCreating ? "created" : "updated")}.";
+            editingRule = null;
+            isCreating = false;
+            await LoadRulesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static AlertRule Clone(AlertRule source) => new()
+    {
+        Id = source.Id,
+        Name = source.Name,
+        Enabled = source.Enabled,
+        Priority = source.Priority,
+        AlertNameContains = source.AlertNameContains,
+        QueryResultType = source.QueryResultType,
+        ConditionType = source.ConditionType,
+        Threshold = source.Threshold,
+        FailedItemName = source.FailedItemName,
+        CategoryName = source.CategoryName,
+        ApplyToTarget = source.ApplyToTarget,
+        Collapsed = source.Collapsed,
+        Tone = source.Tone
+    };
+
+    private static string ConditionLabel(AlertRule rule) => rule.ConditionType switch
+    {
+        AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
+        AlertRuleConditionTypes.OnlyFailedItem => $"Only {rule.FailedItemName} failed",
+        _ => rule.ConditionType
+    };
+
+    private static string RuleCountLabel(int count) => count == 1 ? "1 configured rule" : $"{count} configured rules";
+}
