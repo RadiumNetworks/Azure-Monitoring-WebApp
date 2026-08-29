@@ -85,7 +85,9 @@
 @{
     var navigationTree = GetNavigationTree();
     var visibleAlerts = FilteredAlerts.ToArray();
-    var categorizedAlerts = AlertRuleEvaluator.Categorize(visibleAlerts, alertRules);
+    var categorizedAlerts = viewMode == "active"
+        ? AlertRuleEvaluator.Categorize(visibleAlerts, alertRules)
+        : new AlertCategorizationResult([], visibleAlerts);
     var displayItems = GetDisplayItems(categorizedAlerts);
     var heatmapCells = GetHeatmapCells(visibleAlerts);
     var maximumHeatmapCount = heatmapCells.Count == 0 ? 0 : heatmapCells.Max(cell => cell.Count);
