@@ -1,28 +1,28 @@
-## Ahoy! Welcome aboard the Azure Monitorin' ship
+## Azure Monitoring Console // Grid Operations Node
 
 
 
-This vessel keeps a weather eye on Azure Monitor alerts and gathers every warning flare in one trusty console. When trouble rises from the cloud-seas, the crew can inspect it, chart it, and discover which target or site be causin' the commotion.
+Welcome to the grid, chummer. This console pulls Azure Monitor alerts out of the corporate data stream and presents them in one hardened operations node. When a system goes dark, the team can trace the signal, identify the affected target or site, and separate background noise from a real outage before the situation turns critical.
 
 
 
-The main decks of this ship be:</br>
+The node provides:</br>
 
-\- a Blazor-powered command deck for browsin', searchin', filterin', and commentin' on alerts
+\- a Blazor-powered operator interface for browsing, searching, filtering, and commenting on alerts
 
-\- a REST harbor where Azure Monitor and Logic Apps deliver their alert cargo
+\- a secured REST ingress where Azure Monitor and Logic Apps deliver incoming telemetry
 
-\- an alert map that charts subscriptions, resource groups, sites, targets, and their connections
+\- a topology view that maps subscriptions, resource groups, sites, targets, and their connections across the grid
 
-\- database rules that stash harmless warnings below deck or raise the **System Outage** flag when a target be in real peril
+\- database-driven rules that suppress known background noise or raise the **System Outage** flag when a target is flatlined
 
-\- a query interface for automated voyages through the monitorin' data
+\- a query interface for agents and automated runs through the monitoring data
 
-\- a console companion that demonstrates how to call the graph interface without ever leavin' the quarterdeck
+\- a command-line client for deckers who prefer direct access to the graph interface
 
 
 
-So hoist the diagnostics, follow the heatmap, and may yer systems stay green. Arrr!
+Watch the heatmap, follow the data trail, and keep the infrastructure online. In the sprawl, visibility is survival.
 
 
 
