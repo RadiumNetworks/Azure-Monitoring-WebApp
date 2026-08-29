@@ -284,3 +284,33 @@ public sealed class GraphHierarchyNodeCase
     public int HistoryCount { get; init; }
     public IReadOnlyList<GraphHierarchyNodeCase> Children { get; init; } = [];
 }
+
+public sealed class AlertRuleEvaluatorTestCases
+{
+    public IReadOnlyList<AlertRuleEvaluatorCase> Cases { get; init; } = [];
+}
+
+public sealed class AlertRuleEvaluatorCase
+{
+    public string Name { get; init; } = string.Empty;
+    public AlertRule Rule { get; init; } = new();
+    public IReadOnlyList<AlertRuleAlertCase> Alerts { get; init; } = [];
+    public IReadOnlyList<ExpectedAlertCategoryCase> ExpectedCategories { get; init; } = [];
+    public IReadOnlyList<string> ExpectedUncategorizedAlertIds { get; init; } = [];
+}
+
+public sealed class AlertRuleAlertCase
+{
+    public string AlertId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Target { get; init; } = string.Empty;
+    public string Site { get; init; } = string.Empty;
+    public JsonObject Payload { get; init; } = [];
+}
+
+public sealed class ExpectedAlertCategoryCase
+{
+    public string Name { get; init; } = string.Empty;
+    public bool Collapsed { get; init; }
+    public IReadOnlyList<string> AlertIds { get; init; } = [];
+}

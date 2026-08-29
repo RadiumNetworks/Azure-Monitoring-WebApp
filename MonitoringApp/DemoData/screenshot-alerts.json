@@ -167,9 +167,56 @@
         ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "88", "TCP", "failed"],
         ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "135", "TCP", "failed"],
         ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "389", "TCP", "failed"],
-        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "445", "TCP", "failed"]
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "445", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "464", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "636", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "3268", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "3269", "TCP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "53", "UDP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "123", "UDP", "failed"],
+        ["DC-ATLAS-12", "DC-ORION-07", "Northbridge", "2026-08-25T15:30:00Z", "9389", "TCP", "failed"]
       ],
-      "rowCount": 4
+      "rowCount": 11
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "demo-dcdiag-atlas-isolated-dfsr",
+        "alertRule": "DCDiag Isolated DFSR Event",
+        "severity": "Sev3",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-demo-directory",
+        "targetSubscriptionId": "demo-subscription",
+        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "firedDateTime": "2026-08-25T15:39:00Z",
+        "description": "DCDiag reported only the DFSREvent test as failed."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [{
+            "searchQuery": "DCDiagData_CL\n| where TimeGenerated > ago(1h)\n| summarize arg_max(TimeGenerated, *) by Computer",
+            "dimensions": [
+              { "name": "Computer", "value": "DC-ATLAS-12" },
+              { "name": "Site", "value": "Cedarfield" }
+            ]
+          }]
+        }
+      }
+    },
+    "queryResult": {
+      "type": "DCDiag",
+      "computer": "DC-ATLAS-12",
+      "columns": [
+        { "name": "Computer", "type": "string" },
+        { "name": "Site", "type": "string" },
+        { "name": "TimeGenerated", "type": "datetime" },
+        { "name": "Status", "type": "dynamic" }
+      ],
+      "rows": [["DC-ATLAS-12", "Cedarfield", "2026-08-25T15:38:31Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Passed\",\"DNS\":\"Passed\",\"DFSREvent\":\"Failed\",\"Replications\":\"Passed\",\"Services\":\"Passed\"}"]],
+      "rowCount": 1
     }
   }
 ]

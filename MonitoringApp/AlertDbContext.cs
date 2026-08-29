@@ -8,6 +8,7 @@ namespace MonitoringApp;
 public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : DbContext(options)
 {
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
+    public DbSet<AlertRule> AlertRules => Set<AlertRule>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -39,5 +40,19 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         alert.Ignore(record => record.SearchQuery);
         alert.HasIndex(record => record.ReceivedAt);
         alert.HasIndex(record => new { record.AlertId, record.MonitorCondition });
+
+        var rule = modelBuilder.Entity<AlertRule>();
+        rule.ToTable("AlertRules");
+        rule.HasKey(record => record.Id);
+        rule.Property(record => record.Id).ValueGeneratedNever();
+        rule.Property(record => record.Name).HasMaxLength(256);
+        rule.Property(record => record.AlertNameContains).HasMaxLength(256);
+        rule.Property(record => record.QueryResultType).HasMaxLength(128);
+        rule.Property(record => record.ConditionType).HasMaxLength(64);
+        rule.Property(record => record.FailedItemName).HasMaxLength(256);
+        rule.Property(record => record.CategoryName).HasMaxLength(256);
+        rule.Property(record => record.Tone).HasMaxLength(32);
+        rule.HasIndex(record => record.Name).IsUnique();
+        rule.HasIndex(record => new { record.Enabled, record.Priority });
     }
 }

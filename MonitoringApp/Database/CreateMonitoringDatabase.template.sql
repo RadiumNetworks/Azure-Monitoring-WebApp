@@ -19,7 +19,7 @@
 
 DECLARE @DatabaseName sysname = N'<database-name>';
 
-IF @DatabaseName = N'<database-name>'
+IF @DatabaseName = N'<' + N'database-name' + N'>'
 BEGIN
     THROW 50000, 'Replace <database-name> before executing this script.', 1;
 END;
@@ -42,7 +42,7 @@ GO
 
 DECLARE @DatabaseName sysname = N'<database-name>';
 
-IF @DatabaseName = N'<database-name>'
+IF @DatabaseName = N'<' + N'database-name' + N'>'
 BEGIN
     THROW 50000, 'Replace <database-name> before executing this script.', 1;
 END;
@@ -100,6 +100,106 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[AlertRules]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AlertRules]
+    (
+        [Id]                uniqueidentifier NOT NULL,
+        [Name]              nvarchar(256)     NOT NULL,
+        [Enabled]           bit               NOT NULL,
+        [Priority]          int               NOT NULL,
+        [AlertNameContains] nvarchar(256)     NOT NULL,
+        [QueryResultType]   nvarchar(128)     NOT NULL,
+        [ConditionType]     nvarchar(64)      NOT NULL,
+        [Threshold]         int               NOT NULL,
+        [FailedItemName]    nvarchar(256)     NOT NULL,
+        [CategoryName]      nvarchar(256)     NOT NULL,
+        [ApplyToTarget]     bit               NOT NULL,
+        [Collapsed]         bit               NOT NULL,
+        [Tone]              nvarchar(32)      NOT NULL,
+        CONSTRAINT [PK_AlertRules] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE [name] = N'IX_AlertRules_Name'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AlertRules]')
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_AlertRules_Name]
+        ON [dbo].[AlertRules] ([Name]);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE [name] = N'IX_AlertRules_Enabled_Priority'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AlertRules]')
+)
+BEGIN
+    CREATE INDEX [IX_AlertRules_Enabled_Priority]
+        ON [dbo].[AlertRules] ([Enabled], [Priority]);
+END;
+GO
+
+/*
+    Seed and synchronize the built-in categorization rules. Re-running this
+    script restores their required values while leaving additional rules intact.
+*/
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'Port failures indicate system outage',
+    [Enabled] = 1,
+    [Priority] = 10,
+    [AlertNameContains] = N'Port',
+    [QueryResultType] = N'DCPort',
+    [ConditionType] = N'RowCountGreaterThan',
+    [Threshold] = 10,
+    [FailedItemName] = N'',
+    [CategoryName] = N'System Outage',
+    [ApplyToTarget] = 1,
+    [Collapsed] = 1,
+    [Tone] = N'failure'
+WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
+    VALUES
+        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 1, N'failure');
+END;
+GO
+
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'Suppress isolated DFSREvent failure',
+    [Enabled] = 1,
+    [Priority] = 20,
+    [AlertNameContains] = N'DCDiag',
+    [QueryResultType] = N'DCDiag',
+    [ConditionType] = N'OnlyFailedItem',
+    [Threshold] = 0,
+    [FailedItemName] = N'DFSREvent',
+    [CategoryName] = N'Suppressed alerts',
+    [ApplyToTarget] = 0,
+    [Collapsed] = 1,
+    [Tone] = N'info'
+WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7b8';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
+    VALUES
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7b8', N'Suppress isolated DFSREvent failure', 1, 20, N'DCDiag', N'DCDiag', N'OnlyFailedItem', 0, N'DFSREvent', N'Suppressed alerts', 0, 1, N'info');
+END;
+GO
+
 IF NOT EXISTS
 (
     SELECT 1
@@ -148,6 +248,18 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260829090000_AddAlertRules'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260829090000_AddAlertRules', N'9.0.19');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -161,5 +273,25 @@ ALTER ROLE [db_datawriter] ADD MEMBER [<managed-identity-name>];
 SELECT
     DB_NAME() AS [DatabaseName],
     OBJECT_ID(N'[dbo].[Alerts]', N'U') AS [AlertsTableObjectId],
+    OBJECT_ID(N'[dbo].[AlertRules]', N'U') AS [AlertRulesTableObjectId],
+    (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];
+GO
+
+SELECT
+    [Id],
+    [Name],
+    [Enabled],
+    [Priority],
+    [AlertNameContains],
+    [QueryResultType],
+    [ConditionType],
+    [Threshold],
+    [FailedItemName],
+    [CategoryName],
+    [ApplyToTarget],
+    [Collapsed],
+    [Tone]
+FROM [dbo].[AlertRules]
+ORDER BY [Priority], [Name];
 GO

@@ -1,0 +1,113 @@
+{
+  "cases": [
+    {
+      "name": "Port outage categorizes all alerts for the triggered target",
+      "rule": {
+        "id": "47a96c56-ccf5-4f4e-97ce-6a72bb462f91",
+        "name": "Port outage",
+        "enabled": true,
+        "priority": 10,
+        "alertNameContains": "Port",
+        "queryResultType": "DCPort",
+        "conditionType": "RowCountGreaterThan",
+        "threshold": 10,
+        "categoryName": "System Outage",
+        "applyToTarget": true,
+        "collapsed": true,
+        "tone": "failure"
+      },
+      "alerts": [
+        {
+          "alertId": "port",
+          "name": "Port Alert",
+          "target": "server-1",
+          "site": "site-1",
+          "payload": { "queryResult": { "type": "DCPort", "rows": [[], [], [], [], [], [], [], [], [], [], []] } }
+        },
+        { "alertId": "heartbeat", "name": "Heartbeat Alert", "target": "server-1", "site": "site-1", "payload": {} },
+        { "alertId": "other", "name": "Heartbeat Alert", "target": "server-2", "site": "site-2", "payload": {} }
+      ],
+      "expectedCategories": [
+        { "name": "System Outage", "collapsed": true, "alertIds": ["port", "heartbeat"] }
+      ],
+      "expectedUncategorizedAlertIds": ["other"]
+    },
+    {
+      "name": "Port outage does not match exactly ten failed checks",
+      "rule": {
+        "id": "47a96c56-ccf5-4f4e-97ce-6a72bb462f91",
+        "name": "Port outage",
+        "enabled": true,
+        "priority": 10,
+        "alertNameContains": "Port",
+        "queryResultType": "DCPort",
+        "conditionType": "RowCountGreaterThan",
+        "threshold": 10,
+        "categoryName": "System Outage",
+        "applyToTarget": true,
+        "collapsed": true,
+        "tone": "failure"
+      },
+      "alerts": [
+        {
+          "alertId": "port",
+          "name": "Port Alert",
+          "target": "server-1",
+          "site": "site-1",
+          "payload": { "queryResult": { "type": "DCPort", "rows": [[], [], [], [], [], [], [], [], [], []] } }
+        }
+      ],
+      "expectedCategories": [],
+      "expectedUncategorizedAlertIds": ["port"]
+    },
+    {
+      "name": "DCDiag suppresses only an isolated DFSREvent failure",
+      "rule": {
+        "id": "d82b566a-ce6e-4201-b7b9-9a366426e7b8",
+        "name": "Suppress DFSR",
+        "enabled": true,
+        "priority": 20,
+        "alertNameContains": "DCDiag",
+        "queryResultType": "DCDiag",
+        "conditionType": "OnlyFailedItem",
+        "failedItemName": "DFSREvent",
+        "categoryName": "Suppressed alerts",
+        "applyToTarget": false,
+        "collapsed": true,
+        "tone": "info"
+      },
+      "alerts": [
+        {
+          "alertId": "isolated",
+          "name": "DCDiag Alert",
+          "target": "server-1",
+          "site": "site-1",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-1", "site-1", "2000-01-01T12:00:00Z", "{\"Advertising\":\"Passed\",\"DFSREvent\":\"Failed\"}"]]
+            }
+          }
+        },
+        {
+          "alertId": "multiple",
+          "name": "DCDiag Alert",
+          "target": "server-2",
+          "site": "site-2",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-2", "site-2", "2000-01-01T12:00:00Z", "{\"DFSREvent\":\"Failed\",\"Replications\":\"Failed\"}"]]
+            }
+          }
+        }
+      ],
+      "expectedCategories": [
+        { "name": "Suppressed alerts", "collapsed": true, "alertIds": ["isolated"] }
+      ],
+      "expectedUncategorizedAlertIds": ["multiple"]
+    }
+  ]
+}

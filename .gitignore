@@ -33,3 +33,4 @@ MonitoringApp/Database/CreateMonitoringDatabase.sql
 MonitoringApp/logic-app-*.codeview.json
 *.txt
 *.md
+/.tools

@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject AlertStore AlertStore
 @inject AlertHistoryOptions AlertHistory
+@inject AlertRuleEvaluator AlertRuleEvaluator
 @inject QueryResultPresenter QueryResultPresenter
 
 <PageTitle>Alert Console</PageTitle>
@@ -84,6 +85,8 @@
 @{
     var navigationTree = GetNavigationTree();
     var visibleAlerts = FilteredAlerts.ToArray();
+    var categorizedAlerts = AlertRuleEvaluator.Categorize(visibleAlerts, alertRules);
+    var displayItems = GetDisplayItems(categorizedAlerts);
     var heatmapCells = GetHeatmapCells(visibleAlerts);
     var maximumHeatmapCount = heatmapCells.Count == 0 ? 0 : heatmapCells.Max(cell => cell.Count);
 }
@@ -222,8 +225,35 @@
                         </td>
                     </tr>
                 }
-                @foreach (var alert in visibleAlerts)
+                @foreach (var item in displayItems)
                 {
+                    @if (item.IsUncategorizedHeader)
+                    {
+                        <tr class="alert-uncategorized-row">
+                            <td colspan="7">
+                                <strong>Uncategorized alerts</strong>
+                                <span>@AlertCountLabel(categorizedAlerts.Uncategorized.Count)</span>
+                            </td>
+                        </tr>
+                        continue;
+                    }
+
+                    @if (item.Category is { } category)
+                    {
+                        var isCollapsed = collapsedCategories.Contains(category.RuleId);
+                        <tr class="alert-category-row category-@category.Tone">
+                            <td colspan="7">
+                                <button type="button" aria-expanded="@(!isCollapsed)" @onclick="() => ToggleCategory(category.RuleId)">
+                                    <span class="category-chevron" aria-hidden="true"></span>
+                                    <strong>@category.Name</strong>
+                                    <span>@AlertCountLabel(category.Alerts.Count)</span>
+                                </button>
+                            </td>
+                        </tr>
+                        continue;
+                    }
+
+                    var alert = item.Alert!;
                     var queryResult = QueryResultPresenter.Parse(alert.RawJson);
                     <tr class="@(expandedAlertId == alert.Id ? "selected" : null)">
                         <td class="timestamp" title="@($"{alert.ReceivedAt.ToUniversalTime():O} UTC")">@FormatTimestamp(alert.ReceivedAt)</td>
@@ -317,6 +347,7 @@
 
 @code {
     private IReadOnlyList<AlertRecord> alerts = [];
+    private IReadOnlyList<AlertRule> alertRules = [];
     private string viewMode = "active";
     private string searchText = string.Empty;
     private string resourceGroupFilter = string.Empty;
@@ -336,6 +367,7 @@
     private bool isEditingDateTime;
     private readonly HashSet<string> expandedSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> expandedResourceGroups = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<Guid> collapsedCategories = [];
     private readonly CancellationTokenSource clockCancellation = new();
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private Task? clockTask;
@@ -537,6 +569,8 @@
     protected override async Task OnInitializedAsync()
     {
         alerts = await AlertStore.GetAllAsync();
+        alertRules = await AlertStore.GetAlertRulesAsync();
+        collapsedCategories.UnionWith(alertRules.Where(rule => rule.Collapsed).Select(rule => rule.Id));
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
     }
@@ -576,7 +610,37 @@
     private async Task ReloadAlertsAsync()
     {
         alerts = await AlertStore.GetAllAsync();
+        alertRules = await AlertStore.GetAlertRulesAsync();
         await InvokeAsync(StateHasChanged);
+    }
+
+    private IReadOnlyList<AlertDisplayItem> GetDisplayItems(AlertCategorizationResult categorization)
+    {
+        var items = new List<AlertDisplayItem>();
+        foreach (var category in categorization.Categories)
+        {
+            items.Add(new AlertDisplayItem(category, null, false));
+            if (!collapsedCategories.Contains(category.RuleId))
+            {
+                items.AddRange(category.Alerts.Select(alert => new AlertDisplayItem(null, alert, false)));
+            }
+        }
+
+        if (categorization.Categories.Count > 0 && categorization.Uncategorized.Count > 0)
+        {
+            items.Add(new AlertDisplayItem(null, null, true));
+        }
+
+        items.AddRange(categorization.Uncategorized.Select(alert => new AlertDisplayItem(null, alert, false)));
+        return items;
+    }
+
+    private void ToggleCategory(Guid ruleId)
+    {
+        if (!collapsedCategories.Remove(ruleId))
+        {
+            collapsedCategories.Add(ruleId);
+        }
     }
 
     private void SortBy(string column)
@@ -691,6 +755,10 @@
 
     private sealed record HourlyAlertCount(DateTimeOffset Hour, int Count);
     private sealed record HeatmapCell(string Target, string Site, int Count);
+    private sealed record AlertDisplayItem(
+        AlertCategoryGroup? Category,
+        AlertRecord? Alert,
+        bool IsUncategorizedHeader);
 
     public void Dispose()
     {

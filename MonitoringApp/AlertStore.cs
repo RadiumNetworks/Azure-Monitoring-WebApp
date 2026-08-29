@@ -227,6 +227,29 @@ public sealed class AlertStore
 
     public event Action? Changed;
 
+    public async Task<IReadOnlyList<AlertRule>> GetAlertRulesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            return [];
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            return await context.AlertRules
+                .AsNoTracking()
+                .Where(rule => rule.Enabled)
+                .OrderBy(rule => rule.Priority)
+                .ToArrayAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load alert categorization rules.");
+            return [];
+        }
+    }
+
     /// <summary>
     /// Loads all stored alerts with the newest records first. Configuration or database failures are logged and return an empty list for the UI.
     /// </summary>

@@ -105,6 +105,27 @@ namespace MonitoringApp.Migrations
 
                     b.ToTable("Alerts", (string)null);
                 });
+
+            modelBuilder.Entity("MonitoringApp.AlertRule", b =>
+                {
+                    b.Property<Guid>("Id").HasColumnType("uniqueidentifier");
+                    b.Property<string>("AlertNameContains").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<bool>("ApplyToTarget").HasColumnType("bit");
+                    b.Property<string>("CategoryName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<bool>("Collapsed").HasColumnType("bit");
+                    b.Property<string>("ConditionType").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)");
+                    b.Property<bool>("Enabled").HasColumnType("bit");
+                    b.Property<string>("FailedItemName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<string>("Name").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<int>("Priority").HasColumnType("int");
+                    b.Property<string>("QueryResultType").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
+                    b.Property<int>("Threshold").HasColumnType("int");
+                    b.Property<string>("Tone").IsRequired().HasMaxLength(32).HasColumnType("nvarchar(32)");
+                    b.HasKey("Id");
+                    b.HasIndex("Name").IsUnique();
+                    b.HasIndex("Enabled", "Priority");
+                    b.ToTable("AlertRules", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

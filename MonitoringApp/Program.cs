@@ -114,6 +114,7 @@ builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<AlertStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
+builder.Services.AddSingleton<AlertRuleEvaluator>();
 builder.Services.AddHostedService<DatabaseStartupCheck>();
 
 var app = builder.Build();
