@@ -42,6 +42,7 @@ public static class AlertGraphHierarchy
                 return new AlertGraphHierarchyNode(
                     group.Key,
                     layer,
+                    level + 1,
                     groupedAlerts.Count(alert => activeAlertIds.Contains(alert.Id)),
                     groupedAlerts.Length,
                     level == layers.Count - 1
@@ -71,6 +72,7 @@ public static class AlertGraphHierarchy
 public sealed record AlertGraphHierarchyNode(
     string Name,
     AlertGraphLayer Layer,
+    int Level,
     int Count,
     int HistoryCount,
     IReadOnlyList<AlertGraphHierarchyNode> Children);

@@ -47,6 +47,9 @@ public sealed class AlertGraphHierarchyJsonTests
             alerts, AlertLifecycle.GetActiveAlerts(alerts), HistoryOptions.GetCutoff(Cases.BaseTime),
             testCase.Layers[0], testCase.Layers[1], testCase.Layers[2]);
         var root = Assert.Single(hierarchy);
+        Assert.Equal(1, root.Level);
+        Assert.All(root.Children, node => Assert.Equal(2, node.Level));
+        Assert.All(root.Children.SelectMany(node => node.Children), node => Assert.Equal(3, node.Level));
         Assert.Equal(testCase.ExpectedMiddleNames, root.Children.Select(node => node.Name));
         Assert.Equal(testCase.ExpectedRootCount, root.Count);
         Assert.Equal(testCase.ExpectedLeafCount, root.Children.Sum(node => node.Children.Count));

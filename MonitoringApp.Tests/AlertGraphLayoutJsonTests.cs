@@ -46,8 +46,13 @@ public sealed class AlertGraphLayoutJsonTests
             }
     }
 
-    private static AlertGraphHierarchyNode Convert(GraphHierarchyNodeCase source) => new(
-        source.Name, source.Layer, source.Count, source.HistoryCount, source.Children.Select(Convert).ToArray());
+    private static AlertGraphHierarchyNode Convert(GraphHierarchyNodeCase source, int level = 1) => new(
+        source.Name,
+        source.Layer,
+        level,
+        source.Count,
+        source.HistoryCount,
+        source.Children.Select(child => Convert(child, level + 1)).ToArray());
 
     private static void AssertNoOverlap(IReadOnlyList<AlertGraphNode> nodes)
     {

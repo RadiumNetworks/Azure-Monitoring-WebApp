@@ -64,9 +64,9 @@
         <div class="graph-legend" aria-label="Count legend">
             <span><i class="legend-open" aria-hidden="true"></i>Open alerts</span>
             <span><i class="legend-history" aria-hidden="true"></i>History alerts</span>
-            <span><i class="@LegendClass(selectedLayer1)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer1)</span>
-            <span><i class="@LegendClass(selectedLayer2)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer2)</span>
-            <span><i class="@LegendClass(selectedLayer3)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer3)</span>
+            <span><i class="@LegendClass(selectedLayer1) legend-level-1" aria-hidden="true"></i>Layer 1: @AlertGraph.Label(selectedLayer1)</span>
+            <span><i class="@LegendClass(selectedLayer2) legend-level-2" aria-hidden="true"></i>Layer 2: @AlertGraph.Label(selectedLayer2)</span>
+            <span><i class="@LegendClass(selectedLayer3) legend-level-3" aria-hidden="true"></i>Layer 3: @AlertGraph.Label(selectedLayer3)</span>
         </div>
         <div class="graph-tools">
             <span>Updated @currentTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
@@ -99,12 +99,19 @@
                 <g class="graph-nodes">
                     @foreach (var node in graphLayout.Nodes)
                     {
-                        <g class="graph-svg-node @NodeClass(node.Layer) @(node.Count > 0 ? "graph-svg-active" : null)"
+                        <g class="graph-svg-node graph-level-@node.Level @NodeClass(node.Layer) @(node.Count > 0 ? "graph-svg-active" : null)"
                            transform="translate(@Coordinate(node.X) @Coordinate(node.Y))"
                            role="group"
-                           aria-label="@node.Label, @node.Count open, @node.HistoryCount history">
-                            <title>@node.Label: @node.Count open, @node.HistoryCount history</title>
-                            <rect x="-95" y="-25" width="190" height="50" rx="5" />
+                           aria-label="Layer @node.Level, @node.Label, @node.Count open, @node.HistoryCount history">
+                            <title>Layer @node.Level · @node.Label: @node.Count open, @node.HistoryCount history</title>
+                            @if (node.Level == 1)
+                            {
+                                <polygon points="-95,0 -78,-25 78,-25 95,0 78,25 -78,25" />
+                            }
+                            else
+                            {
+                                <rect x="-95" y="-25" width="190" height="50" rx="@(node.Level == 3 ? 25 : 5)" />
+                            }
                             <text class="graph-node-label" x="-82" y="-5">@ShortLabel(node.Label)</text>
                             <text class="graph-node-count" x="82" y="14" text-anchor="end">
                                 <tspan class="graph-node-open">@node.Count</tspan><tspan> (@node.HistoryCount)</tspan>
