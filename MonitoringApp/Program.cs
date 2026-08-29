@@ -7,6 +7,27 @@ using MonitoringApp;
 using MonitoringApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+var alertHistory = builder.Configuration
+    .GetSection(AlertHistoryOptions.SectionName)
+    .Get<AlertHistoryOptions>() ?? new AlertHistoryOptions();
+var alertHistoryErrors = alertHistory.Validate();
+if (alertHistoryErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid alert history configuration: {string.Join(" ", alertHistoryErrors)}");
+}
+
+var alertGraphSection = builder.Configuration.GetSection(AlertGraphOptions.SectionName);
+var alertGraph = alertGraphSection.Get<AlertGraphOptions>()
+    ?? throw new InvalidOperationException(
+        $"Missing required configuration section '{AlertGraphOptions.SectionName}'.");
+var alertGraphErrors = alertGraph.Validate();
+if (alertGraphErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid alert graph configuration: {string.Join(" ", alertGraphErrors)}");
+}
+
 var ingestionAuthentication = builder.Configuration
     .GetSection(AlertIngestionAuthenticationOptions.SectionName)
     .Get<AlertIngestionAuthenticationOptions>() ?? new AlertIngestionAuthenticationOptions();
@@ -53,6 +74,8 @@ var effectiveConnectionString = databaseConfiguration.IsValid
     : "Server=127.0.0.1,1;Database=Unavailable;Connect Timeout=1;Encrypt=False";
 
 builder.Services.AddOpenApi();
+builder.Services.AddSingleton(alertHistory);
+builder.Services.AddSingleton(alertGraph);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

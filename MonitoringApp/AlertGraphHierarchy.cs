@@ -23,35 +23,6 @@ public static class AlertGraphHierarchy
     }
 
     /// <summary>
-    /// Returns the graph-layer choices allowed at a given hierarchy level. Unsupported level numbers throw an argument-range exception.
-    /// </summary>
-    public static IReadOnlyList<AlertGraphLayerChoice> ChoicesForLevel(int level) => level switch
-    {
-        1 => [new(AlertGraphLayer.Subscription, "Subscription")],
-        2 =>
-        [
-            new(AlertGraphLayer.AlertName, "AlertName"),
-            new(AlertGraphLayer.ResourceGroup, "Resourcegroup"),
-            new(AlertGraphLayer.Site, "Site")
-        ],
-        3 => [new(AlertGraphLayer.Target, "Target")],
-        _ => throw new ArgumentOutOfRangeException(nameof(level))
-    };
-
-    /// <summary>
-    /// Returns the user-facing label for a graph layer. Unknown enum values throw an argument-range exception.
-    /// </summary>
-    public static string Label(AlertGraphLayer layer) => layer switch
-    {
-        AlertGraphLayer.Subscription => "Subscription",
-        AlertGraphLayer.AlertName => "AlertName",
-        AlertGraphLayer.ResourceGroup => "Resourcegroup",
-        AlertGraphLayer.Target => "Target",
-        AlertGraphLayer.Site => "Site",
-        _ => throw new ArgumentOutOfRangeException(nameof(layer))
-    };
-
-    /// <summary>
     /// Recursively groups alerts for one hierarchy level and builds its child nodes. Group names are sorted case-insensitively for stable output.
     /// </summary>
     private static IReadOnlyList<AlertGraphHierarchyNode> BuildLevel(

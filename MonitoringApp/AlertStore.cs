@@ -255,6 +255,36 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Loads alerts received on or after the supplied timestamp, ordered newest first. Configuration or database failures are logged and return an empty list for the UI.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertRecord>> GetSinceAsync(
+        DateTimeOffset since,
+        CancellationToken cancellationToken = default)
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            logger.LogError("Alerts cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
+            return [];
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var alerts = await context.Alerts
+                .AsNoTracking()
+                .Where(alert => alert.ReceivedAt >= since)
+                .OrderByDescending(alert => alert.ReceivedAt)
+                .ToArrayAsync(cancellationToken);
+            return alerts.Select(ResolveDisplayIdentity).ToArray();
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load recent alerts from the database.");
+            return [];
+        }
+    }
+
+    /// <summary>
     /// Loads alerts received on or after the supplied timestamp, ordered newest first. Unlike the UI loader, configuration and database failures are propagated to the caller.
     /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetSinceRequiredAsync(

@@ -6,6 +6,8 @@ public sealed class AlertGraphHierarchyJsonTests
 {
     private static readonly AlertGraphHierarchyTestCases Cases =
         TestCaseLoader.Load<AlertGraphHierarchyTestCases>("alert-graph-hierarchy.json");
+    private static readonly AlertHistoryOptions HistoryOptions = new();
+    private static readonly AlertGraphOptions GraphOptions = CreateGraphOptions();
     private static readonly QueryResultPresenter Presenter =
         new(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
     public static IEnumerable<object[]> GroupingCaseIndexes => Indexes(Cases.Groupings.Count);
@@ -34,7 +36,7 @@ public sealed class AlertGraphHierarchyJsonTests
     public void ExposesOnlyJsonConfiguredExpectedChoicesForEachLayer(int caseIndex)
     {
         var testCase = Cases.Choices[caseIndex];
-        var choices = AlertGraphHierarchy.ChoicesForLevel(testCase.Level);
+        var choices = GraphOptions.ChoicesForLevel(testCase.Level);
         Assert.Equal(testCase.ExpectedValues, choices.Select(choice => choice.Value));
         Assert.Equal(testCase.ExpectedLabels, choices.Select(choice => choice.Label));
     }
@@ -42,7 +44,7 @@ public sealed class AlertGraphHierarchyJsonTests
     private static void AssertGrouping(GraphGroupingCase testCase, AlertRecord[] alerts)
     {
         var hierarchy = AlertGraphHierarchy.Build(
-            alerts, AlertLifecycle.GetActiveAlerts(alerts), Cases.BaseTime.AddDays(-7),
+            alerts, AlertLifecycle.GetActiveAlerts(alerts), HistoryOptions.GetCutoff(Cases.BaseTime),
             testCase.Layers[0], testCase.Layers[1], testCase.Layers[2]);
         var root = Assert.Single(hierarchy);
         Assert.Equal(testCase.ExpectedMiddleNames, root.Children.Select(node => node.Name));
@@ -82,4 +84,25 @@ public sealed class AlertGraphHierarchyJsonTests
 
     private static IEnumerable<object[]> Indexes(int count) =>
         Enumerable.Range(0, count).Select(index => new object[] { index });
+
+    private static AlertGraphOptions CreateGraphOptions()
+    {
+        AlertGraphLayerChoice[] Choices(int level)
+        {
+            var configured = Cases.Choices.Single(choice => choice.Level == level);
+            return configured.ExpectedValues
+                .Zip(configured.ExpectedLabels, (value, label) => new AlertGraphLayerChoice(value, label))
+                .ToArray();
+        }
+
+        return new AlertGraphOptions
+        {
+            Layer1 = Choices(1),
+            Layer2 = Choices(2),
+            Layer3 = Choices(3),
+            DefaultLayer1 = AlertGraphLayer.Subscription,
+            DefaultLayer2 = AlertGraphLayer.ResourceGroup,
+            DefaultLayer3 = AlertGraphLayer.Target
+        };
+    }
 }

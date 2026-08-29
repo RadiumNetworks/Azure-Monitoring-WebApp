@@ -2,6 +2,8 @@
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @inject AlertStore AlertStore
+@inject AlertGraphOptions AlertGraph
+@inject AlertHistoryOptions AlertHistory
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Alert Graph</PageTitle>
@@ -17,13 +19,13 @@
     <div>
         <p class="eyebrow">Operations</p>
         <h1>Alert graph</h1>
-        <p class="subtitle">Subscriptions, resource groups, and targets seen in the last 7 days.</p>
+        <p class="subtitle">Subscriptions, resource groups, and targets seen in the last @HistoryWindowLabel.</p>
     </div>
-    <div class="graph-summary" aria-label="@openCount open alerts and @historyCount history alerts">
+    <div class="graph-summary" aria-label="@openCount open alerts and @historyCount history alerts in the last @HistoryWindowLabel">
         <strong>@openCount</strong>
         <span>open</span>
         <strong>@historyCount</strong>
-        <span>history</span>
+        <span>history / @HistoryWindowLabel</span>
     </div>
 </section>
 
@@ -31,7 +33,7 @@
     <label>
         <span>Layer 1</span>
         <select @bind="selectedLayer1" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraphHierarchy.ChoicesForLevel(1))
+            @foreach (var choice in AlertGraph.ChoicesForLevel(1))
             {
                 <option value="@choice.Value">@choice.Label</option>
             }
@@ -40,7 +42,7 @@
     <label>
         <span>Layer 2</span>
         <select @bind="selectedLayer2" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraphHierarchy.ChoicesForLevel(2))
+            @foreach (var choice in AlertGraph.ChoicesForLevel(2))
             {
                 <option value="@choice.Value">@choice.Label</option>
             }
@@ -49,7 +51,7 @@
     <label>
         <span>Layer 3</span>
         <select @bind="selectedLayer3" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraphHierarchy.ChoicesForLevel(3))
+            @foreach (var choice in AlertGraph.ChoicesForLevel(3))
             {
                 <option value="@choice.Value">@choice.Label</option>
             }
@@ -62,9 +64,9 @@
         <div class="graph-legend" aria-label="Count legend">
             <span><i class="legend-open" aria-hidden="true"></i>Open alerts</span>
             <span><i class="legend-history" aria-hidden="true"></i>History alerts</span>
-            <span><i class="@LegendClass(selectedLayer1)" aria-hidden="true"></i>@AlertGraphHierarchy.Label(selectedLayer1)</span>
-            <span><i class="@LegendClass(selectedLayer2)" aria-hidden="true"></i>@AlertGraphHierarchy.Label(selectedLayer2)</span>
-            <span><i class="@LegendClass(selectedLayer3)" aria-hidden="true"></i>@AlertGraphHierarchy.Label(selectedLayer3)</span>
+            <span><i class="@LegendClass(selectedLayer1)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer1)</span>
+            <span><i class="@LegendClass(selectedLayer2)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer2)</span>
+            <span><i class="@LegendClass(selectedLayer3)" aria-hidden="true"></i>@AlertGraph.Label(selectedLayer3)</span>
         </div>
         <div class="graph-tools">
             <span>Updated @currentTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
@@ -125,19 +127,23 @@
     private AlertGraphLayer selectedLayer1 = AlertGraphLayer.Subscription;
     private AlertGraphLayer selectedLayer2 = AlertGraphLayer.ResourceGroup;
     private AlertGraphLayer selectedLayer3 = AlertGraphLayer.Target;
+    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
 
     private IReadOnlyList<AlertGraphHierarchyNode> GetNavigationTree() =>
         AlertGraphHierarchy.Build(
             alerts,
             AlertLifecycle.GetActiveAlerts(alerts),
-            currentTimeUtc.AddDays(-7),
+            AlertHistory.GetCutoff(currentTimeUtc),
             selectedLayer1,
             selectedLayer2,
             selectedLayer3);
 
     protected override async Task OnInitializedAsync()
     {
-        alerts = await AlertStore.GetAllAsync();
+        selectedLayer1 = AlertGraph.DefaultLayer1;
+        selectedLayer2 = AlertGraph.DefaultLayer2;
+        selectedLayer3 = AlertGraph.DefaultLayer3;
+        alerts = await AlertStore.GetSinceAsync(AlertHistory.GetCutoff(currentTimeUtc));
         AlertStore.Changed += HandleStoreChanged;
         refreshTask = RefreshClockAsync(refreshCancellation.Token);
     }
@@ -175,8 +181,8 @@
 
     private async Task ReloadAlertsAsync()
     {
-        alerts = await AlertStore.GetAllAsync();
         currentTimeUtc = DateTimeOffset.UtcNow;
+        alerts = await AlertStore.GetSinceAsync(AlertHistory.GetCutoff(currentTimeUtc));
         graphNeedsInitialization = true;
         await InvokeAsync(StateHasChanged);
     }

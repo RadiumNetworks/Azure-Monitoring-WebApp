@@ -21,8 +21,8 @@
     "expectedLeafCount": 3
   },
   "choices": [
-    { "level": 1, "expectedValues": ["Subscription"], "expectedLabels": ["Subscription"] },
+    { "level": 1, "expectedValues": ["Subscription", "ResourceGroup"], "expectedLabels": ["Subscription", "Resourcegroup"] },
     { "level": 2, "expectedValues": ["AlertName", "ResourceGroup", "Site"], "expectedLabels": ["AlertName", "Resourcegroup", "Site"] },
-    { "level": 3, "expectedValues": ["Target"], "expectedLabels": ["Target"] }
+    { "level": 3, "expectedValues": ["Target", "Site"], "expectedLabels": ["Target", "Site"] }
   ]
 }

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @inject AlertStore AlertStore
+@inject AlertHistoryOptions AlertHistory
 @inject QueryResultPresenter QueryResultPresenter
 
 <PageTitle>Alert Console</PageTitle>
@@ -42,9 +43,9 @@
             <span>Now</span>
         </div>
     </div>
-    <div class="alert-count" aria-label="Total alert count">
-        <strong>@alerts.Count</strong>
-        <span>received</span>
+    <div class="alert-count" aria-label="@RecentAlertCount alerts received in the last @HistoryWindowLabel">
+        <strong>@RecentAlertCount</strong>
+        <span>received / @HistoryWindowLabel</span>
     </div>
 </section>
 
@@ -71,23 +72,27 @@
     </label>
     <label>
         <span>Received from</span>
-        <input type="datetime-local" @bind="receivedFrom" @bind:format="yyyy-MM-ddTHH:mm" />
+        <input type="datetime-local" value="@receivedFromInput" @onchange="ChangeReceivedFrom" @onfocus="BeginDateTimeEdit" @onblur="EndDateTimeEdit" />
     </label>
     <label>
         <span>Received to</span>
-        <input type="datetime-local" @bind="receivedTo" @bind:format="yyyy-MM-ddTHH:mm" />
+        <input type="datetime-local" value="@receivedToInput" @onchange="ChangeReceivedTo" @onfocus="BeginDateTimeEdit" @onblur="EndDateTimeEdit" />
     </label>
     <button class="clear-filters" type="button" disabled="@(!HasFilters)" @onclick="ClearFilters">Clear filters</button>
 </section>
 
 @{
     var navigationTree = GetNavigationTree();
+    var visibleAlerts = FilteredAlerts.ToArray();
+    var heatmapCells = GetHeatmapCells(visibleAlerts);
+    var maximumHeatmapCount = heatmapCells.Count == 0 ? 0 : heatmapCells.Max(cell => cell.Count);
 }
+<div class="navigation-overview">
 <nav class="alert-navigation" aria-label="Alert history by subscription, resource group, and target">
     <div class="tree-heading">
         <div>
             <strong>Alert navigation</strong>
-            <span>Seen in last 7 days / active counts</span>
+            <span>Seen in last @HistoryWindowLabel / active counts</span>
         </div>
         <span class="tree-total">@navigationTree.Sum(subscription => subscription.Count) open</span>
     </div>
@@ -145,6 +150,38 @@
         }
     </div>
 </nav>
+<section class="alert-heatmap" aria-labelledby="heatmap-title">
+    <div class="heatmap-heading">
+        <div>
+            <strong id="heatmap-title">Visible targets and sites</strong>
+            <span>Based on @AlertCountLabel(visibleAlerts.Length) shown</span>
+        </div>
+        @if (heatmapCells.Count > 0)
+        {
+            <div class="heatmap-legend" aria-label="Alert density from low to high">
+                <span>Low</span><i></i><i></i><i></i><span>High</span>
+            </div>
+        }
+    </div>
+    @if (heatmapCells.Count == 0)
+    {
+        <p class="heatmap-empty">No targets match the current view and filters.</p>
+    }
+    else
+    {
+        <div class="heatmap-grid">
+            @foreach (var cell in heatmapCells)
+            {
+                <div class="heatmap-cell" style="@HeatmapCellStyle(cell.Count, maximumHeatmapCount)" title="@AlertCountLabel(cell.Count) for @cell.Target in @cell.Site" aria-label="@cell.Target, site @cell.Site: @AlertCountLabel(cell.Count)">
+                    <strong>@cell.Count</strong>
+                    <span class="heatmap-target">@cell.Target</span>
+                    <span class="heatmap-site">@cell.Site</span>
+                </div>
+            }
+        </div>
+    }
+</section>
+</div>
 
 @if (!IsTimeRangeValid)
 {
@@ -152,7 +189,7 @@
 }
 
 <section class="table-region" aria-live="polite">
-    <div class="result-summary">Showing @FilteredAlerts.Count() of @ViewAlerts.Count() alerts in this view</div>
+    <div class="result-summary">Showing @visibleAlerts.Length of @ViewAlerts.Count() alerts in this view</div>
     <div class="table-scroll">
         <table class="alert-table">
             <colgroup>
@@ -176,7 +213,7 @@
                 </tr>
             </thead>
             <tbody>
-                @if (!FilteredAlerts.Any())
+                @if (visibleAlerts.Length == 0)
                 {
                     <tr>
                         <td colspan="7" class="empty-state">
@@ -185,7 +222,7 @@
                         </td>
                     </tr>
                 }
-                @foreach (var alert in FilteredAlerts)
+                @foreach (var alert in visibleAlerts)
                 {
                     var queryResult = QueryResultPresenter.Parse(alert.RawJson);
                     <tr class="@(expandedAlertId == alert.Id ? "selected" : null)">
@@ -286,6 +323,8 @@
     private string subscriptionFilter = string.Empty;
     private string targetNameFilter = string.Empty;
     private string selectedTimeZoneId = "utc";
+    private string receivedFromInput = string.Empty;
+    private string receivedToInput = string.Empty;
     private DateTime? receivedFrom;
     private DateTime? receivedTo;
     private string sortColumn = nameof(AlertRecord.ReceivedAt);
@@ -294,6 +333,7 @@
     private string commentDraft = string.Empty;
     private string commentSaveError = string.Empty;
     private bool isSavingComment;
+    private bool isEditingDateTime;
     private readonly HashSet<string> expandedSubscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> expandedResourceGroups = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource clockCancellation = new();
@@ -306,6 +346,8 @@
 
     private bool IsTimeRangeValid => receivedFrom is null || receivedTo is null || receivedFrom <= receivedTo;
     private AlertTimeZoneOption SelectedTimeZone => AlertTimeZones.Get(selectedTimeZoneId);
+    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
+    private int RecentAlertCount => alerts.Count(alert => alert.ReceivedAt >= AlertHistory.GetCutoff(currentTimeUtc));
 
     private static string TreeCountStyle(int count)
     {
@@ -328,7 +370,7 @@
     private IReadOnlyList<AlertRecord> ActiveAlerts => AlertLifecycle.GetActiveAlerts(alerts);
 
     private IReadOnlyList<SubscriptionNode> GetNavigationTree() =>
-        AlertNavigation.Build(alerts, ActiveAlerts, currentTimeUtc.AddDays(-7));
+        AlertNavigation.Build(alerts, ActiveAlerts, AlertHistory.GetCutoff(currentTimeUtc));
 
     private IEnumerable<AlertRecord> FilteredAlerts
     {
@@ -355,6 +397,37 @@
                 _ => filtered.OrderByDescending(alert => alert.ReceivedAt)
             };
         }
+    }
+
+    private static IReadOnlyList<HeatmapCell> GetHeatmapCells(IEnumerable<AlertRecord> visibleAlerts) =>
+        visibleAlerts
+            .GroupBy(
+                alert => $"{HeatmapTarget(alert)}\u001f{HeatmapSite(alert)}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => new HeatmapCell(
+                HeatmapTarget(group.First()),
+                HeatmapSite(group.First()),
+                group.Count()))
+            .OrderByDescending(cell => cell.Count)
+            .ThenBy(cell => cell.Site, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(cell => cell.Target, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static string HeatmapTarget(AlertRecord alert) =>
+        string.IsNullOrWhiteSpace(alert.TargetName) ? "Unknown target" : alert.TargetName;
+
+    private static string HeatmapSite(AlertRecord alert) =>
+        string.IsNullOrWhiteSpace(alert.SiteName) ? "Unknown site" : alert.SiteName;
+
+    private static string AlertCountLabel(int count) => $"{count} {(count == 1 ? "alert" : "alerts")}";
+
+    private static string HeatmapCellStyle(int count, int maximumCount)
+    {
+        var intensity = maximumCount == 0 ? 0 : (double)count / maximumCount;
+        var hue = 112 - intensity * 112;
+        var saturation = 58 + intensity * 12;
+        var lightness = 94 - intensity * 36;
+        return FormattableString.Invariant($"--heat-hue:{hue:0};--heat-saturation:{saturation:0}%;--heat-lightness:{lightness:0}%");
     }
 
     private IReadOnlyList<HourlyAlertCount> GetHourlyAlertCounts()
@@ -424,15 +497,42 @@
         if (receivedFrom is not null)
         {
             receivedFrom = AlertTimeZones.ConvertWallClock(receivedFrom.Value, selectedTimeZoneId, newTimeZoneId);
+            receivedFromInput = FormatDateTimeInput(receivedFrom.Value);
         }
 
         if (receivedTo is not null)
         {
             receivedTo = AlertTimeZones.ConvertWallClock(receivedTo.Value, selectedTimeZoneId, newTimeZoneId);
+            receivedToInput = FormatDateTimeInput(receivedTo.Value);
         }
 
         selectedTimeZoneId = newTimeZoneId;
     }
+
+    private void ChangeReceivedFrom(ChangeEventArgs eventArgs)
+    {
+        receivedFromInput = eventArgs.Value?.ToString() ?? string.Empty;
+        receivedFrom = ParseDateTimeInput(receivedFromInput);
+    }
+
+    private void ChangeReceivedTo(ChangeEventArgs eventArgs)
+    {
+        receivedToInput = eventArgs.Value?.ToString() ?? string.Empty;
+        receivedTo = ParseDateTimeInput(receivedToInput);
+    }
+
+    private static DateTime? ParseDateTimeInput(string value) =>
+        DateTime.TryParseExact(
+            value,
+            ["yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss"],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var parsedValue)
+                ? parsedValue
+                : null;
+
+    private static string FormatDateTimeInput(DateTime value) =>
+        value.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
     protected override async Task OnInitializedAsync()
     {
@@ -449,7 +549,10 @@
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 currentTimeUtc = DateTimeOffset.UtcNow;
-                await InvokeAsync(StateHasChanged);
+                if (!isEditingDateTime)
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -460,6 +563,14 @@
     private void HandleStoreChanged()
     {
         _ = ReloadAlertsAsync();
+    }
+
+    private void BeginDateTimeEdit() => isEditingDateTime = true;
+
+    private void EndDateTimeEdit()
+    {
+        isEditingDateTime = false;
+        currentTimeUtc = DateTimeOffset.UtcNow;
     }
 
     private async Task ReloadAlertsAsync()
@@ -513,6 +624,8 @@
         resourceGroupFilter = string.Empty;
         subscriptionFilter = string.Empty;
         targetNameFilter = string.Empty;
+        receivedFromInput = string.Empty;
+        receivedToInput = string.Empty;
         receivedFrom = null;
         receivedTo = null;
     }
@@ -567,6 +680,9 @@
         alert.SignalType,
         alert.MonitorCondition,
         alert.Target,
+        alert.TargetName,
+        alert.TargetDisplayName,
+        alert.SiteName,
         alert.ResourceGroup,
         alert.SearchQuery,
         alert.SubscriptionId,
@@ -574,6 +690,8 @@
         alert.Comments);
 
     private sealed record HourlyAlertCount(DateTimeOffset Hour, int Count);
+    private sealed record HeatmapCell(string Target, string Site, int Count);
+
     public void Dispose()
     {
         AlertStore.Changed -= HandleStoreChanged;
