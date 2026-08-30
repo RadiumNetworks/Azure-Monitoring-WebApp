@@ -149,6 +149,22 @@ namespace MonitoringApp.Migrations
 
                     b.ToTable("ComputerInventory", (string)null);
                 });
+
+            modelBuilder.Entity("MonitoringApp.SqlAuthenticationUser", b =>
+                {
+                    b.Property<string>("Username")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.HasKey("Username");
+
+                    b.ToTable("AuthenticationUsers", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

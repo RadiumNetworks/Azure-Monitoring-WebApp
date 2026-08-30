@@ -1,0 +1,57 @@
+@page "/login"
+@layout LoginLayout
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+
+<PageTitle>Sign in</PageTitle>
+
+<section class="login-shell">
+    <div class="login-panel">
+        <p class="eyebrow">Restricted access</p>
+        <h1>Sign in</h1>
+        @if (AuthenticationOptions.IsOpen)
+        {
+            <p class="subtitle">SQL authentication is not enabled. The application is configured for open access.</p>
+            <a class="admin-primary login-home-link" href="/">Open Alert Console</a>
+        }
+        else
+        {
+            <p class="subtitle">Enter an account stored in the application authentication database.</p>
+            @if (Error == "invalid")
+            {
+                <div class="admin-message admin-message-error" role="alert">
+                    The username or password is incorrect.
+                </div>
+            }
+            <form class="login-form" method="post" action="/auth/login">
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="@SafeReturnUrl" />
+                <label class="admin-field">
+                    <span>Username</span>
+                    <input name="Username" required maxlength="128" autocomplete="username" autofocus />
+                </label>
+                <label class="admin-field">
+                    <span>Password</span>
+                    <input name="Password" type="password" required maxlength="1024" autocomplete="current-password" />
+                </label>
+                <button class="admin-primary" type="submit">Sign in</button>
+            </form>
+        }
+    </div>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string SafeReturnUrl =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) &&
+        Uri.TryCreate(ReturnUrl, UriKind.Relative, out _) &&
+        ReturnUrl.StartsWith('/') &&
+        !ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+            ? ReturnUrl
+            : "/";
+}

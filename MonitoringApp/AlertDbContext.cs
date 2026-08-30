@@ -10,6 +10,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<ComputerInventoryEntry> ComputerInventory => Set<ComputerInventoryEntry>();
+    public DbSet<SqlAuthenticationUser> AuthenticationUsers => Set<SqlAuthenticationUser>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -63,5 +64,11 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         inventoryEntry.Property(entry => entry.Domain).HasMaxLength(256);
         inventoryEntry.Property(entry => entry.Site).HasMaxLength(256);
         inventoryEntry.Property(entry => entry.Computer).HasMaxLength(256);
+
+        var authenticationUser = modelBuilder.Entity<SqlAuthenticationUser>();
+        authenticationUser.ToTable("AuthenticationUsers");
+        authenticationUser.HasKey(user => user.Username);
+        authenticationUser.Property(user => user.Username).HasMaxLength(128);
+        authenticationUser.Property(user => user.PasswordHash).HasMaxLength(512);
     }
 }

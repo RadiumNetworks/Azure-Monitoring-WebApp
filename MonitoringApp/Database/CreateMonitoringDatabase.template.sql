@@ -136,6 +136,17 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[AuthenticationUsers]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AuthenticationUsers]
+    (
+        [Username]     nvarchar(128) NOT NULL,
+        [PasswordHash] nvarchar(512) NOT NULL,
+        CONSTRAINT [PK_AuthenticationUsers] PRIMARY KEY ([Username])
+    );
+END;
+GO
+
 IF EXISTS
 (
     SELECT 1
@@ -338,6 +349,18 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830120000_AddAuthenticationUsers'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260830120000_AddAuthenticationUsers', N'9.0.19');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -353,6 +376,7 @@ SELECT
     OBJECT_ID(N'[dbo].[Alerts]', N'U') AS [AlertsTableObjectId],
     OBJECT_ID(N'[dbo].[AlertRules]', N'U') AS [AlertRulesTableObjectId],
     OBJECT_ID(N'[dbo].[ComputerInventory]', N'U') AS [ComputerInventoryTableObjectId],
+    OBJECT_ID(N'[dbo].[AuthenticationUsers]', N'U') AS [AuthenticationUsersTableObjectId],
     (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
     (SELECT COUNT(*) FROM [dbo].[ComputerInventory]) AS [ComputerInventoryCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];

@@ -1,0 +1,304 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject SqlAuthenticationService AuthenticationService
+
+<PageTitle>Authentication Users</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Authentication users</h1>
+        <p class="subtitle">Create SQL login accounts, reset their passwords, or remove accounts that are no longer required.</p>
+    </div>
+    <div class="admin-heading-actions">
+        <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadUsersAsync">
+            @(isLoading ? "Refreshing..." : "Refresh")
+        </button>
+        <button class="admin-primary" type="button" @onclick="BeginCreate">Create user</button>
+    </div>
+</section>
+
+@if (!AuthenticationOptions.IsSql)
+{
+    <div class="admin-message admin-message-warning" role="alert">
+        <strong>Open authentication is active.</strong> This page is currently accessible without a login.
+        Create the first account, then change <strong>Authentication:Type</strong> to <strong>sql</strong> and restart the application.
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+<div class="admin-workspace">
+        <section class="admin-rule-list" aria-labelledby="users-heading">
+            <div class="admin-section-heading">
+                <div>
+                    <h2 id="users-heading">Current users</h2>
+                    <span>@UserCountLabel(usernames.Count)</span>
+                </div>
+            </div>
+
+            @if (isLoading && usernames.Count == 0)
+            {
+                <p class="admin-empty">Loading authentication users...</p>
+            }
+            else if (usernames.Count == 0)
+            {
+                <p class="admin-empty">No authentication users are configured.</p>
+            }
+            else
+            {
+                <div class="admin-rule-cards auth-user-cards">
+                    @foreach (var username in usernames)
+                    {
+                        <article class="admin-rule-card @(editingUsername == username ? "selected" : null)">
+                            <div class="admin-rule-card-heading">
+                                <div>
+                                    <span class="admin-status enabled">SQL user</span>
+                                    <h3>@username</h3>
+                                </div>
+                                <div class="admin-card-actions">
+                                    <button class="admin-secondary" type="button" @onclick="() => BeginPasswordReset(username)">Reset password</button>
+                                    <button class="admin-danger" type="button" @onclick="() => BeginDelete(username)">Delete</button>
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="admin-editor" aria-labelledby="user-editor-heading">
+            @if (editingUsername is null)
+            {
+                <div class="admin-editor-placeholder">
+                    <strong>Select or create a user</strong>
+                    <span>Create a SQL login account or select an existing account to assign a new password.</span>
+                </div>
+            }
+            else
+            {
+                <div class="admin-section-heading">
+                    <div>
+                        <p class="eyebrow">@(isCreating ? "New user" : "Password reset")</p>
+                        <h2 id="user-editor-heading">@(isCreating ? "Create authentication user" : editingUsername)</h2>
+                    </div>
+                </div>
+
+                <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                    <label class="admin-field admin-field-wide">
+                        <span>Username</span>
+                        @if (isCreating)
+                        {
+                            <input required maxlength="128" autocomplete="off" @bind="editingUsername" />
+                        }
+                        else
+                        {
+                            <input value="@editingUsername" readonly />
+                        }
+                        <small>Usernames must be unique. Existing usernames cannot be renamed.</small>
+                    </label>
+                    <label class="admin-field admin-field-wide">
+                        <span>@(isCreating ? "Password" : "New password")</span>
+                        <input type="password" required maxlength="1024" autocomplete="new-password" @bind="password" />
+                        <small>The password is converted to a salted PBKDF2 hash before it is stored.</small>
+                    </label>
+                    <label class="admin-field admin-field-wide">
+                        <span>Confirm password</span>
+                        <input type="password" required maxlength="1024" autocomplete="new-password" @bind="passwordConfirmation" />
+                    </label>
+                    <div class="admin-form-actions">
+                        <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
+                        <button class="admin-primary" type="submit" disabled="@isSaving">
+                            @(isSaving ? "Saving..." : isCreating ? "Create user" : "Set new password")
+                        </button>
+                    </div>
+                </form>
+            }
+        </section>
+</div>
+
+@if (usernameToDelete is not null)
+{
+    <div class="admin-dialog-backdrop" role="presentation">
+        <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-heading">
+            <p class="eyebrow">Permanent action</p>
+            <h2 id="delete-user-heading">Delete authentication user?</h2>
+            <p>
+                Delete <strong>@usernameToDelete</strong>? The user will no longer be able to create a new session.
+                The last remaining authentication user cannot be deleted.
+            </p>
+            <div class="admin-form-actions">
+                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
+                <button class="admin-danger" type="button" disabled="@isDeleting" @onclick="DeleteAsync">
+                    @(isDeleting ? "Deleting..." : "Delete user")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<string> usernames = [];
+    private string? editingUsername;
+    private string? usernameToDelete;
+    private string password = string.Empty;
+    private string passwordConfirmation = string.Empty;
+    private bool isCreating;
+    private bool isLoading;
+    private bool isSaving;
+    private bool isDeleting;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadUsersAsync();
+
+    private async Task LoadUsersAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            usernames = await AuthenticationService.GetUsernamesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginCreate()
+    {
+        editingUsername = string.Empty;
+        password = string.Empty;
+        passwordConfirmation = string.Empty;
+        isCreating = true;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void BeginPasswordReset(string username)
+    {
+        editingUsername = username;
+        password = string.Empty;
+        passwordConfirmation = string.Empty;
+        isCreating = false;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        editingUsername = null;
+        password = string.Empty;
+        passwordConfirmation = string.Empty;
+        isCreating = false;
+        errorMessage = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editingUsername is null || isSaving)
+        {
+            return;
+        }
+
+        if (password != passwordConfirmation)
+        {
+            errorMessage = "Password and confirmation do not match.";
+            return;
+        }
+
+        isSaving = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var username = editingUsername;
+            if (isCreating)
+            {
+                username = await AuthenticationService.CreateUserAsync(username, password);
+                statusMessage = $"Authentication user '{username}' was created.";
+            }
+            else
+            {
+                await AuthenticationService.SetPasswordAsync(username, password);
+                statusMessage = $"The password for '{username}' was updated.";
+            }
+
+            editingUsername = null;
+            password = string.Empty;
+            passwordConfirmation = string.Empty;
+            isCreating = false;
+            await LoadUsersAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void BeginDelete(string username)
+    {
+        usernameToDelete = username;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelDelete() => usernameToDelete = null;
+
+    private async Task DeleteAsync()
+    {
+        if (usernameToDelete is null || isDeleting)
+        {
+            return;
+        }
+
+        isDeleting = true;
+        statusMessage = null;
+        errorMessage = null;
+        var username = usernameToDelete;
+        try
+        {
+            if (!await AuthenticationService.DeleteUserAsync(username))
+            {
+                errorMessage = "The authentication user no longer exists.";
+                return;
+            }
+
+            if (editingUsername == username)
+            {
+                CancelEdit();
+            }
+
+            usernameToDelete = null;
+            statusMessage = $"Authentication user '{username}' was deleted.";
+            await LoadUsersAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private static string UserCountLabel(int count) => count == 1 ? "1 user" : $"{count} users";
+}

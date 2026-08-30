@@ -1,5 +1,12 @@
+using System.Security.Claims;
 using System.Text.Json;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -7,6 +14,18 @@ using MonitoringApp;
 using MonitoringApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+const string SqlCookieScheme = "SqlAuthentication";
+
+var applicationAuthentication = builder.Configuration
+    .GetSection(ApplicationAuthenticationOptions.SectionName)
+    .Get<ApplicationAuthenticationOptions>() ?? new ApplicationAuthenticationOptions();
+var applicationAuthenticationErrors = applicationAuthentication.Validate();
+if (applicationAuthenticationErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid application authentication configuration: {string.Join(" ", applicationAuthenticationErrors)}");
+}
+
 var alertHistory = builder.Configuration
     .GetSection(AlertHistoryOptions.SectionName)
     .Get<AlertHistoryOptions>() ?? new AlertHistoryOptions();
@@ -85,11 +104,53 @@ var effectiveConnectionString = databaseConfiguration.IsValid
     : "Server=127.0.0.1,1;Database=Unavailable;Connect Timeout=1;Encrypt=False";
 
 builder.Services.AddOpenApi();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("SqlLogin", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
+builder.Services.AddSingleton(applicationAuthentication);
 builder.Services.AddSingleton(alertHistory);
 builder.Services.AddSingleton(alertSeverityDisplay);
 builder.Services.AddSingleton(alertGraph);
 builder.Services.AddSingleton(ingestionAuthentication);
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = SqlCookieScheme;
+        options.DefaultChallengeScheme = SqlCookieScheme;
+        options.DefaultSignInScheme = SqlCookieScheme;
+    })
+    .AddCookie(SqlCookieScheme, options =>
+    {
+        options.Cookie.Name = ".MonitoringApp.SqlAuthentication";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
+        options.LoginPath = "/login";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            }
+
+            context.Response.Redirect(context.RedirectUri);
+            return Task.CompletedTask;
+        };
+    })
     .AddJwtBearer(options =>
     {
         options.Authority = "https://login.microsoftonline.com/organizations/v2.0";
@@ -103,11 +164,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 $"https://login.microsoftonline.com/{source.TenantId}/v2.0")
         };
     });
-builder.Services.AddAuthorizationBuilder()
+var authorization = builder.Services.AddAuthorizationBuilder();
+if (applicationAuthentication.IsSql)
+{
+    authorization.SetFallbackPolicy(new AuthorizationPolicyBuilder(SqlCookieScheme)
+        .RequireAuthenticatedUser()
+        .Build());
+}
+
+authorization
     .AddPolicy("LogicAppAlertWriter", policy =>
     {
-        if (ingestionAuthentication.Enabled)
+        if (!applicationAuthentication.IsOpen && ingestionAuthentication.Enabled)
         {
+            policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
             policy.RequireAuthenticatedUser();
             policy.RequireAssertion(context =>
                 AlertIngestionAuthorization.IsAuthorized(context.User, ingestionAuthentication));
@@ -123,6 +193,8 @@ builder.Services.AddDbContextFactory<AlertDbContext>(options =>
     options.UseSqlServer(effectiveConnectionString, sqlServerOptions =>
         sqlServerOptions.EnableRetryOnFailure()));
 builder.Services.AddSingleton(databaseConfiguration);
+builder.Services.AddSingleton<SqlPasswordHasher>();
+builder.Services.AddSingleton<SqlAuthenticationService>();
 builder.Services.AddSingleton<AlertStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
@@ -154,10 +226,53 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler("/error", createScopeForErrors: true);
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
-app.MapStaticAssets();
+app.MapStaticAssets().AllowAnonymous();
+
+app.MapPost("/auth/login", async (
+    [FromForm] LoginRequest request,
+    HttpContext httpContext,
+    SqlAuthenticationService authenticationService,
+    CancellationToken cancellationToken) =>
+{
+    if (!applicationAuthentication.IsSql)
+    {
+        return Results.Redirect("/");
+    }
+
+    var username = await authenticationService.ValidateCredentialsAsync(
+        request.Username,
+        request.Password,
+        cancellationToken);
+    if (username is null)
+    {
+        var returnUrl = Uri.EscapeDataString(SafeReturnUrl(request.ReturnUrl));
+        return Results.Redirect($"/login?error=invalid&returnUrl={returnUrl}");
+    }
+
+    var identity = new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, username),
+            new Claim(ClaimTypes.Name, username)
+        ],
+        SqlCookieScheme);
+    await httpContext.SignInAsync(
+        SqlCookieScheme,
+        new ClaimsPrincipal(identity),
+        new AuthenticationProperties { IsPersistent = false });
+    return Results.Redirect(SafeReturnUrl(request.ReturnUrl));
+})
+.AllowAnonymous()
+.RequireRateLimiting("SqlLogin");
+
+app.MapPost("/auth/logout", async (HttpContext httpContext) =>
+{
+    await httpContext.SignOutAsync(SqlCookieScheme);
+    return Results.Redirect("/login");
+});
 
 app.MapPost("/api/alerts", async (JsonElement payload, AlertStore store, CancellationToken cancellationToken) =>
 {
@@ -253,3 +368,11 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static string SafeReturnUrl(string? returnUrl) =>
+    !string.IsNullOrWhiteSpace(returnUrl) &&
+    Uri.TryCreate(returnUrl, UriKind.Relative, out _) &&
+    returnUrl.StartsWith('/') &&
+    !returnUrl.StartsWith("//", StringComparison.Ordinal)
+        ? returnUrl
+        : "/";
