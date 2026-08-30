@@ -74,7 +74,7 @@ public sealed class SqlPasswordHasherTests
 public sealed class SqlAuthenticationUserModelTests
 {
     [Fact]
-    public void UsesExactTwoColumnAuthenticationTable()
+    public void UsesAuthenticationTableWithRoleColumn()
     {
         var options = new DbContextOptionsBuilder<AlertDbContext>()
             .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ModelOnly;Trusted_Connection=True;")
@@ -86,9 +86,35 @@ public sealed class SqlAuthenticationUserModelTests
         var propertyNames = entity.GetProperties().Select(property => property.Name).Order().ToArray();
 
         Assert.Equal("AuthenticationUsers", entity.GetTableName());
-        Assert.Equal([nameof(SqlAuthenticationUser.PasswordHash), nameof(SqlAuthenticationUser.Username)], propertyNames);
+        Assert.Equal(
+            [nameof(SqlAuthenticationUser.PasswordHash), nameof(SqlAuthenticationUser.Role), nameof(SqlAuthenticationUser.Username)],
+            propertyNames);
         Assert.Equal([nameof(SqlAuthenticationUser.Username)], entity.FindPrimaryKey()?.Properties.Select(property => property.Name));
         Assert.False(entity.FindProperty(nameof(SqlAuthenticationUser.Username))!.IsNullable);
         Assert.False(entity.FindProperty(nameof(SqlAuthenticationUser.PasswordHash))!.IsNullable);
+        var roleProperty = Assert.IsAssignableFrom<Microsoft.EntityFrameworkCore.Metadata.IProperty>(
+            entity.FindProperty(nameof(SqlAuthenticationUser.Role)));
+        Assert.False(roleProperty.IsNullable);
+        Assert.Equal(16, roleProperty.GetMaxLength());
+    }
+}
+
+public sealed class SqlAuthenticationRoleTests
+{
+    [Theory]
+    [InlineData("reader", SqlAuthenticationRoles.Reader)]
+    [InlineData("Operator", SqlAuthenticationRoles.Operator)]
+    [InlineData(" ADMIN ", SqlAuthenticationRoles.Admin)]
+    public void NormalizesSupportedRoles(string input, string expected)
+    {
+        Assert.Equal(expected, SqlAuthenticationRoles.Normalize(input));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Owner")]
+    public void RejectsUnsupportedRoles(string input)
+    {
+        Assert.Throws<InvalidOperationException>(() => SqlAuthenticationRoles.Normalize(input));
     }
 }

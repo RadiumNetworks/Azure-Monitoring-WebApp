@@ -70,5 +70,6 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         authenticationUser.HasKey(user => user.Username);
         authenticationUser.Property(user => user.Username).HasMaxLength(128);
         authenticationUser.Property(user => user.PasswordHash).HasMaxLength(512);
+        authenticationUser.Property(user => user.Role).HasMaxLength(16);
     }
 }

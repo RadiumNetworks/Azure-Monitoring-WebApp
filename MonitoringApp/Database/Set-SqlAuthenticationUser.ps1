@@ -8,6 +8,10 @@ param(
     [Security.SecureString]$Password,
 
     [Parameter()]
+    [ValidateSet('Reader', 'Operator', 'Admin')]
+    [string]$Role = 'Admin',
+
+    [Parameter()]
     [string]$ConnectionString
 )
 
@@ -78,19 +82,22 @@ IF OBJECT_ID(N'dbo.AuthenticationUsers', N'U') IS NULL
     THROW 50010, 'AuthenticationUsers does not exist. Apply the database migration first.', 1;
 
 UPDATE dbo.AuthenticationUsers
-SET PasswordHash = @passwordHash
+SET PasswordHash = @passwordHash,
+    Role = @role
 WHERE Username = @username;
 
 IF @@ROWCOUNT = 0
 BEGIN
-    INSERT INTO dbo.AuthenticationUsers (Username, PasswordHash)
-    VALUES (@username, @passwordHash);
+    INSERT INTO dbo.AuthenticationUsers (Username, PasswordHash, Role)
+    VALUES (@username, @passwordHash, @role);
 END;
 '@
     [void]$command.Parameters.Add('@username', [System.Data.SqlDbType]::NVarChar, 128)
     [void]$command.Parameters.Add('@passwordHash', [System.Data.SqlDbType]::NVarChar, 512)
+    [void]$command.Parameters.Add('@role', [System.Data.SqlDbType]::NVarChar, 16)
     $command.Parameters['@username'].Value = $normalizedUsername
     $command.Parameters['@passwordHash'].Value = $passwordHash
+    $command.Parameters['@role'].Value = $Role
     [void]$command.ExecuteNonQuery()
     Write-Host "SQL authentication user '$normalizedUsername' was created or updated." -ForegroundColor Green
 }

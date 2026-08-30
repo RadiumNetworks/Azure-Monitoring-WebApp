@@ -30,7 +30,28 @@ public sealed class SqlAuthenticationUser
 {
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
+    public string Role { get; set; } = SqlAuthenticationRoles.Reader;
 }
+
+public static class SqlAuthenticationRoles
+{
+    public const string Reader = "Reader";
+    public const string Operator = "Operator";
+    public const string Admin = "Admin";
+
+    public static readonly IReadOnlyList<string> All = [Reader, Operator, Admin];
+
+    public static string Normalize(string role)
+    {
+        var match = All.FirstOrDefault(candidate =>
+            candidate.Equals(role?.Trim(), StringComparison.OrdinalIgnoreCase));
+        return match ?? throw new InvalidOperationException(
+            $"Role must be one of: {string.Join(", ", All)}.");
+    }
+}
+
+public sealed record SqlAuthenticationResult(string Username, string Role);
+public sealed record SqlAuthenticationUserSummary(string Username, string Role);
 
 /// <summary>
 /// Hashes and verifies passwords with PBKDF2-HMAC-SHA256. The encoded value includes algorithm,
@@ -107,7 +128,7 @@ public sealed class SqlAuthenticationService(
     // A valid hash used when a username is unknown, reducing username-dependent timing differences.
     private const string DummyHash = "PBKDF2-SHA256$600000$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ=";
 
-    public async Task<string?> ValidateCredentialsAsync(
+    public async Task<SqlAuthenticationResult?> ValidateCredentialsAsync(
         string username,
         string password,
         CancellationToken cancellationToken = default)
@@ -123,26 +144,30 @@ public sealed class SqlAuthenticationService(
             .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Username == normalizedUsername, cancellationToken);
         var passwordIsValid = passwordHasher.Verify(password, user?.PasswordHash ?? DummyHash);
-        return user is not null && passwordIsValid ? user.Username : null;
+        return user is not null && passwordIsValid
+            ? new SqlAuthenticationResult(user.Username, SqlAuthenticationRoles.Normalize(user.Role))
+            : null;
     }
 
-    public async Task<IReadOnlyList<string>> GetUsernamesAsync(
+    public async Task<IReadOnlyList<SqlAuthenticationUserSummary>> GetUsersAsync(
         CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await context.AuthenticationUsers
             .AsNoTracking()
             .OrderBy(user => user.Username)
-            .Select(user => user.Username)
+            .Select(user => new SqlAuthenticationUserSummary(user.Username, user.Role))
             .ToArrayAsync(cancellationToken);
     }
 
     public async Task<string> CreateUserAsync(
         string username,
         string password,
+        string role,
         CancellationToken cancellationToken = default)
     {
         var normalizedUsername = NormalizeUsername(username);
+        var normalizedRole = SqlAuthenticationRoles.Normalize(role);
         ValidatePassword(password);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -156,7 +181,8 @@ public sealed class SqlAuthenticationService(
         context.AuthenticationUsers.Add(new SqlAuthenticationUser
         {
             Username = normalizedUsername,
-            PasswordHash = passwordHasher.Hash(password)
+            PasswordHash = passwordHasher.Hash(password),
+            Role = normalizedRole
         });
 
         try
@@ -171,6 +197,49 @@ public sealed class SqlAuthenticationService(
         }
 
         return normalizedUsername;
+    }
+
+    public async Task SetRoleAsync(
+        string username,
+        string role,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        var normalizedRole = SqlAuthenticationRoles.Normalize(role);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var existingRole = await context.AuthenticationUsers
+            .Where(user => user.Username == normalizedUsername)
+            .Select(user => user.Role)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (existingRole is null)
+        {
+            throw new InvalidOperationException("The authentication user no longer exists.");
+        }
+
+        if (existingRole == SqlAuthenticationRoles.Admin && normalizedRole != SqlAuthenticationRoles.Admin)
+        {
+            var updatedRows = await context.AuthenticationUsers
+                .Where(user => user.Username == normalizedUsername &&
+                    context.AuthenticationUsers.Count(candidate =>
+                        candidate.Role == SqlAuthenticationRoles.Admin) > 1)
+                .ExecuteUpdateAsync(
+                    update => update.SetProperty(user => user.Role, normalizedRole),
+                    cancellationToken);
+            if (updatedRows == 0)
+            {
+                throw new InvalidOperationException(
+                    "The last Admin cannot be assigned another role. Create another Admin first.");
+            }
+
+            return;
+        }
+
+        await context.AuthenticationUsers
+            .Where(user => user.Username == normalizedUsername)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(user => user.Role, normalizedRole),
+                cancellationToken);
     }
 
     public async Task SetPasswordAsync(
@@ -218,7 +287,10 @@ public sealed class SqlAuthenticationService(
         {
             deletedRows = await context.AuthenticationUsers
                 .Where(user => user.Username == normalizedUsername &&
-                    context.AuthenticationUsers.Count() > 1)
+                    context.AuthenticationUsers.Count() > 1 &&
+                    (user.Role != SqlAuthenticationRoles.Admin ||
+                        context.AuthenticationUsers.Count(candidate =>
+                            candidate.Role == SqlAuthenticationRoles.Admin) > 1))
                 .ExecuteDeleteAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
@@ -229,7 +301,7 @@ public sealed class SqlAuthenticationService(
         if (deletedRows == 0)
         {
             throw new InvalidOperationException(
-                "The last authentication user cannot be deleted. Create another user first.");
+                "The last authentication user or last Admin cannot be deleted. Create a replacement first.");
         }
 
         return true;

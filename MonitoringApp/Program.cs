@@ -15,6 +15,8 @@ using MonitoringApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 const string SqlCookieScheme = "SqlAuthentication";
+const string OperatorPolicy = "OperatorAccess";
+const string AdminPolicy = "AdminAccess";
 
 var applicationAuthentication = builder.Configuration
     .GetSection(ApplicationAuthenticationOptions.SectionName)
@@ -137,6 +139,7 @@ builder.Services.AddAuthentication(options =>
             ? CookieSecurePolicy.SameAsRequest
             : CookieSecurePolicy.Always;
         options.LoginPath = "/login";
+        options.AccessDeniedPath = "/access-denied";
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
         options.Events.OnRedirectToLogin = context =>
@@ -186,9 +189,17 @@ authorization
         {
             policy.RequireAssertion(_ => true);
         }
-    });
+    })
+    .AddPolicy(OperatorPolicy, policy => policy.RequireAssertion(context =>
+        applicationAuthentication.IsOpen ||
+        context.User.IsInRole(SqlAuthenticationRoles.Operator) ||
+        context.User.IsInRole(SqlAuthenticationRoles.Admin)))
+    .AddPolicy(AdminPolicy, policy => policy.RequireAssertion(context =>
+        applicationAuthentication.IsOpen ||
+        context.User.IsInRole(SqlAuthenticationRoles.Admin)));
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddDbContextFactory<AlertDbContext>(options =>
     options.UseSqlServer(effectiveConnectionString, sqlServerOptions =>
         sqlServerOptions.EnableRetryOnFailure()));
@@ -243,11 +254,11 @@ app.MapPost("/auth/login", async (
         return Results.Redirect("/");
     }
 
-    var username = await authenticationService.ValidateCredentialsAsync(
+    var authenticatedUser = await authenticationService.ValidateCredentialsAsync(
         request.Username,
         request.Password,
         cancellationToken);
-    if (username is null)
+    if (authenticatedUser is null)
     {
         var returnUrl = Uri.EscapeDataString(SafeReturnUrl(request.ReturnUrl));
         return Results.Redirect($"/login?error=invalid&returnUrl={returnUrl}");
@@ -255,8 +266,9 @@ app.MapPost("/auth/login", async (
 
     var identity = new ClaimsIdentity(
         [
-            new Claim(ClaimTypes.NameIdentifier, username),
-            new Claim(ClaimTypes.Name, username)
+            new Claim(ClaimTypes.NameIdentifier, authenticatedUser.Username),
+            new Claim(ClaimTypes.Name, authenticatedUser.Username),
+            new Claim(ClaimTypes.Role, authenticatedUser.Role)
         ],
         SqlCookieScheme);
     await httpContext.SignInAsync(

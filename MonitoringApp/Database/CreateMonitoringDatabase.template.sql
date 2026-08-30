@@ -142,8 +142,17 @@ BEGIN
     (
         [Username]     nvarchar(128) NOT NULL,
         [PasswordHash] nvarchar(512) NOT NULL,
+        [Role]         nvarchar(16)  NOT NULL CONSTRAINT [DF_AuthenticationUsers_Role] DEFAULT N'Admin',
         CONSTRAINT [PK_AuthenticationUsers] PRIMARY KEY ([Username])
     );
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AuthenticationUsers]', N'Role') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AuthenticationUsers]
+        ADD [Role] nvarchar(16) NOT NULL
+            CONSTRAINT [DF_AuthenticationUsers_Role] DEFAULT N'Admin';
 END;
 GO
 
@@ -358,6 +367,18 @@ IF NOT EXISTS
 BEGIN
     INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20260830120000_AddAuthenticationUsers', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260830150000_AddAuthenticationUserRole'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260830150000_AddAuthenticationUserRole', N'9.0.19');
 END;
 GO
 

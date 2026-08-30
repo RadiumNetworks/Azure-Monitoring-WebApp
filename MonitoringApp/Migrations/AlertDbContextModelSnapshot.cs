@@ -161,6 +161,11 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
                     b.HasKey("Username");
 
                     b.ToTable("AuthenticationUsers", (string)null);

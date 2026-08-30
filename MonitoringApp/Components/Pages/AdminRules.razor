@@ -1,5 +1,6 @@
 @page "/admin/rules"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = "OperatorAccess")]
 @inject AlertStore AlertStore
 
 <PageTitle>Alert Rule Administration</PageTitle>

@@ -1,5 +1,6 @@
 @page "/admin/inventory"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = "OperatorAccess")]
 @inject AlertStore AlertStore
 
 <PageTitle>Computer Inventory</PageTitle>

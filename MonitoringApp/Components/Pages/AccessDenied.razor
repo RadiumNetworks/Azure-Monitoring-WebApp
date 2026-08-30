@@ -1,0 +1,14 @@
+@page "/access-denied"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+
+<PageTitle>Access denied</PageTitle>
+
+<section class="login-shell">
+    <div class="login-panel">
+        <p class="eyebrow">Restricted access</p>
+        <h1>Access denied</h1>
+        <p class="subtitle">Your account does not have the role required to open this page.</p>
+        <a class="admin-primary login-home-link" href="/">Return to Alert Console</a>
+    </div>
+</section>

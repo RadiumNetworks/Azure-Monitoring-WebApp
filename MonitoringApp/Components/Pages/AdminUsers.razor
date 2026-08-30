@@ -1,5 +1,6 @@
 @page "/admin/users"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminAccess")]
 @inject ApplicationAuthenticationOptions AuthenticationOptions
 @inject SqlAuthenticationService AuthenticationService
 
@@ -41,32 +42,32 @@
             <div class="admin-section-heading">
                 <div>
                     <h2 id="users-heading">Current users</h2>
-                    <span>@UserCountLabel(usernames.Count)</span>
+                    <span>@UserCountLabel(users.Count)</span>
                 </div>
             </div>
 
-            @if (isLoading && usernames.Count == 0)
+            @if (isLoading && users.Count == 0)
             {
                 <p class="admin-empty">Loading authentication users...</p>
             }
-            else if (usernames.Count == 0)
+            else if (users.Count == 0)
             {
                 <p class="admin-empty">No authentication users are configured.</p>
             }
             else
             {
                 <div class="admin-rule-cards auth-user-cards">
-                    @foreach (var username in usernames)
+                    @foreach (var user in users)
                     {
-                        <article class="admin-rule-card @(editingUsername == username ? "selected" : null)">
+                        <article class="admin-rule-card @(editingUsername == user.Username ? "selected" : null)">
                             <div class="admin-rule-card-heading">
                                 <div>
-                                    <span class="admin-status enabled">SQL user</span>
-                                    <h3>@username</h3>
+                                    <span class="admin-status enabled">@user.Role</span>
+                                    <h3>@user.Username</h3>
                                 </div>
                                 <div class="admin-card-actions">
-                                    <button class="admin-secondary" type="button" @onclick="() => BeginPasswordReset(username)">Reset password</button>
-                                    <button class="admin-danger" type="button" @onclick="() => BeginDelete(username)">Delete</button>
+                                    <button class="admin-secondary" type="button" @onclick="() => BeginEdit(user)">Edit</button>
+                                    <button class="admin-danger" type="button" @onclick="() => BeginDelete(user.Username)">Delete</button>
                                 </div>
                             </div>
                         </article>
@@ -87,7 +88,7 @@
             {
                 <div class="admin-section-heading">
                     <div>
-                        <p class="eyebrow">@(isCreating ? "New user" : "Password reset")</p>
+                        <p class="eyebrow">@(isCreating ? "New user" : "Edit user")</p>
                         <h2 id="user-editor-heading">@(isCreating ? "Create authentication user" : editingUsername)</h2>
                     </div>
                 </div>
@@ -106,9 +107,19 @@
                         <small>Usernames must be unique. Existing usernames cannot be renamed.</small>
                     </label>
                     <label class="admin-field admin-field-wide">
+                        <span>Role</span>
+                        <select required @bind="editingRole">
+                            @foreach (var role in SqlAuthenticationRoles.All)
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                        <small>Reader: standard pages. Operator: additionally Rules and Inventory. Admin: all pages including Users.</small>
+                    </label>
+                    <label class="admin-field admin-field-wide">
                         <span>@(isCreating ? "Password" : "New password")</span>
-                        <input type="password" required maxlength="1024" autocomplete="new-password" @bind="password" />
-                        <small>The password is converted to a salted PBKDF2 hash before it is stored.</small>
+                        <input type="password" required="@isCreating" maxlength="1024" autocomplete="new-password" @bind="password" />
+                        <small>@(isCreating ? "Required. The password is converted to a salted PBKDF2 hash before it is stored." : "Optional. Leave empty to keep the current password.")</small>
                     </label>
                     <label class="admin-field admin-field-wide">
                         <span>Confirm password</span>
@@ -117,7 +128,7 @@
                     <div class="admin-form-actions">
                         <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
                         <button class="admin-primary" type="submit" disabled="@isSaving">
-                            @(isSaving ? "Saving..." : isCreating ? "Create user" : "Set new password")
+                            @(isSaving ? "Saving..." : isCreating ? "Create user" : "Save changes")
                         </button>
                     </div>
                 </form>
@@ -146,8 +157,9 @@
 }
 
 @code {
-    private IReadOnlyList<string> usernames = [];
+    private IReadOnlyList<SqlAuthenticationUserSummary> users = [];
     private string? editingUsername;
+    private string editingRole = SqlAuthenticationRoles.Reader;
     private string? usernameToDelete;
     private string password = string.Empty;
     private string passwordConfirmation = string.Empty;
@@ -166,7 +178,7 @@
         errorMessage = null;
         try
         {
-            usernames = await AuthenticationService.GetUsernamesAsync();
+            users = await AuthenticationService.GetUsersAsync();
         }
         catch (Exception exception)
         {
@@ -181,6 +193,7 @@
     private void BeginCreate()
     {
         editingUsername = string.Empty;
+        editingRole = users.Count == 0 ? SqlAuthenticationRoles.Admin : SqlAuthenticationRoles.Reader;
         password = string.Empty;
         passwordConfirmation = string.Empty;
         isCreating = true;
@@ -188,9 +201,10 @@
         errorMessage = null;
     }
 
-    private void BeginPasswordReset(string username)
+    private void BeginEdit(SqlAuthenticationUserSummary user)
     {
-        editingUsername = username;
+        editingUsername = user.Username;
+        editingRole = user.Role;
         password = string.Empty;
         passwordConfirmation = string.Empty;
         isCreating = false;
@@ -201,6 +215,7 @@
     private void CancelEdit()
     {
         editingUsername = null;
+        editingRole = SqlAuthenticationRoles.Reader;
         password = string.Empty;
         passwordConfirmation = string.Empty;
         isCreating = false;
@@ -214,7 +229,8 @@
             return;
         }
 
-        if (password != passwordConfirmation)
+        if ((isCreating || password.Length > 0 || passwordConfirmation.Length > 0) &&
+            password != passwordConfirmation)
         {
             errorMessage = "Password and confirmation do not match.";
             return;
@@ -228,16 +244,21 @@
             var username = editingUsername;
             if (isCreating)
             {
-                username = await AuthenticationService.CreateUserAsync(username, password);
+                username = await AuthenticationService.CreateUserAsync(username, password, editingRole);
                 statusMessage = $"Authentication user '{username}' was created.";
             }
             else
             {
-                await AuthenticationService.SetPasswordAsync(username, password);
-                statusMessage = $"The password for '{username}' was updated.";
+                await AuthenticationService.SetRoleAsync(username, editingRole);
+                if (password.Length > 0)
+                {
+                    await AuthenticationService.SetPasswordAsync(username, password);
+                }
+                statusMessage = $"Authentication user '{username}' was updated. Role changes apply to new sessions.";
             }
 
             editingUsername = null;
+            editingRole = SqlAuthenticationRoles.Reader;
             password = string.Empty;
             passwordConfirmation = string.Empty;
             isCreating = false;

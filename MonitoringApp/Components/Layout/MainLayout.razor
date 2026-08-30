@@ -13,9 +13,13 @@
                 <NavLink href="/graph">Graph</NavLink>
                 <NavLink href="/queries">Queries</NavLink>
                 <NavLink href="/prompt">Copilot Prompt</NavLink>
-                <NavLink href="/admin/rules">Rules</NavLink>
-                <NavLink href="/admin/inventory">Inventory</NavLink>
-                <NavLink href="/admin/users">Users</NavLink>
+                <AuthorizeView Policy="OperatorAccess">
+                    <NavLink href="/admin/rules">Rules</NavLink>
+                    <NavLink href="/admin/inventory">Inventory</NavLink>
+                </AuthorizeView>
+                <AuthorizeView Policy="AdminAccess">
+                    <NavLink href="/admin/users">Users</NavLink>
+                </AuthorizeView>
             </nav>
             @if (AuthenticationOptions.IsSql)
             {
