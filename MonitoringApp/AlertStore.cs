@@ -309,6 +309,41 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Deletes an alert rule by ID. It returns false when the rule no longer exists.
+    /// </summary>
+    public async Task<bool> DeleteAlertRuleAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+        if (id == Guid.Empty)
+        {
+            throw new InvalidOperationException("A valid alert rule ID is required.");
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        int deletedRows;
+        try
+        {
+            deletedRows = await context.AlertRules
+                .Where(rule => rule.Id == id)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to delete alert rule {AlertRuleId}.", id);
+            throw new InvalidOperationException("The alert rule could not be deleted.", exception);
+        }
+
+        if (deletedRows > 0)
+        {
+            Changed?.Invoke();
+        }
+
+        return deletedRows > 0;
+    }
+
+    /// <summary>
     /// Loads the computer inventory ordered by subscription and computer name.
     /// </summary>
     public async Task<IReadOnlyList<ComputerInventoryEntry>> GetComputerInventoryAsync(
@@ -325,6 +360,80 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Loads distinct subscription IDs observed in stored alerts for manual inventory entry creation.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetAlertSubscriptionIdsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var subscriptionIds = await context.Alerts
+            .AsNoTracking()
+            .Where(alert => alert.SubscriptionId != "")
+            .Select(alert => alert.SubscriptionId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        return subscriptionIds
+            .Select(subscriptionId => subscriptionId.Trim())
+            .Where(subscriptionId => subscriptionId.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(subscriptionId => subscriptionId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Creates a manually maintained computer inventory entry. Its subscription must have been observed in an alert.
+    /// </summary>
+    public async Task<ComputerInventoryEntry> CreateComputerInventoryEntryAsync(
+        ComputerInventoryEntry entry,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        EnsureDatabaseConfigured();
+
+        var normalized = NormalizeAndValidateInventoryEntry(entry);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var knownSubscription = await context.Alerts.AnyAsync(
+            alert => alert.SubscriptionId == normalized.SubscriptionId,
+            cancellationToken);
+        if (!knownSubscription)
+        {
+            throw new InvalidOperationException("Select a subscription ID that has been observed in an alert.");
+        }
+
+        var existing = await context.ComputerInventory.FindAsync(
+            [normalized.SubscriptionId, normalized.Computer],
+            cancellationToken);
+        if (existing is not null)
+        {
+            throw new InvalidOperationException(
+                $"Computer '{normalized.Computer}' already exists in subscription '{normalized.SubscriptionId}'.");
+        }
+
+        context.ComputerInventory.Add(normalized);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            logger.LogError(
+                exception,
+                "Failed to create inventory entry for subscription {SubscriptionId} and computer {Computer}.",
+                normalized.SubscriptionId,
+                normalized.Computer);
+            throw new InvalidOperationException(
+                "The inventory record could not be created. Verify that it does not already exist.",
+                exception);
+        }
+
+        Changed?.Invoke();
+        return normalized;
+    }
+
+    /// <summary>
     /// Updates the editable domain and site values of an existing computer inventory entry.
     /// The subscription and computer fields form the primary key and cannot be changed.
     /// </summary>
@@ -335,32 +444,19 @@ public sealed class AlertStore
         ArgumentNullException.ThrowIfNull(entry);
         EnsureDatabaseConfigured();
 
-        var subscriptionId = entry.SubscriptionId.Trim();
-        var computer = entry.Computer.Trim();
-        var domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain");
-        var site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site");
-
-        if (string.IsNullOrWhiteSpace(subscriptionId) || subscriptionId.Length > 64)
-        {
-            throw new InvalidOperationException("Subscription ID is required and may contain at most 64 characters.");
-        }
-
-        if (string.IsNullOrWhiteSpace(computer) || computer.Length > 256)
-        {
-            throw new InvalidOperationException("Computer name is required and may contain at most 256 characters.");
-        }
+        var normalized = NormalizeAndValidateInventoryEntry(entry);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var stored = await context.ComputerInventory.FindAsync(
-            [subscriptionId, computer],
+            [normalized.SubscriptionId, normalized.Computer],
             cancellationToken);
         if (stored is null)
         {
             throw new InvalidOperationException("The inventory record no longer exists. Refresh the inventory and try again.");
         }
 
-        stored.Domain = domain;
-        stored.Site = site;
+        stored.Domain = normalized.Domain;
+        stored.Site = normalized.Site;
 
         try
         {
@@ -371,13 +467,55 @@ public sealed class AlertStore
             logger.LogError(
                 exception,
                 "Failed to update inventory entry for subscription {SubscriptionId} and computer {Computer}.",
-                subscriptionId,
-                computer);
+                normalized.SubscriptionId,
+                normalized.Computer);
             throw new InvalidOperationException("The inventory record could not be updated.", exception);
         }
 
         Changed?.Invoke();
         return stored;
+    }
+
+    /// <summary>
+    /// Deletes an inventory entry by its subscription and computer composite key.
+    /// </summary>
+    public async Task<bool> DeleteComputerInventoryEntryAsync(
+        string subscriptionId,
+        string computer,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+
+        var key = NormalizeAndValidateInventoryEntry(new ComputerInventoryEntry
+        {
+            SubscriptionId = subscriptionId,
+            Computer = computer
+        });
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        int deletedRows;
+        try
+        {
+            deletedRows = await context.ComputerInventory
+                .Where(entry => entry.SubscriptionId == key.SubscriptionId && entry.Computer == key.Computer)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Failed to delete inventory entry for subscription {SubscriptionId} and computer {Computer}.",
+                key.SubscriptionId,
+                key.Computer);
+            throw new InvalidOperationException("The inventory record could not be deleted.", exception);
+        }
+
+        if (deletedRows > 0)
+        {
+            Changed?.Invoke();
+        }
+
+        return deletedRows > 0;
     }
 
     private void EnsureDatabaseConfigured()
@@ -487,6 +625,29 @@ public sealed class AlertStore
         if (normalized.Length > maximumLength)
         {
             throw new InvalidOperationException($"{fieldName} may contain at most {maximumLength} characters.");
+        }
+
+        return normalized;
+    }
+
+    private static ComputerInventoryEntry NormalizeAndValidateInventoryEntry(ComputerInventoryEntry entry)
+    {
+        var normalized = new ComputerInventoryEntry
+        {
+            SubscriptionId = entry.SubscriptionId.Trim(),
+            Computer = entry.Computer.Trim(),
+            Domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain"),
+            Site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site")
+        };
+
+        if (string.IsNullOrWhiteSpace(normalized.SubscriptionId) || normalized.SubscriptionId.Length > 64)
+        {
+            throw new InvalidOperationException("Subscription ID is required and may contain at most 64 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(normalized.Computer) || normalized.Computer.Length > 256)
+        {
+            throw new InvalidOperationException("Computer name is required and may contain at most 256 characters.");
         }
 
         return normalized;

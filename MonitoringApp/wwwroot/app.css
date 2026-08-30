@@ -236,12 +236,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .agent-footnote { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }
 
 .admin-heading { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 28px; }
-.admin-primary, .admin-secondary { min-height: 38px; padding: 8px 13px; border-radius: 5px; font-weight: 700; cursor: pointer; }
+.admin-heading-actions, .admin-card-actions, .inventory-card-actions { display: flex; align-items: center; gap: 9px; }
+.admin-primary, .admin-secondary, .admin-danger { min-height: 38px; padding: 8px 13px; border-radius: 5px; font-weight: 700; cursor: pointer; }
 .admin-primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .admin-primary:hover:not(:disabled) { border-color: var(--accent-dark); background: var(--accent-dark); }
 .admin-secondary { border: 1px solid #b8c5c0; background: var(--surface); color: var(--accent-dark); }
 .admin-secondary:hover:not(:disabled) { border-color: var(--accent); background: #eaf5f1; }
-.admin-primary:disabled, .admin-secondary:disabled { cursor: default; opacity: .6; }
+.admin-danger { border: 1px solid #c8564f; background: #fff; color: #9b1c1c; }
+.admin-danger:hover:not(:disabled) { border-color: #9b1c1c; background: #fff0ee; }
+.admin-primary:disabled, .admin-secondary:disabled, .admin-danger:disabled { cursor: default; opacity: .6; }
 .admin-message { margin-bottom: 18px; padding: 11px 14px; border: 1px solid; border-radius: 5px; font-size: .78rem; font-weight: 600; }
 .admin-message-success { border-color: #9bcdbd; background: #e8f7f1; color: #075f49; }
 .admin-message-error { border-color: #e1a6a1; background: #fff0ee; color: #8f1d16; }
@@ -286,6 +289,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .inventory-cards { max-height: 680px; padding-right: 4px; overflow-y: auto; }
 .inventory-subscription { grid-column: 1 / -1; }
 .admin-field input[readonly] { border-color: #d8dfdc; background: #f4f6f5; color: #68736f; cursor: default; }
+.admin-dialog-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(18, 29, 25, .58); }
+.admin-dialog { width: min(100%, 440px); padding: 25px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 22px 60px rgba(0, 0, 0, .25); }
+.admin-dialog h2 { margin: 5px 0 12px; font-size: 1.18rem; }
+.admin-dialog > p:not(.eyebrow) { margin: 0 0 22px; color: var(--muted); font-size: .8rem; line-height: 1.6; }
 
 .table-region { width: 100%; min-width: 0; margin-top: 12px; }
 .result-summary { margin-bottom: 10px; color: var(--muted); font-size: .76rem; }

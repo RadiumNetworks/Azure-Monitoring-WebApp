@@ -8,7 +8,7 @@
     <div>
         <p class="eyebrow">Administration</p>
         <h1>Alert rules</h1>
-        <p class="subtitle">Create and update the database rules that categorize alerts in the Inbox.</p>
+        <p class="subtitle">Create, update, and delete the database rules that categorize alerts in the Inbox.</p>
     </div>
     <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
 </section>
@@ -55,7 +55,10 @@
                                 </span>
                                 <h3>@rule.Name</h3>
                             </div>
-                            <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
+                            <div class="admin-card-actions">
+                                <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
+                                <button class="admin-danger" type="button" @onclick="() => BeginDelete(rule)">Delete</button>
+                            </div>
                         </div>
                         <dl class="admin-rule-summary">
                             <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
@@ -178,12 +181,34 @@
     </section>
 </div>
 
+@if (ruleToDelete is not null)
+{
+    <div class="admin-dialog-backdrop" role="presentation">
+        <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-rule-heading">
+            <p class="eyebrow">Permanent action</p>
+            <h2 id="delete-rule-heading">Delete alert rule?</h2>
+            <p>
+                Delete <strong>@ruleToDelete.Name</strong>? Alerts assigned by this rule will no longer be placed
+                in the <strong>@ruleToDelete.CategoryName</strong> category.
+            </p>
+            <div class="admin-form-actions">
+                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
+                <button class="admin-danger" type="button" disabled="@isDeleting" @onclick="DeleteAsync">
+                    @(isDeleting ? "Deleting..." : "Delete rule")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
     private IReadOnlyList<AlertRule> rules = [];
     private AlertRule? editingRule;
+    private AlertRule? ruleToDelete;
     private bool isCreating;
     private bool isLoading;
     private bool isSaving;
+    private bool isDeleting;
     private string? statusMessage;
     private string? errorMessage;
 
@@ -235,6 +260,55 @@
         editingRule = null;
         isCreating = false;
         errorMessage = null;
+    }
+
+    private void BeginDelete(AlertRule source)
+    {
+        ruleToDelete = Clone(source);
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelDelete() => ruleToDelete = null;
+
+    private async Task DeleteAsync()
+    {
+        if (ruleToDelete is null || isDeleting)
+        {
+            return;
+        }
+
+        isDeleting = true;
+        statusMessage = null;
+        errorMessage = null;
+        var deletedRule = ruleToDelete;
+        try
+        {
+            var deleted = await AlertStore.DeleteAlertRuleAsync(deletedRule.Id);
+            if (!deleted)
+            {
+                errorMessage = "The alert rule no longer exists.";
+                return;
+            }
+
+            if (editingRule?.Id == deletedRule.Id)
+            {
+                editingRule = null;
+                isCreating = false;
+            }
+
+            ruleToDelete = null;
+            statusMessage = $"Rule '{deletedRule.Name}' was deleted.";
+            await LoadRulesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
     }
 
     private async Task SaveAsync()
