@@ -60,7 +60,7 @@ public sealed class AddAlertRules : Migration
                     new Guid("47a96c56-ccf5-4f4e-97ce-6a72bb462f91"),
                     "Port failures indicate system outage", true, 10, "Port", "DCPort",
                     AlertRuleConditionTypes.RowCountGreaterThan, 10, "", "System Outage", true,
-                    true, "failure"
+                    false, "failure"
                 },
                 {
                     new Guid("d82b566a-ce6e-4201-b7b9-9a366426e7b8"),

@@ -13,7 +13,7 @@
         "threshold": 10,
         "categoryName": "System Outage",
         "applyToTarget": true,
-        "collapsed": true,
+        "collapsed": false,
         "tone": "failure"
       },
       "alerts": [
@@ -28,7 +28,7 @@
         { "alertId": "other", "name": "Heartbeat Alert", "target": "server-2", "site": "site-2", "payload": {} }
       ],
       "expectedCategories": [
-        { "name": "System Outage", "collapsed": true, "alertIds": ["port", "heartbeat"] }
+        { "name": "System Outage", "collapsed": false, "alertIds": ["port", "heartbeat"] }
       ],
       "expectedUncategorizedAlertIds": ["other"]
     },
@@ -45,7 +45,7 @@
         "threshold": 10,
         "categoryName": "System Outage",
         "applyToTarget": true,
-        "collapsed": true,
+        "collapsed": false,
         "tone": "failure"
       },
       "alerts": [

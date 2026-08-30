@@ -1,0 +1,221 @@
+@page "/admin/inventory"
+@rendermode InteractiveServer
+@inject AlertStore AlertStore
+
+<PageTitle>Computer Inventory</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Computer inventory</h1>
+        <p class="subtitle">Review discovered systems and maintain their domain and site information.</p>
+    </div>
+    <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadInventoryAsync">
+        @(isLoading ? "Refreshing..." : "Refresh")
+    </button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+<div class="inventory-filter">
+    <label class="admin-field">
+        <span>Search inventory</span>
+        <input type="search" placeholder="Computer, site, domain, or subscription" @bind="searchText" @bind:event="oninput" />
+    </label>
+    <span>@InventoryCountLabel(FilteredEntries.Count)</span>
+</div>
+
+<div class="admin-workspace">
+    <section class="admin-rule-list" aria-labelledby="inventory-heading">
+        <div class="admin-section-heading">
+            <div>
+                <h2 id="inventory-heading">Systems</h2>
+                <span>Automatically discovered from incoming alerts</span>
+            </div>
+        </div>
+
+        @if (isLoading && entries.Count == 0)
+        {
+            <p class="admin-empty">Loading inventory...</p>
+        }
+        else if (FilteredEntries.Count == 0)
+        {
+            <p class="admin-empty">No matching systems were found.</p>
+        }
+        else
+        {
+            <div class="admin-rule-cards inventory-cards">
+                @foreach (var entry in FilteredEntries)
+                {
+                    <article class="admin-rule-card @(IsSelected(entry) ? "selected" : null)">
+                        <div class="admin-rule-card-heading">
+                            <div>
+                                <span class="admin-status enabled">Discovered</span>
+                                <h3>@entry.Computer</h3>
+                            </div>
+                            <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">Edit</button>
+                        </div>
+                        <dl class="admin-rule-summary">
+                            <div><dt>Site</dt><dd>@DisplayValue(entry.Site)</dd></div>
+                            <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
+                            <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
+                        </dl>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="admin-editor" aria-labelledby="inventory-editor-heading">
+        @if (editingEntry is null)
+        {
+            <div class="admin-editor-placeholder">
+                <strong>Select a system</strong>
+                <span>Choose an inventory record to maintain its site and domain.</span>
+            </div>
+        }
+        else
+        {
+            var entry = editingEntry;
+            <div class="admin-section-heading">
+                <div>
+                    <p class="eyebrow">Edit system</p>
+                    <h2 id="inventory-editor-heading">@entry.Computer</h2>
+                </div>
+            </div>
+
+            <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <label class="admin-field admin-field-wide">
+                    <span>Subscription ID</span>
+                    <input value="@entry.SubscriptionId" readonly />
+                    <small>Part of the inventory primary key and cannot be changed.</small>
+                </label>
+                <label class="admin-field admin-field-wide">
+                    <span>Computer</span>
+                    <input value="@entry.Computer" readonly />
+                    <small>Part of the inventory primary key and cannot be changed.</small>
+                </label>
+                <label class="admin-field">
+                    <span>Site</span>
+                    <input maxlength="256" @bind="entry.Site" />
+                    <small>May be discovered automatically from a later alert.</small>
+                </label>
+                <label class="admin-field">
+                    <span>Domain</span>
+                    <input maxlength="256" @bind="entry.Domain" />
+                    <small>Can be maintained manually until alerts provide this value.</small>
+                </label>
+                <div class="admin-form-actions">
+                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
+                    <button class="admin-primary" type="submit" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : "Save changes")
+                    </button>
+                </div>
+            </form>
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<ComputerInventoryEntry> entries = [];
+    private ComputerInventoryEntry? editingEntry;
+    private string searchText = string.Empty;
+    private bool isLoading;
+    private bool isSaving;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    private IReadOnlyList<ComputerInventoryEntry> FilteredEntries => entries
+        .Where(entry => string.IsNullOrWhiteSpace(searchText) ||
+            entry.Computer.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            entry.SubscriptionId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            (entry.Site?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (entry.Domain?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .ToArray();
+
+    protected override Task OnInitializedAsync() => LoadInventoryAsync();
+
+    private async Task LoadInventoryAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            entries = await AlertStore.GetComputerInventoryAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginEdit(ComputerInventoryEntry source)
+    {
+        editingEntry = Clone(source);
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        editingEntry = null;
+        errorMessage = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editingEntry is null || isSaving)
+        {
+            return;
+        }
+
+        isSaving = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var saved = await AlertStore.SaveComputerInventoryEntryAsync(editingEntry);
+            statusMessage = $"Inventory record for '{saved.Computer}' was updated.";
+            editingEntry = null;
+            await LoadInventoryAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private bool IsSelected(ComputerInventoryEntry entry) =>
+        editingEntry is not null &&
+        entry.SubscriptionId == editingEntry.SubscriptionId &&
+        entry.Computer == editingEntry.Computer;
+
+    private static ComputerInventoryEntry Clone(ComputerInventoryEntry source) => new()
+    {
+        SubscriptionId = source.SubscriptionId,
+        Computer = source.Computer,
+        Site = source.Site,
+        Domain = source.Domain
+    };
+
+    private static string DisplayValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Not available" : value;
+
+    private static string InventoryCountLabel(int count) =>
+        count == 1 ? "1 system" : $"{count} systems";
+}

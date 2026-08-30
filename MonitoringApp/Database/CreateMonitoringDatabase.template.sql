@@ -122,6 +122,48 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[ComputerInventory]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ComputerInventory]
+    (
+        [SubscriptionId] nvarchar(64)  NOT NULL,
+        [Domain]         nvarchar(256) NULL,
+        [Site]           nvarchar(256) NULL,
+        [Computer]       nvarchar(256) NOT NULL,
+        CONSTRAINT [PK_ComputerInventory]
+            PRIMARY KEY ([SubscriptionId], [Computer])
+    );
+END;
+GO
+
+IF EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE [object_id] = OBJECT_ID(N'[dbo].[ComputerInventory]')
+      AND [name] = N'Domain'
+      AND [is_nullable] = 0
+)
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory]
+        ALTER COLUMN [Domain] nvarchar(256) NULL;
+END;
+GO
+
+IF EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE [object_id] = OBJECT_ID(N'[dbo].[ComputerInventory]')
+      AND [name] = N'Site'
+      AND [is_nullable] = 0
+)
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory]
+        ALTER COLUMN [Site] nvarchar(256) NULL;
+END;
+GO
+
 IF NOT EXISTS
 (
     SELECT 1
@@ -163,7 +205,7 @@ SET [Name] = N'Port failures indicate system outage',
     [FailedItemName] = N'',
     [CategoryName] = N'System Outage',
     [ApplyToTarget] = 1,
-    [Collapsed] = 1,
+    [Collapsed] = 0,
     [Tone] = N'failure'
 WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';
 
@@ -172,7 +214,7 @@ BEGIN
     INSERT INTO [dbo].[AlertRules]
         ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
     VALUES
-        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 1, N'failure');
+        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 0, N'failure');
 END;
 GO
 
@@ -260,6 +302,42 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260829110000_ExpandSystemOutageRuleByDefault'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260829110000_ExpandSystemOutageRuleByDefault', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260829120000_AddComputerInventory'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260829120000_AddComputerInventory', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260829130000_AllowMissingComputerInventoryLocation'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260829130000_AllowMissingComputerInventoryLocation', N'9.0.19');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -274,7 +352,9 @@ SELECT
     DB_NAME() AS [DatabaseName],
     OBJECT_ID(N'[dbo].[Alerts]', N'U') AS [AlertsTableObjectId],
     OBJECT_ID(N'[dbo].[AlertRules]', N'U') AS [AlertRulesTableObjectId],
+    OBJECT_ID(N'[dbo].[ComputerInventory]', N'U') AS [ComputerInventoryTableObjectId],
     (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
+    (SELECT COUNT(*) FROM [dbo].[ComputerInventory]) AS [ComputerInventoryCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];
 GO
 

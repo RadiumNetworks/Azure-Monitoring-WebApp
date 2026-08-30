@@ -1,0 +1,65 @@
+[
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "inventory-test-without-site",
+        "alertRule": "Inventory enrichment test without site",
+        "severity": "Sev3",
+        "alertState": "Activated",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-inventory-test",
+        "targetSubscriptionId": "payload-value-is-intentionally-ignored",
+        "alertTargetIDs": [
+          "/subscriptions/inventory-test-subscription/resourceGroups/rg-inventory-test/providers/Microsoft.HybridCompute/machines/INVENTORY-TEST-01"
+        ],
+        "firedDateTime": "2026-08-30T10:00:00Z",
+        "description": "Creates the inventory record without a site."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [
+            {
+              "dimensions": [
+                { "name": "Computer", "value": "INVENTORY-TEST-01" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "inventory-test-with-site",
+        "alertRule": "Inventory enrichment test with site",
+        "severity": "Sev3",
+        "alertState": "Activated",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-inventory-test",
+        "targetSubscriptionId": "payload-value-is-intentionally-ignored",
+        "alertTargetIDs": [
+          "/subscriptions/inventory-test-subscription/resourceGroups/rg-inventory-test/providers/Microsoft.HybridCompute/machines/INVENTORY-TEST-01"
+        ],
+        "firedDateTime": "2026-08-30T10:01:00Z",
+        "description": "Enriches the existing inventory record with a site."
+      },
+      "alertContext": {
+        "condition": {
+          "allOf": [
+            {
+              "dimensions": [
+                { "name": "Computer", "value": "INVENTORY-TEST-01" },
+                { "name": "Site", "value": "INVENTORY-TEST-SITE" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

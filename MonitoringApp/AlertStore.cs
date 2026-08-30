@@ -308,6 +308,78 @@ public sealed class AlertStore
         return stored;
     }
 
+    /// <summary>
+    /// Loads the computer inventory ordered by subscription and computer name.
+    /// </summary>
+    public async Task<IReadOnlyList<ComputerInventoryEntry>> GetComputerInventoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.ComputerInventory
+            .AsNoTracking()
+            .OrderBy(entry => entry.SubscriptionId)
+            .ThenBy(entry => entry.Computer)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Updates the editable domain and site values of an existing computer inventory entry.
+    /// The subscription and computer fields form the primary key and cannot be changed.
+    /// </summary>
+    public async Task<ComputerInventoryEntry> SaveComputerInventoryEntryAsync(
+        ComputerInventoryEntry entry,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        EnsureDatabaseConfigured();
+
+        var subscriptionId = entry.SubscriptionId.Trim();
+        var computer = entry.Computer.Trim();
+        var domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain");
+        var site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site");
+
+        if (string.IsNullOrWhiteSpace(subscriptionId) || subscriptionId.Length > 64)
+        {
+            throw new InvalidOperationException("Subscription ID is required and may contain at most 64 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(computer) || computer.Length > 256)
+        {
+            throw new InvalidOperationException("Computer name is required and may contain at most 256 characters.");
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var stored = await context.ComputerInventory.FindAsync(
+            [subscriptionId, computer],
+            cancellationToken);
+        if (stored is null)
+        {
+            throw new InvalidOperationException("The inventory record no longer exists. Refresh the inventory and try again.");
+        }
+
+        stored.Domain = domain;
+        stored.Site = site;
+
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            logger.LogError(
+                exception,
+                "Failed to update inventory entry for subscription {SubscriptionId} and computer {Computer}.",
+                subscriptionId,
+                computer);
+            throw new InvalidOperationException("The inventory record could not be updated.", exception);
+        }
+
+        Changed?.Invoke();
+        return stored;
+    }
+
     private void EnsureDatabaseConfigured()
     {
         if (!databaseConfiguration.IsValid)
@@ -402,6 +474,22 @@ public sealed class AlertStore
         destination.ApplyToTarget = source.ApplyToTarget;
         destination.Collapsed = source.Collapsed;
         destination.Tone = source.Tone;
+    }
+
+    private static string? NormalizeOptionalInventoryValue(string? value, int maximumLength, string fieldName)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return null;
+        }
+
+        if (normalized.Length > maximumLength)
+        {
+            throw new InvalidOperationException($"{fieldName} may contain at most {maximumLength} characters.");
+        }
+
+        return normalized;
     }
 
     /// <summary>
@@ -506,7 +594,9 @@ public sealed class AlertStore
         if (!string.IsNullOrWhiteSpace(targetResource))
         {
             resourceGroup = FirstNonEmpty(resourceGroup, GetResourceIdSegment(targetResource, "resourceGroups"));
-            subscriptionId = FirstNonEmpty(subscriptionId, GetResourceIdSegment(targetResource, "subscriptions"));
+            subscriptionId = FirstNonEmpty(
+                GetResourceIdSegment(targetResource, "subscriptions"),
+                subscriptionId);
         }
 
         var alert = new AlertRecord(
@@ -526,6 +616,7 @@ public sealed class AlertStore
             GetHttpUrl(alertContext, "linkToSearchResultsUI"),
             string.Empty,
             JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        var resolvedAlert = ResolveDisplayIdentity(alert);
 
         AddAlertResult result;
         try
@@ -548,6 +639,8 @@ public sealed class AlertStore
                             cancellationToken);
                     if (existingAlert is not null)
                     {
+                        await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
+                        await dbContext.SaveChangesAsync(cancellationToken);
                         logger.LogInformation(
                             "Ignored duplicate alert {AlertId} with condition {MonitorCondition}.",
                             alert.AlertId,
@@ -558,6 +651,7 @@ public sealed class AlertStore
                 }
 
                 dbContext.Alerts.Add(alert);
+                await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new AddAlertResult(alert, true);
@@ -575,6 +669,52 @@ public sealed class AlertStore
         }
 
         return result with { Alert = ResolveDisplayIdentity(result.Alert) };
+    }
+
+    /// <summary>
+    /// Creates an inventory entry for a resolved alert or fills its missing site when a later alert provides it.
+    /// Domain is intentionally left unchanged because alert payloads do not provide it yet.
+    /// </summary>
+    private async Task UpsertComputerInventoryAsync(
+        AlertDbContext context,
+        AlertRecord alert,
+        CancellationToken cancellationToken)
+    {
+        var subscriptionId = alert.SubscriptionId.Trim();
+        var computer = alert.TargetName.Trim();
+        var site = alert.SiteName.Trim();
+
+        if (string.IsNullOrWhiteSpace(subscriptionId) ||
+            subscriptionId.Length > 64 ||
+            string.IsNullOrWhiteSpace(computer) ||
+            computer.Length > 256)
+        {
+            logger.LogWarning(
+                "Skipped computer inventory update for alert {AlertId} because its subscription ID or target name is missing or too long.",
+                alert.AlertId);
+            return;
+        }
+
+        var stored = await context.ComputerInventory.FindAsync(
+            [subscriptionId, computer],
+            cancellationToken);
+        if (stored is null)
+        {
+            context.ComputerInventory.Add(new ComputerInventoryEntry
+            {
+                SubscriptionId = subscriptionId,
+                Computer = computer,
+                Site = string.IsNullOrWhiteSpace(site) || site.Length > 256 ? null : site
+            });
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(stored.Site) &&
+            !string.IsNullOrWhiteSpace(site) &&
+            site.Length <= 256)
+        {
+            stored.Site = site;
+        }
     }
 
     private AlertRecord ResolveDisplayIdentity(AlertRecord alert) =>

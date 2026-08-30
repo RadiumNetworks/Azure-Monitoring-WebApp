@@ -9,6 +9,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
 {
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
+    public DbSet<ComputerInventoryEntry> ComputerInventory => Set<ComputerInventoryEntry>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -54,5 +55,13 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         rule.Property(record => record.Tone).HasMaxLength(32);
         rule.HasIndex(record => record.Name).IsUnique();
         rule.HasIndex(record => new { record.Enabled, record.Priority });
+
+        var inventoryEntry = modelBuilder.Entity<ComputerInventoryEntry>();
+        inventoryEntry.ToTable("ComputerInventory");
+        inventoryEntry.HasKey(entry => new { entry.SubscriptionId, entry.Computer });
+        inventoryEntry.Property(entry => entry.SubscriptionId).HasMaxLength(64);
+        inventoryEntry.Property(entry => entry.Domain).HasMaxLength(256);
+        inventoryEntry.Property(entry => entry.Site).HasMaxLength(256);
+        inventoryEntry.Property(entry => entry.Computer).HasMaxLength(256);
     }
 }

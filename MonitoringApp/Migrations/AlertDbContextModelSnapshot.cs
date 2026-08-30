@@ -126,6 +126,29 @@ namespace MonitoringApp.Migrations
                     b.HasIndex("Enabled", "Priority");
                     b.ToTable("AlertRules", (string)null);
                 });
+
+            modelBuilder.Entity("MonitoringApp.ComputerInventoryEntry", b =>
+                {
+                    b.Property<string>("SubscriptionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Computer")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Domain")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Site")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("SubscriptionId", "Computer");
+
+                    b.ToTable("ComputerInventory", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }
