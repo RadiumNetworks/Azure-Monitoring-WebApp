@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject AlertStore AlertStore
 @inject AlertHistoryOptions AlertHistory
+@inject AlertSeverityDisplayOptions AlertSeverityDisplay
 @inject AlertRuleEvaluator AlertRuleEvaluator
 @inject QueryResultPresenter QueryResultPresenter
 
@@ -261,7 +262,10 @@
                         <td class="timestamp" title="@($"{alert.ReceivedAt.ToUniversalTime():O} UTC")">@FormatTimestamp(alert.ReceivedAt)</td>
                         <td>
                             <button class="alert-name-button @AlertTitleClass(alert.MonitorCondition)" type="button" title="Show alert details" aria-expanded="@(expandedAlertId == alert.Id ? "true" : "false")" @onclick="() => ToggleDetails(alert)">
-                                @Display(alert.Name)
+                                <span class="alert-name-content">
+                                    <span>@Display(alert.Name)</span>
+                                    <span class="inbox-severity @AlertSeverityDisplay.CssClass(alert.Severity)">@Display(alert.Severity)</span>
+                                </span>
                             </button>
                             @if (!string.IsNullOrWhiteSpace(alert.Description))
                             {

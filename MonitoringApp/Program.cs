@@ -17,6 +17,17 @@ if (alertHistoryErrors.Count > 0)
         $"Invalid alert history configuration: {string.Join(" ", alertHistoryErrors)}");
 }
 
+var alertSeverityDisplaySection = builder.Configuration.GetSection(AlertSeverityDisplayOptions.SectionName);
+var alertSeverityDisplay = alertSeverityDisplaySection.Get<AlertSeverityDisplayOptions>()
+    ?? throw new InvalidOperationException(
+        $"Missing required configuration section '{AlertSeverityDisplayOptions.SectionName}'.");
+var alertSeverityDisplayErrors = alertSeverityDisplay.Validate();
+if (alertSeverityDisplayErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid alert severity display configuration: {string.Join(" ", alertSeverityDisplayErrors)}");
+}
+
 var alertGraphSection = builder.Configuration.GetSection(AlertGraphOptions.SectionName);
 var alertGraph = alertGraphSection.Get<AlertGraphOptions>()
     ?? throw new InvalidOperationException(
@@ -75,6 +86,7 @@ var effectiveConnectionString = databaseConfiguration.IsValid
 
 builder.Services.AddOpenApi();
 builder.Services.AddSingleton(alertHistory);
+builder.Services.AddSingleton(alertSeverityDisplay);
 builder.Services.AddSingleton(alertGraph);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
