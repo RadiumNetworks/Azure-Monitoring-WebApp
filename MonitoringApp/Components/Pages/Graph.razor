@@ -29,34 +29,55 @@
     </div>
 </section>
 
-<section class="graph-layer-controls" aria-label="Graph layers">
-    <label>
-        <span>Layer 1</span>
-        <select @bind="selectedLayer1" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraph.ChoicesForLevel(1))
+<section class="graph-configuration" aria-label="Graph filters and layers">
+    <div class="graph-filter">
+        <label for="graph-filter-text">
+            <span>Filter graph</span>
+            <small>Subscription, resource group, site, or role</small>
+        </label>
+        <div class="graph-filter-input">
+            <input id="graph-filter-text"
+                   type="search"
+                   placeholder="Type to filter the graph..."
+                   autocomplete="off"
+                   @bind="filterText"
+                   @bind:event="oninput"
+                   @bind:after="GraphFilterChanged" />
+            @if (!string.IsNullOrWhiteSpace(filterText))
             {
-                <option value="@choice.Value">@choice.Label</option>
+                <button type="button" @onclick="ClearFilter" aria-label="Clear graph filter">Clear</button>
             }
-        </select>
-    </label>
-    <label>
-        <span>Layer 2</span>
-        <select @bind="selectedLayer2" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraph.ChoicesForLevel(2))
-            {
-                <option value="@choice.Value">@choice.Label</option>
-            }
-        </select>
-    </label>
-    <label>
-        <span>Layer 3</span>
-        <select @bind="selectedLayer3" @bind:after="GraphLayersChanged">
-            @foreach (var choice in AlertGraph.ChoicesForLevel(3))
-            {
-                <option value="@choice.Value">@choice.Label</option>
-            }
-        </select>
-    </label>
+        </div>
+    </div>
+    <div class="graph-layer-controls" aria-label="Graph layers">
+        <label>
+            <span>Layer 1</span>
+            <select @bind="selectedLayer1" @bind:after="GraphLayersChanged">
+                @foreach (var choice in AlertGraph.ChoicesForLevel(1))
+                {
+                    <option value="@choice.Value">@choice.Label</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Layer 2</span>
+            <select @bind="selectedLayer2" @bind:after="GraphLayersChanged">
+                @foreach (var choice in AlertGraph.ChoicesForLevel(2))
+                {
+                    <option value="@choice.Value">@choice.Label</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Layer 3</span>
+            <select @bind="selectedLayer3" @bind:after="GraphLayersChanged">
+                @foreach (var choice in AlertGraph.ChoicesForLevel(3))
+                {
+                    <option value="@choice.Value">@choice.Label</option>
+                }
+            </select>
+        </label>
+    </div>
 </section>
 
 <section class="graph-region" aria-label="Alert hierarchy graph">
@@ -80,8 +101,16 @@
         @if (navigationTree.Count == 0)
         {
             <div class="graph-empty">
-                <strong>No alert history available</strong>
-                <span>Nodes appear after an alert has been received.</span>
+                @if (string.IsNullOrWhiteSpace(filterText))
+                {
+                    <strong>No alert history available</strong>
+                    <span>Nodes appear after an alert has been received.</span>
+                }
+                else
+                {
+                    <strong>No matching alert history</strong>
+                    <span>Try another subscription, resource group, site, or role.</span>
+                }
             </div>
         }
         <svg id="alert-graph-canvas"
@@ -129,13 +158,14 @@
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private bool graphNeedsInitialization = true;
     private bool graphInitialized;
+    private string filterText = string.Empty;
     private AlertGraphLayer selectedLayer1 = AlertGraphLayer.Subscription;
     private AlertGraphLayer selectedLayer2 = AlertGraphLayer.ResourceGroup;
     private AlertGraphLayer selectedLayer3 = AlertGraphLayer.Target;
     private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
     private IReadOnlyList<AlertGraphHierarchyNode> GetNavigationTree() =>
         AlertGraphHierarchy.Build(
-            alerts,
+            AlertGraphFilter.Apply(alerts, filterText),
             selectedLayer1,
             selectedLayer2,
             selectedLayer3);
@@ -180,6 +210,17 @@
 
     private void GraphLayersChanged()
     {
+        graphNeedsInitialization = true;
+    }
+
+    private void GraphFilterChanged()
+    {
+        graphNeedsInitialization = true;
+    }
+
+    private void ClearFilter()
+    {
+        filterText = string.Empty;
         graphNeedsInitialization = true;
     }
 

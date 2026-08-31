@@ -1,0 +1,49 @@
+{
+  "alerts": [
+    {
+      "receivedAt": "2026-08-31T08:00:00Z",
+      "alertId": "berlin-dc",
+      "monitorCondition": "Fired",
+      "alertName": "DCDiag",
+      "subscriptionId": "production-platform",
+      "resourceGroup": "rg-domain-services",
+      "target": "DC-BER-01",
+      "site": "Berlin",
+      "domain": "contoso.test",
+      "role": "DomainControllers"
+    },
+    {
+      "receivedAt": "2026-08-31T08:05:00Z",
+      "alertId": "munich-sql",
+      "monitorCondition": "Fired",
+      "alertName": "Database health",
+      "subscriptionId": "production-data",
+      "resourceGroup": "rg-databases",
+      "target": "SQL-MUC-01",
+      "site": "Munich",
+      "domain": "contoso.test",
+      "role": "SQLServer"
+    },
+    {
+      "receivedAt": "2026-08-31T08:10:00Z",
+      "alertId": "test-web",
+      "monitorCondition": "Resolved",
+      "alertName": "Web health",
+      "subscriptionId": "test-applications",
+      "resourceGroup": "rg-webapps",
+      "target": "WEB-HAM-01",
+      "site": "Hamburg",
+      "domain": "contoso.test",
+      "role": "WebServer"
+    }
+  ],
+  "cases": [
+    { "name": "empty filter returns all records", "filter": "", "expectedAlertIds": ["berlin-dc", "munich-sql", "test-web"] },
+    { "name": "subscription match is case insensitive", "filter": "PRODUCTION-DATA", "expectedAlertIds": ["munich-sql"] },
+    { "name": "resource group supports partial matches", "filter": "domain-services", "expectedAlertIds": ["berlin-dc"] },
+    { "name": "site supports trimmed input", "filter": "  munich  ", "expectedAlertIds": ["munich-sql"] },
+    { "name": "role supports partial matches", "filter": "webserver", "expectedAlertIds": ["test-web"] },
+    { "name": "target and domain are intentionally not searched", "filter": "contoso.test", "expectedAlertIds": [] },
+    { "name": "unknown value returns no records", "filter": "file-server", "expectedAlertIds": [] }
+  ]
+}

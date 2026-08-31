@@ -138,7 +138,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .graph-summary { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 2px 9px; min-width: 130px; }
 .graph-summary strong { color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 1.35rem; text-align: right; }
 .graph-summary span { color: var(--muted); font-size: .75rem; }
-.graph-layer-controls { display: grid; grid-template-columns: repeat(3, minmax(170px, 240px)); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
+.graph-configuration { padding: 16px 0; border-top: 1px solid var(--line); }
+.graph-filter { display: grid; grid-template-columns: minmax(180px, 240px) minmax(280px, 620px); align-items: end; gap: 14px; padding-bottom: 16px; }
+.graph-filter > label { display: grid; gap: 3px; }
+.graph-filter > label span { color: #4e5c57; font-size: .72rem; font-weight: 700; }
+.graph-filter > label small { color: var(--muted); font-size: .68rem; }
+.graph-filter-input { display: flex; gap: 8px; }
+.graph-filter-input input { width: 100%; min-height: 38px; }
+.graph-filter-input button { min-height: 38px; padding: 0 12px; border: 1px solid #b8c5c0; border-radius: 4px; background: #fff; color: var(--accent-dark); font-weight: 700; cursor: pointer; }
+.graph-filter-input button:hover { border-color: var(--accent); background: #eaf5f1; }
+.graph-layer-controls { display: grid; grid-template-columns: repeat(3, minmax(170px, 240px)); gap: 14px; padding-top: 16px; border-top: 1px solid var(--line); }
 .graph-layer-controls label { display: grid; gap: 6px; }
 .graph-layer-controls label > span { color: #4e5c57; font-size: .72rem; font-weight: 700; }
 .graph-layer-controls select { min-height: 38px; }
@@ -448,6 +457,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .tree-heading .tree-total { margin-top: 0; white-space: nowrap; }
     .tree-root { max-height: 280px; padding-left: 0; }
     .graph-heading { align-items: start; }
+    .graph-filter { grid-template-columns: 1fr; }
     .graph-layer-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .graph-toolbar { align-items: start; flex-direction: column; gap: 8px; padding: 13px 0; }
     .graph-legend { flex-wrap: wrap; gap: 8px 16px; }
@@ -478,6 +488,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .inventory-filter-grid { grid-template-columns: 1fr; }
     .search-field { grid-column: auto; }
     .graph-heading { display: grid; grid-template-columns: 1fr auto; gap: 20px; }
+    .graph-filter-input { align-items: stretch; }
     .graph-layer-controls { grid-template-columns: 1fr; }
     .query-heading { display: grid; gap: 20px; }
     .query-refresh { justify-self: start; }

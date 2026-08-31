@@ -154,6 +154,35 @@ public sealed record AlertGraphRecord(
     string Role);
 
 /// <summary>
+/// Filters graph records by the inventory and Azure scope fields exposed by the graph page.
+/// </summary>
+public static class AlertGraphFilter
+{
+    public static IReadOnlyList<AlertGraphRecord> Apply(
+        IEnumerable<AlertGraphRecord> alerts,
+        string? filterText)
+    {
+        var snapshot = alerts as IReadOnlyList<AlertGraphRecord> ?? alerts.ToArray();
+        var filter = filterText?.Trim();
+        if (string.IsNullOrEmpty(filter))
+        {
+            return snapshot;
+        }
+
+        return snapshot
+            .Where(alert =>
+                Contains(alert.SubscriptionId, filter) ||
+                Contains(alert.ResourceGroup, filter) ||
+                Contains(alert.Site, filter) ||
+                Contains(alert.Role, filter))
+            .ToArray();
+    }
+
+    private static bool Contains(string value, string filter) =>
+        value.Contains(filter, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
 /// Represents one node in the graph hierarchy before coordinates are calculated. It contains its grouping layer, counts, and child nodes.
 /// </summary>
 public sealed record AlertGraphHierarchyNode(

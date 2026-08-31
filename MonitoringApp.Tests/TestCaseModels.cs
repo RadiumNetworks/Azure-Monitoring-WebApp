@@ -248,6 +248,19 @@ public sealed class GraphRecordCase
     public string Role { get; init; } = string.Empty;
 }
 
+public sealed class AlertGraphFilterTestCases
+{
+    public IReadOnlyList<GraphRecordCase> Alerts { get; init; } = [];
+    public IReadOnlyList<AlertGraphFilterCase> Cases { get; init; } = [];
+}
+
+public sealed class AlertGraphFilterCase
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Filter { get; init; }
+    public IReadOnlyList<string> ExpectedAlertIds { get; init; } = [];
+}
+
 public sealed class GraphAlertCase
 {
     public string AlertId { get; init; } = string.Empty;
