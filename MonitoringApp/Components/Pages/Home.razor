@@ -24,25 +24,50 @@
         var hourlyCounts = GetHourlyAlertCounts();
         var maximumHourlyCount = hourlyCounts.Max(bucket => bucket.Count);
         var chartScaleMaximum = Math.Max(1, maximumHourlyCount);
+        var criticalHourlyCounts = GetHourlyCriticalAlertCounts();
+        var maximumCriticalHourlyCount = criticalHourlyCounts.Max(bucket => bucket.Count);
+        var criticalChartScaleMaximum = Math.Max(1, maximumCriticalHourlyCount);
     }
-    <div class="alert-trend" role="img" aria-label="@ChartDescription(hourlyCounts)">
-        <div class="trend-heading">
-            <strong>Alerts per hour</strong>
-            <span>Last 48 hours / @SelectedTimeZone.Label</span>
+    <div class="trend-stack">
+        <div class="alert-trend" role="img" aria-label="@ChartDescription(hourlyCounts)">
+            <div class="trend-heading">
+                <strong>Alerts per hour</strong>
+                <span>Last 48 hours / @SelectedTimeZone.Label</span>
+            </div>
+            <div class="chart-frame">
+                <span class="chart-maximum">@maximumHourlyCount</span>
+                <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
+                    <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
+                    <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
+                    <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
+                    <polyline class="chart-line" points="@ChartPoints(hourlyCounts, chartScaleMaximum)" />
+                </svg>
+            </div>
+            <div class="chart-axis" aria-hidden="true">
+                <span>@FormatChartTime(hourlyCounts[0].Hour)</span>
+                <span>@FormatChartTime(hourlyCounts[24].Hour)</span>
+                <span>Now</span>
+            </div>
         </div>
-        <div class="chart-frame">
-            <span class="chart-maximum">@maximumHourlyCount</span>
-            <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
-                <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
-                <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
-                <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
-                <polyline class="chart-line" points="@ChartPoints(hourlyCounts, chartScaleMaximum)" />
-            </svg>
-        </div>
-        <div class="chart-axis" aria-hidden="true">
-            <span>@FormatChartTime(hourlyCounts[0].Hour)</span>
-            <span>@FormatChartTime(hourlyCounts[24].Hour)</span>
-            <span>Now</span>
+        <div class="alert-trend critical-alert-trend" role="img" aria-label="@CriticalChartDescription(criticalHourlyCounts)">
+            <div class="trend-heading">
+                <strong>Active critical alerts</strong>
+                <span>Last 48 hours / @SelectedTimeZone.Label</span>
+            </div>
+            <div class="chart-frame">
+                <span class="chart-maximum">@maximumCriticalHourlyCount</span>
+                <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
+                    <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
+                    <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
+                    <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
+                    <polyline class="chart-line chart-line-critical" points="@CriticalChartPoints(criticalHourlyCounts, criticalChartScaleMaximum)" />
+                </svg>
+            </div>
+            <div class="chart-axis" aria-hidden="true">
+                <span>@FormatChartTime(criticalHourlyCounts[0].Hour)</span>
+                <span>@FormatChartTime(criticalHourlyCounts[24].Hour)</span>
+                <span>Now</span>
+            </div>
         </div>
     </div>
     <div class="alert-count" aria-label="@RecentAlertCount alerts received in the last @HistoryWindowLabel">
@@ -354,6 +379,7 @@
 @code {
     private IReadOnlyList<AlertRecord> alerts = [];
     private IReadOnlyList<AlertRule> alertRules = [];
+    private IReadOnlyList<CriticalAlertLifecycle> criticalAlertLifecycles = [];
     private string viewMode = "active";
     private string searchText = string.Empty;
     private string resourceGroupFilter = string.Empty;
@@ -470,21 +496,52 @@
 
     private IReadOnlyList<HourlyAlertCount> GetHourlyAlertCounts()
     {
-        var now = DateTimeOffset.UtcNow;
-        var currentHour = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, TimeSpan.Zero);
-        var firstHour = currentHour.AddHours(-47);
+        var firstHour = GetChartFirstHour();
 
         return Enumerable.Range(0, 48)
             .Select(offset =>
             {
                 var hour = firstHour.AddHours(offset);
-                var count = alerts.Count(alert => alert.ReceivedAt >= hour && alert.ReceivedAt < hour.AddHours(1));
+                var count = alerts.Count(alert =>
+                    alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase) &&
+                    alert.ReceivedAt >= hour &&
+                    alert.ReceivedAt < hour.AddHours(1));
                 return new HourlyAlertCount(hour, count);
             })
             .ToArray();
     }
 
+    private IReadOnlyList<HourlyCriticalAlertCount> GetHourlyCriticalAlertCounts() =>
+        CriticalAlertTimeline.GetHourlyCounts(
+            criticalAlertLifecycles,
+            GetChartFirstHour(),
+            48,
+            currentTimeUtc);
+
+    private DateTimeOffset GetChartFirstHour()
+    {
+        var currentHour = new DateTimeOffset(
+            currentTimeUtc.Year,
+            currentTimeUtc.Month,
+            currentTimeUtc.Day,
+            currentTimeUtc.Hour,
+            0,
+            0,
+            TimeSpan.Zero);
+        return currentHour.AddHours(-47);
+    }
+
     private static string ChartPoints(IReadOnlyList<HourlyAlertCount> buckets, int maximumCount) =>
+        string.Join(' ', buckets.Select((bucket, index) =>
+        {
+            var x = index * ChartWidth / (buckets.Count - 1);
+            var y = ChartBottom - bucket.Count * (ChartBottom - ChartTop) / maximumCount;
+            return FormattableString.Invariant($"{x:0.##},{y:0.##}");
+        }));
+
+    private static string CriticalChartPoints(
+        IReadOnlyList<HourlyCriticalAlertCount> buckets,
+        int maximumCount) =>
         string.Join(' ', buckets.Select((bucket, index) =>
         {
             var x = index * ChartWidth / (buckets.Count - 1);
@@ -497,6 +554,12 @@
         var total = buckets.Sum(bucket => bucket.Count);
         var maximum = buckets.Max(bucket => bucket.Count);
         return $"Alerts received per hour over the last 48 hours. {total} total, with a maximum of {maximum} in one hour.";
+    }
+
+    private static string CriticalChartDescription(IReadOnlyList<HourlyCriticalAlertCount> buckets)
+    {
+        var maximum = buckets.Max(bucket => bucket.Count);
+        return $"Active critical alerts over the last 48 hours, with a maximum of {maximum} active at one time.";
     }
 
     private DateTime ToDisplayTime(DateTimeOffset timestamp) =>
@@ -576,6 +639,9 @@
     {
         alerts = await AlertStore.GetAllAsync();
         alertRules = await AlertStore.GetAlertRulesAsync();
+        criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
+            GetChartFirstHour(),
+            currentTimeUtc);
         collapsedCategories.UnionWith(alertRules.Where(rule => rule.Collapsed).Select(rule => rule.Id));
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
@@ -617,6 +683,9 @@
     {
         alerts = await AlertStore.GetAllAsync();
         alertRules = await AlertStore.GetAlertRulesAsync();
+        criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
+            GetChartFirstHour(),
+            currentTimeUtc);
         await InvokeAsync(StateHasChanged);
     }
 

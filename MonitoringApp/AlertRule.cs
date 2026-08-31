@@ -20,6 +20,7 @@ public sealed class AlertRule
     public bool Collapsed { get; set; } = true;
     public string Tone { get; set; } = "info";
     public string InventoryRole { get; set; } = string.Empty;
+    public bool IsCritical { get; set; }
 }
 
 public static class AlertRuleTypes

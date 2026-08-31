@@ -84,6 +84,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         parsedAlert.Property(record => record.QueryResults).HasColumnType("nvarchar(max)");
         parsedAlert.Property(record => record.AlertName).HasMaxLength(512);
         parsedAlert.Property(record => record.ResourceGroup).HasMaxLength(256);
+        parsedAlert.Property(record => record.ResolvedAt).HasColumnType("datetimeoffset");
         parsedAlert.Property(record => record.InventorySubscriptionId).HasMaxLength(64);
         parsedAlert.Property(record => record.InventoryComputer).HasMaxLength(256);
         parsedAlert.HasOne(record => record.Alert)

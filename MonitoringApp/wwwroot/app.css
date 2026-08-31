@@ -62,7 +62,9 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.05; letter-s
 .alert-count { display: flex; align-items: baseline; gap: 9px; }
 .alert-count strong { font-size: 2rem; }
 .alert-count span { color: var(--muted); font-size: .85rem; }
+.trend-stack { display: grid; width: 100%; min-width: 0; gap: 20px; }
 .alert-trend { width: 100%; min-width: 0; }
+.critical-alert-trend { padding-top: 16px; border-top: 1px solid var(--line); }
 .trend-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
 .trend-heading strong { font-size: .78rem; }
 .trend-heading span, .chart-axis, .chart-maximum { color: var(--muted); font-size: .68rem; }
@@ -71,6 +73,7 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.05; letter-s
 .chart-maximum { position: absolute; top: 0; left: 0; transform: translateY(-20%); font-family: "IBM Plex Mono", monospace; }
 .chart-grid-line { stroke: #d8dfdc; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.chart-line-critical { stroke: #c62828; }
 .chart-axis { display: flex; justify-content: space-between; padding: 5px 0 0 24px; font-family: "IBM Plex Mono", monospace; }
 
 .controls {

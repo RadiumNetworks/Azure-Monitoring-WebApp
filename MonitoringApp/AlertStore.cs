@@ -220,6 +220,7 @@ public sealed class AlertStore
     private readonly IDbContextFactory<AlertDbContext> contextFactory;
     private readonly DatabaseConfigurationStatus databaseConfiguration;
     private readonly QueryResultPresenter queryResultPresenter;
+    private readonly AlertRuleEvaluator alertRuleEvaluator;
     private readonly ILogger<AlertStore> logger;
 
     /// <summary>
@@ -229,11 +230,13 @@ public sealed class AlertStore
         IDbContextFactory<AlertDbContext> contextFactory,
         DatabaseConfigurationStatus databaseConfiguration,
         QueryResultPresenter queryResultPresenter,
+        AlertRuleEvaluator alertRuleEvaluator,
         ILogger<AlertStore> logger)
     {
         this.contextFactory = contextFactory;
         this.databaseConfiguration = databaseConfiguration;
         this.queryResultPresenter = queryResultPresenter;
+        this.alertRuleEvaluator = alertRuleEvaluator;
         this.logger = logger;
     }
 
@@ -306,6 +309,8 @@ public sealed class AlertStore
 
         try
         {
+            await context.SaveChangesAsync(cancellationToken);
+            await SynchronizeParsedAlertLifecyclesAsync(context, null, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
@@ -699,7 +704,8 @@ public sealed class AlertStore
             ApplyToTarget = source.ApplyToTarget,
             Collapsed = source.Collapsed,
             Tone = source.Tone.Trim().ToLowerInvariant(),
-            InventoryRole = source.InventoryRole.Trim()
+            InventoryRole = source.InventoryRole.Trim(),
+            IsCritical = source.IsCritical
         };
 
         if (string.IsNullOrWhiteSpace(rule.Name) || rule.Name.Length > 256)
@@ -731,6 +737,7 @@ public sealed class AlertStore
             rule.ApplyToTarget = false;
             rule.Collapsed = false;
             rule.Tone = "info";
+            rule.IsCritical = false;
             return rule;
         }
 
@@ -798,6 +805,7 @@ public sealed class AlertStore
         destination.Collapsed = source.Collapsed;
         destination.Tone = source.Tone;
         destination.InventoryRole = source.InventoryRole;
+        destination.IsCritical = source.IsCritical;
     }
 
     private static string? NormalizeOptionalInventoryValue(string? value, int maximumLength, string fieldName)
@@ -899,9 +907,10 @@ public sealed class AlertStore
     }
 
     /// <summary>
-    /// Loads the complete parsed alert history for the graph and enriches it with the latest maintained inventory values.
+    /// Loads parsed alerts received on or after the supplied timestamp for the graph and enriches them with the latest maintained inventory values.
     /// </summary>
     public async Task<IReadOnlyList<AlertGraphRecord>> GetAlertGraphRecordsAsync(
+        DateTimeOffset receivedSince,
         CancellationToken cancellationToken = default)
     {
         if (!databaseConfiguration.IsValid)
@@ -918,6 +927,7 @@ public sealed class AlertStore
                 .AsNoTracking()
                 .Include(record => record.Alert)
                 .Include(record => record.InventoryComputerEntry)
+                .Where(record => record.Alert.ReceivedAt >= receivedSince)
                 .OrderByDescending(record => record.Alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
 
@@ -942,6 +952,53 @@ public sealed class AlertStore
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to load parsed alert graph records from the database.");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Loads critical fired-alert lifecycles that overlap the supplied time range.
+    /// </summary>
+    public async Task<IReadOnlyList<CriticalAlertLifecycle>> GetCriticalAlertLifecyclesAsync(
+        DateTimeOffset rangeStart,
+        DateTimeOffset rangeEnd,
+        CancellationToken cancellationToken = default)
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            logger.LogError("Critical alert lifecycles cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
+            return [];
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            await BackfillMissingParsedAlertsAsync(context, cancellationToken);
+            var records = await context.ParsedAlerts
+                .AsNoTracking()
+                .Include(record => record.Alert)
+                .Where(record => record.IsCritical &&
+                    record.MonitorCondition == "Fired" &&
+                    (record.FiredDateTime ?? record.Alert.ReceivedAt) <= rangeEnd &&
+                    (record.ResolvedAt == null || record.ResolvedAt >= rangeStart))
+                .OrderBy(record => record.FiredDateTime ?? record.Alert.ReceivedAt)
+                .ToArrayAsync(cancellationToken);
+
+            return records
+                .GroupBy(
+                    record => string.IsNullOrWhiteSpace(record.AlertId)
+                        ? record.Id.ToString("D")
+                        : record.AlertId,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => new CriticalAlertLifecycle(
+                    group.Key,
+                    group.Min(record => record.FiredDateTime ?? record.Alert.ReceivedAt),
+                    group.Max(record => record.ResolvedAt)))
+                .ToArray();
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load critical alert lifecycles from the database.");
             return [];
         }
     }
@@ -1025,6 +1082,8 @@ public sealed class AlertStore
 
         try
         {
+            await context.SaveChangesAsync(cancellationToken);
+            await SynchronizeParsedAlertLifecyclesAsync(context, null, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             logger.LogInformation(
                 "Backfilled {ParsedAlertCount} parsed alert records from existing alert history.",
@@ -1150,7 +1209,18 @@ public sealed class AlertStore
 
                 dbContext.Alerts.Add(alert);
                 await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
-                dbContext.ParsedAlerts.Add(ParsedAlertFactory.Create(resolvedAlert));
+                var parsedAlert = ParsedAlertFactory.Create(resolvedAlert);
+                if (resolvedAlert.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
+                {
+                    parsedAlert.ResolvedAt = GetDateTime(context, "resolvedDateTime") ?? resolvedAlert.ReceivedAt;
+                }
+
+                dbContext.ParsedAlerts.Add(parsedAlert);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await SynchronizeParsedAlertLifecyclesAsync(
+                    dbContext,
+                    resolvedAlert.AlertId,
+                    cancellationToken);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new AddAlertResult(alert, true);
@@ -1168,6 +1238,34 @@ public sealed class AlertStore
         }
 
         return result with { Alert = ResolveDisplayIdentity(result.Alert) };
+    }
+
+    /// <summary>
+    /// Re-evaluates critical categorization rules and propagates criticality and resolution time across each alert lifecycle.
+    /// </summary>
+    private async Task SynchronizeParsedAlertLifecyclesAsync(
+        AlertDbContext context,
+        string? alertId,
+        CancellationToken cancellationToken)
+    {
+        var criticalRules = await context.AlertRules
+            .AsNoTracking()
+            .Where(rule => rule.Enabled &&
+                rule.RuleType == AlertRuleTypes.Categorization &&
+                rule.IsCritical)
+            .OrderBy(rule => rule.Priority)
+            .ToArrayAsync(cancellationToken);
+
+        var query = context.ParsedAlerts
+            .Include(record => record.Alert)
+            .AsQueryable();
+        if (!string.IsNullOrWhiteSpace(alertId))
+        {
+            query = query.Where(record => record.AlertId == alertId);
+        }
+
+        var parsedAlerts = await query.ToArrayAsync(cancellationToken);
+        ParsedAlertLifecycle.Synchronize(parsedAlerts, criticalRules, alertRuleEvaluator);
     }
 
     /// <summary>

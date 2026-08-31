@@ -119,6 +119,7 @@ BEGIN
         [Collapsed]         bit               NOT NULL,
         [Tone]              nvarchar(32)      NOT NULL,
         [InventoryRole]     nvarchar(256)     NOT NULL CONSTRAINT [DF_AlertRules_InventoryRole] DEFAULT N'',
+        [IsCritical]        bit               NOT NULL CONSTRAINT [DF_AlertRules_IsCritical] DEFAULT 0,
         CONSTRAINT [PK_AlertRules] PRIMARY KEY ([Id])
     );
 END;
@@ -154,6 +155,13 @@ BEGIN
             CONSTRAINT [DF_AlertRules_InventoryRole] DEFAULT N'';
 END;
 
+IF COL_LENGTH(N'[dbo].[AlertRules]', N'IsCritical') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AlertRules]
+        ADD [IsCritical] bit NOT NULL
+            CONSTRAINT [DF_AlertRules_IsCritical] DEFAULT 0;
+END;
+
 IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'ResourceGroup') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ComputerInventory] ADD [ResourceGroup] nvarchar(256) NULL;
@@ -180,6 +188,8 @@ BEGIN
         [QueryResults]            nvarchar(max)     NOT NULL,
         [AlertName]               nvarchar(512)     NOT NULL,
         [ResourceGroup]           nvarchar(256)     NOT NULL,
+        [IsCritical]              bit               NOT NULL CONSTRAINT [DF_ParsedAlerts_IsCritical] DEFAULT 0,
+        [ResolvedAt]              datetimeoffset    NULL,
         [InventorySubscriptionId] nvarchar(64)      NULL,
         [InventoryComputer]       nvarchar(256)     NULL,
         CONSTRAINT [PK_ParsedAlerts] PRIMARY KEY ([Id]),
@@ -189,6 +199,19 @@ BEGIN
             FOREIGN KEY ([InventorySubscriptionId], [InventoryComputer])
             REFERENCES [dbo].[ComputerInventory] ([SubscriptionId], [Computer]) ON DELETE SET NULL
     );
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[ParsedAlerts]', N'IsCritical') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ParsedAlerts]
+        ADD [IsCritical] bit NOT NULL
+            CONSTRAINT [DF_ParsedAlerts_IsCritical] DEFAULT 0;
+END;
+
+IF COL_LENGTH(N'[dbo].[ParsedAlerts]', N'ResolvedAt') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ParsedAlerts] ADD [ResolvedAt] datetimeoffset NULL;
 END;
 GO
 
@@ -377,15 +400,16 @@ SET [Name] = N'Port failures indicate system outage',
     [CategoryName] = N'System Outage',
     [ApplyToTarget] = 1,
     [Collapsed] = 0,
-    [Tone] = N'failure'
+    [Tone] = N'failure',
+    [IsCritical] = 1
 WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';
 
 IF @@ROWCOUNT = 0
 BEGIN
     INSERT INTO [dbo].[AlertRules]
-        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
+        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [IsCritical])
     VALUES
-        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 0, N'failure');
+        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 0, N'failure', 1);
 END;
 GO
 
@@ -403,7 +427,8 @@ SET [Name] = N'Suppress isolated DFSREvent failure',
     [CategoryName] = N'Suppressed alerts',
     [ApplyToTarget] = 0,
     [Collapsed] = 1,
-    [Tone] = N'info'
+    [Tone] = N'info',
+    [IsCritical] = 0
 WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7b8';
 
 IF @@ROWCOUNT = 0
@@ -429,7 +454,8 @@ SET [Name] = N'DCDiag targets are domain controllers',
     [ApplyToTarget] = 0,
     [Collapsed] = 0,
     [Tone] = N'info',
-    [InventoryRole] = N'domaincontrollers'
+    [InventoryRole] = N'domaincontrollers',
+    [IsCritical] = 0
 WHERE [Id] = '956fbb9c-cadb-4f49-ad1e-78c09a8a1301';
 
 IF @@ROWCOUNT = 0
@@ -455,7 +481,8 @@ SET [Name] = N'Replication targets are domain controllers',
     [ApplyToTarget] = 0,
     [Collapsed] = 0,
     [Tone] = N'info',
-    [InventoryRole] = N'domaincontrollers'
+    [InventoryRole] = N'domaincontrollers',
+    [IsCritical] = 0
 WHERE [Id] = '956fbb9c-cadb-4f49-ad1e-78c09a8a1302';
 
 IF @@ROWCOUNT = 0
@@ -465,6 +492,40 @@ BEGIN
     VALUES
         ('956fbb9c-cadb-4f49-ad1e-78c09a8a1302', N'Replication targets are domain controllers', 1, 110, N'InventoryRoleAssignment', N'', N'Replication', N'', 0, N'', N'', 0, 0, N'info', N'domaincontrollers');
 END;
+GO
+
+/* Backfill critical System Outage events and lifecycle resolution timestamps. */
+UPDATE fired
+SET fired.[IsCritical] = 1
+FROM [dbo].[ParsedAlerts] AS fired
+WHERE fired.[MonitorCondition] = N'Fired'
+    AND fired.[AlertName] LIKE N'%Port%'
+    AND JSON_VALUE(fired.[QueryResults], '$.type') = N'DCPort'
+    AND (SELECT COUNT(*) FROM OPENJSON(fired.[QueryResults], '$.rows')) > 10;
+
+;WITH Resolutions AS
+(
+        SELECT parsed.[AlertId], MAX(alerts.[ReceivedAt]) AS [ResolvedAt]
+        FROM [dbo].[ParsedAlerts] AS parsed
+        INNER JOIN [dbo].[Alerts] AS alerts ON alerts.[Id] = parsed.[Id]
+        WHERE parsed.[MonitorCondition] = N'Resolved'
+            AND parsed.[AlertId] <> N''
+        GROUP BY parsed.[AlertId]
+)
+UPDATE lifecycle
+SET lifecycle.[ResolvedAt] = resolutions.[ResolvedAt],
+        lifecycle.[IsCritical] = CASE
+                WHEN EXISTS
+                (
+                        SELECT 1
+                        FROM [dbo].[ParsedAlerts] AS critical
+                        WHERE critical.[AlertId] = lifecycle.[AlertId]
+                            AND critical.[IsCritical] = 1
+                ) THEN 1
+                ELSE lifecycle.[IsCritical]
+        END
+FROM [dbo].[ParsedAlerts] AS lifecycle
+INNER JOIN Resolutions AS resolutions ON resolutions.[AlertId] = lifecycle.[AlertId];
 GO
 
 IF NOT EXISTS
@@ -665,6 +726,30 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831170000_AddCriticalAlertRules'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831170000_AddCriticalAlertRules', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831180000_AddParsedAlertCriticalLifecycle'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831180000_AddParsedAlertCriticalLifecycle', N'9.0.19');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -703,7 +788,8 @@ SELECT
     [ApplyToTarget],
     [Collapsed],
     [Tone],
-    [InventoryRole]
+    [InventoryRole],
+    [IsCritical]
 FROM [dbo].[AlertRules]
 ORDER BY [Priority], [Name];
 GO

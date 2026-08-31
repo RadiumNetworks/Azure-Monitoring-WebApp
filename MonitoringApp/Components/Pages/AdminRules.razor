@@ -69,6 +69,7 @@
                             {
                                 <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
                                 <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
+                                <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
                             }
                             else
                             {
@@ -196,6 +197,10 @@
                         <label class="admin-check">
                             <input type="checkbox" @bind="rule.ApplyToTarget" />
                             <span>Include all alerts for the target</span>
+                        </label>
+                        <label class="admin-check">
+                            <input type="checkbox" @bind="rule.IsCritical" />
+                            <span>Mark matching alert lifecycle as critical</span>
                         </label>
                     </div>
                     </fieldset>
@@ -389,7 +394,8 @@
         ApplyToTarget = source.ApplyToTarget,
         Collapsed = source.Collapsed,
         Tone = source.Tone,
-        InventoryRole = source.InventoryRole
+        InventoryRole = source.InventoryRole,
+        IsCritical = source.IsCritical
     };
 
     private static string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryRoleAssignment

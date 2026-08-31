@@ -117,6 +117,7 @@ namespace MonitoringApp.Migrations
                     b.Property<bool>("Enabled").HasColumnType("bit");
                     b.Property<string>("FailedItemName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
                     b.Property<string>("InventoryRole").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<bool>("IsCritical").HasColumnType("bit");
                     b.Property<string>("Name").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
                     b.Property<int>("Priority").HasColumnType("int");
                     b.Property<string>("QueryResultType").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
@@ -205,6 +206,9 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<bool>("IsCritical")
+                        .HasColumnType("bit");
+
                     b.Property<string>("MonitorCondition")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -223,6 +227,9 @@ namespace MonitoringApp.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("SearchQuery")
                         .IsRequired()

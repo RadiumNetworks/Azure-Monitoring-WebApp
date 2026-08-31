@@ -19,7 +19,7 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
 
         foreach (var rule in orderedRules)
         {
-            var triggers = alerts.Where(alert => Matches(rule, alert)).ToArray();
+            var triggers = alerts.Where(alert => MatchesRule(rule, alert)).ToArray();
             var candidates = rule.ApplyToTarget
                 ? triggers.SelectMany(trigger => alerts.Where(alert => SameTarget(alert, trigger)))
                 : triggers;
@@ -53,8 +53,16 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
             alerts.Where(alert => !categorizedIds.Contains(alert.Id)).ToArray());
     }
 
-    private bool Matches(AlertRule rule, AlertRecord alert)
+    public bool MatchesRule(AlertRule rule, AlertRecord alert)
     {
+        ArgumentNullException.ThrowIfNull(rule);
+        ArgumentNullException.ThrowIfNull(alert);
+
+        if (!rule.Enabled || rule.RuleType != AlertRuleTypes.Categorization)
+        {
+            return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(rule.AlertNameContains) &&
             !alert.Name.Contains(rule.AlertNameContains, StringComparison.OrdinalIgnoreCase))
         {

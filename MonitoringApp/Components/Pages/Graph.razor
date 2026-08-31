@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @inject AlertStore AlertStore
 @inject AlertGraphOptions AlertGraph
+@inject AlertHistoryOptions AlertHistory
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Alert Graph</PageTitle>
@@ -18,7 +19,7 @@
     <div>
         <p class="eyebrow">Operations</p>
         <h1>Alert graph</h1>
-        <p class="subtitle">Parsed alert history enriched with maintained computer inventory information.</p>
+        <p class="subtitle">Parsed alerts seen in the last @HistoryWindowLabel, enriched with maintained computer inventory information.</p>
     </div>
     <div class="graph-summary" aria-label="@openCount open alerts and @historyCount parsed history alerts">
         <strong>@openCount</strong>
@@ -131,6 +132,7 @@
     private AlertGraphLayer selectedLayer1 = AlertGraphLayer.Subscription;
     private AlertGraphLayer selectedLayer2 = AlertGraphLayer.ResourceGroup;
     private AlertGraphLayer selectedLayer3 = AlertGraphLayer.Target;
+    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
     private IReadOnlyList<AlertGraphHierarchyNode> GetNavigationTree() =>
         AlertGraphHierarchy.Build(
             alerts,
@@ -143,7 +145,7 @@
         selectedLayer1 = AlertGraph.DefaultLayer1;
         selectedLayer2 = AlertGraph.DefaultLayer2;
         selectedLayer3 = AlertGraph.DefaultLayer3;
-        alerts = await AlertStore.GetAlertGraphRecordsAsync();
+        alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
         AlertStore.Changed += HandleStoreChanged;
     }
 
@@ -165,7 +167,7 @@
     private async Task ReloadAlertsAsync()
     {
         currentTimeUtc = DateTimeOffset.UtcNow;
-        alerts = await AlertStore.GetAlertGraphRecordsAsync();
+        alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
         graphNeedsInitialization = true;
         await InvokeAsync(StateHasChanged);
     }

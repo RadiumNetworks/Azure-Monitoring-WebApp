@@ -16,6 +16,8 @@ public sealed class ParsedAlertRecord
     public string QueryResults { get; set; } = "{}";
     public string AlertName { get; set; } = string.Empty;
     public string ResourceGroup { get; set; } = string.Empty;
+    public bool IsCritical { get; set; }
+    public DateTimeOffset? ResolvedAt { get; set; }
 
     public string? InventorySubscriptionId { get; set; }
     public string? InventoryComputer { get; set; }
