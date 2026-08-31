@@ -264,7 +264,7 @@ BEGIN
     VALUES
     (
         N'AlertGraph',
-        N'{"Layer1":[{"Value":"Subscription","Label":"Subscription"},{"Value":"ResourceGroup","Label":"Resourcegroup"}],"Layer2":[{"Value":"AlertName","Label":"AlertName"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Site","Label":"Site"}],"Layer3":[{"Value":"Target","Label":"Target"},{"Value":"Site","Label":"Site"}],"DefaultLayer1":"ResourceGroup","DefaultLayer2":"Site","DefaultLayer3":"Target"}'
+        N'{"Layer1":[{"Value":"Subscription","Label":"Subscription"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer2":[{"Value":"AlertName","Label":"AlertName"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer3":[{"Value":"Target","Label":"Target"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"DefaultLayer1":"ResourceGroup","DefaultLayer2":"Site","DefaultLayer3":"Target"}'
     );
 END;
 
@@ -277,6 +277,32 @@ BEGIN
         N'{"Severities":[{"Severity":"Sev0","Color":"red","FontStyle":"bold"},{"Severity":"Sev1","Color":"red","FontStyle":"bold"},{"Severity":"Sev2","Color":"yellow","FontStyle":"bold"},{"Severity":"Sev3","Color":"gray","FontStyle":"normal"},{"Severity":"Sev4","Color":"green","FontStyle":"normal"}],"Default":{"Color":"black","FontStyle":"normal"}}'
     );
 END;
+GO
+
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer1', JSON_QUERY(N'{"Value":"Domain","Label":"Domain"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer1') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Domain');
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer1', JSON_QUERY(N'{"Value":"Role","Label":"Role"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer1') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Role');
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer2', JSON_QUERY(N'{"Value":"Domain","Label":"Domain"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer2') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Domain');
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer2', JSON_QUERY(N'{"Value":"Role","Label":"Role"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer2') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Role');
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer3', JSON_QUERY(N'{"Value":"Domain","Label":"Domain"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer3') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Domain');
+UPDATE [dbo].[Settings]
+SET [JsonValue] = JSON_MODIFY([JsonValue], 'append $.Layer3', JSON_QUERY(N'{"Value":"Role","Label":"Role"}'))
+WHERE [Name] = N'AlertGraph' AND ISJSON([JsonValue]) = 1
+    AND NOT EXISTS (SELECT 1 FROM OPENJSON([JsonValue], '$.Layer3') WITH ([Value] nvarchar(64) '$.Value') WHERE [Value] = N'Role');
 GO
 
 IF EXISTS
@@ -623,6 +649,19 @@ IF NOT EXISTS
 BEGIN
     INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20260831150000_AddInventoryRolesAndFilters', N'9.0.19');
+END;
+GO
+
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831160000_AddInventoryGraphLayerChoices'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831160000_AddInventoryGraphLayerChoices', N'9.0.19');
 END;
 GO
 

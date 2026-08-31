@@ -899,6 +899,155 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Loads the complete parsed alert history for the graph and enriches it with the latest maintained inventory values.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertGraphRecord>> GetAlertGraphRecordsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            logger.LogError("Graph records cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
+            return [];
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            await BackfillMissingParsedAlertsAsync(context, cancellationToken);
+            var parsedAlerts = await context.ParsedAlerts
+                .AsNoTracking()
+                .Include(record => record.Alert)
+                .Include(record => record.InventoryComputerEntry)
+                .OrderByDescending(record => record.Alert.ReceivedAt)
+                .ToArrayAsync(cancellationToken);
+
+            return parsedAlerts.Select(record =>
+            {
+                var inventory = record.InventoryComputerEntry;
+                return new AlertGraphRecord(
+                    record.Id,
+                    record.Alert.ReceivedAt,
+                    record.AlertId,
+                    record.MonitorCondition,
+                    record.Alert.Comments,
+                    record.AlertName,
+                    FirstNonEmpty(inventory?.SubscriptionId ?? string.Empty, record.InventorySubscriptionId ?? string.Empty),
+                    FirstNonEmpty(inventory?.ResourceGroup ?? string.Empty, record.ResourceGroup),
+                    FirstNonEmpty(inventory?.Computer ?? string.Empty, record.InventoryComputer ?? string.Empty),
+                    inventory?.Site ?? string.Empty,
+                    inventory?.Domain ?? string.Empty,
+                    inventory?.Role ?? string.Empty);
+            }).ToArray();
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load parsed alert graph records from the database.");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Creates parsed and inventory records for alerts stored before ParsedAlerts was introduced.
+    /// </summary>
+    private async Task BackfillMissingParsedAlertsAsync(
+        AlertDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var missingAlerts = await context.Alerts
+            .AsNoTracking()
+            .Where(alert => !context.ParsedAlerts.Any(parsed => parsed.Id == alert.Id))
+            .OrderBy(alert => alert.ReceivedAt)
+            .ToArrayAsync(cancellationToken);
+        if (missingAlerts.Length == 0)
+        {
+            return;
+        }
+
+        var roleRules = await context.AlertRules
+            .AsNoTracking()
+            .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
+            .OrderBy(rule => rule.Priority)
+            .ToArrayAsync(cancellationToken);
+        var inventoryEntries = await context.ComputerInventory.ToArrayAsync(cancellationToken);
+        var inventoryByKey = inventoryEntries.ToDictionary(
+            entry => InventoryKey(entry.SubscriptionId, entry.Computer),
+            StringComparer.Ordinal);
+
+        foreach (var alert in missingAlerts)
+        {
+            var resolvedAlert = ResolveDisplayIdentity(alert);
+            var subscriptionId = resolvedAlert.SubscriptionId.Trim();
+            var computer = resolvedAlert.TargetName.Trim();
+            var hasInventoryKey = subscriptionId.Length is > 0 and <= 64 &&
+                computer.Length is > 0 and <= 256;
+
+            if (hasInventoryKey)
+            {
+                var key = InventoryKey(subscriptionId, computer);
+                var site = resolvedAlert.SiteName.Trim();
+                var resourceGroup = resolvedAlert.ResourceGroup.Trim();
+                var role = InventoryRoleRuleMatcher.FindRole(resolvedAlert, roleRules);
+                if (!inventoryByKey.TryGetValue(key, out var inventory))
+                {
+                    inventory = new ComputerInventoryEntry
+                    {
+                        SubscriptionId = subscriptionId,
+                        Computer = computer,
+                        Site = site.Length is > 0 and <= 256 ? site : null,
+                        ResourceGroup = resourceGroup.Length is > 0 and <= 256 ? resourceGroup : null,
+                        Role = role
+                    };
+                    context.ComputerInventory.Add(inventory);
+                    inventoryByKey.Add(key, inventory);
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(inventory.Site) && site.Length is > 0 and <= 256)
+                    {
+                        inventory.Site = site;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(inventory.ResourceGroup) &&
+                        resourceGroup.Length is > 0 and <= 256)
+                    {
+                        inventory.ResourceGroup = resourceGroup;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(inventory.Role) && !string.IsNullOrWhiteSpace(role))
+                    {
+                        inventory.Role = role;
+                    }
+                }
+            }
+
+            context.ParsedAlerts.Add(ParsedAlertFactory.Create(resolvedAlert));
+        }
+
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+            logger.LogInformation(
+                "Backfilled {ParsedAlertCount} parsed alert records from existing alert history.",
+                missingAlerts.Length);
+        }
+        catch (DbUpdateException)
+        {
+            context.ChangeTracker.Clear();
+            var remainingIds = missingAlerts.Select(alert => alert.Id).ToArray();
+            var remainingCount = await context.Alerts
+                .AsNoTracking()
+                .CountAsync(
+                    alert => remainingIds.Contains(alert.Id) &&
+                        !context.ParsedAlerts.Any(parsed => parsed.Id == alert.Id),
+                    cancellationToken);
+            if (remainingCount > 0)
+            {
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
     /// Loads alerts received on or after the supplied timestamp, ordered newest first. Unlike the UI loader, configuration and database failures are propagated to the caller.
     /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetSinceRequiredAsync(

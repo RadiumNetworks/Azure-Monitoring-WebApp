@@ -265,7 +265,7 @@ namespace MonitoringApp.Migrations
 
             modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
                 {
-                    b.HasOne("MonitoringApp.AlertRecord", null)
+                    b.HasOne("MonitoringApp.AlertRecord", "Alert")
                         .WithOne()
                         .HasForeignKey("MonitoringApp.ParsedAlertRecord", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -275,6 +275,8 @@ namespace MonitoringApp.Migrations
                         .WithMany("ParsedAlerts")
                         .HasForeignKey("InventorySubscriptionId", "InventoryComputer")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Alert");
 
                     b.Navigation("InventoryComputerEntry");
                 });

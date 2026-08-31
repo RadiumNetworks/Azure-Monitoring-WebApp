@@ -86,7 +86,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         parsedAlert.Property(record => record.ResourceGroup).HasMaxLength(256);
         parsedAlert.Property(record => record.InventorySubscriptionId).HasMaxLength(64);
         parsedAlert.Property(record => record.InventoryComputer).HasMaxLength(256);
-        parsedAlert.HasOne<AlertRecord>()
+        parsedAlert.HasOne(record => record.Alert)
             .WithOne()
             .HasForeignKey<ParsedAlertRecord>(record => record.Id)
             .OnDelete(DeleteBehavior.Cascade);

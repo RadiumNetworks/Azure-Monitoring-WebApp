@@ -19,5 +19,6 @@ public sealed class ParsedAlertRecord
 
     public string? InventorySubscriptionId { get; set; }
     public string? InventoryComputer { get; set; }
+    public AlertRecord Alert { get; set; } = null!;
     public ComputerInventoryEntry? InventoryComputerEntry { get; set; }
 }

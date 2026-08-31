@@ -3,7 +3,6 @@
 @implements IAsyncDisposable
 @inject AlertStore AlertStore
 @inject AlertGraphOptions AlertGraph
-@inject AlertHistoryOptions AlertHistory
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Alert Graph</PageTitle>
@@ -19,13 +18,13 @@
     <div>
         <p class="eyebrow">Operations</p>
         <h1>Alert graph</h1>
-        <p class="subtitle">Subscriptions, resource groups, and targets seen in the last @HistoryWindowLabel.</p>
+        <p class="subtitle">Parsed alert history enriched with maintained computer inventory information.</p>
     </div>
-    <div class="graph-summary" aria-label="@openCount open alerts and @historyCount history alerts in the last @HistoryWindowLabel">
+    <div class="graph-summary" aria-label="@openCount open alerts and @historyCount parsed history alerts">
         <strong>@openCount</strong>
         <span>open</span>
         <strong>@historyCount</strong>
-        <span>history / @HistoryWindowLabel</span>
+        <span>parsed history</span>
     </div>
 </section>
 
@@ -125,22 +124,16 @@
 </section>
 
 @code {
-    private IReadOnlyList<AlertRecord> alerts = [];
+    private IReadOnlyList<AlertGraphRecord> alerts = [];
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
-    private readonly CancellationTokenSource refreshCancellation = new();
-    private Task? refreshTask;
     private bool graphNeedsInitialization = true;
     private bool graphInitialized;
     private AlertGraphLayer selectedLayer1 = AlertGraphLayer.Subscription;
     private AlertGraphLayer selectedLayer2 = AlertGraphLayer.ResourceGroup;
     private AlertGraphLayer selectedLayer3 = AlertGraphLayer.Target;
-    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
-
     private IReadOnlyList<AlertGraphHierarchyNode> GetNavigationTree() =>
         AlertGraphHierarchy.Build(
             alerts,
-            AlertLifecycle.GetActiveAlerts(alerts),
-            AlertHistory.GetCutoff(currentTimeUtc),
             selectedLayer1,
             selectedLayer2,
             selectedLayer3);
@@ -150,9 +143,8 @@
         selectedLayer1 = AlertGraph.DefaultLayer1;
         selectedLayer2 = AlertGraph.DefaultLayer2;
         selectedLayer3 = AlertGraph.DefaultLayer3;
-        alerts = await AlertStore.GetSinceAsync(AlertHistory.GetCutoff(currentTimeUtc));
+        alerts = await AlertStore.GetAlertGraphRecordsAsync();
         AlertStore.Changed += HandleStoreChanged;
-        refreshTask = RefreshClockAsync(refreshCancellation.Token);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -165,22 +157,6 @@
         }
     }
 
-    private async Task RefreshClockAsync(CancellationToken cancellationToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                currentTimeUtc = DateTimeOffset.UtcNow;
-                await InvokeAsync(StateHasChanged);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
-
     private void HandleStoreChanged()
     {
         _ = ReloadAlertsAsync();
@@ -189,7 +165,7 @@
     private async Task ReloadAlertsAsync()
     {
         currentTimeUtc = DateTimeOffset.UtcNow;
-        alerts = await AlertStore.GetSinceAsync(AlertHistory.GetCutoff(currentTimeUtc));
+        alerts = await AlertStore.GetAlertGraphRecordsAsync();
         graphNeedsInitialization = true;
         await InvokeAsync(StateHasChanged);
     }
@@ -210,6 +186,8 @@
         AlertGraphLayer.Subscription => "graph-svg-subscription",
         AlertGraphLayer.AlertName => "graph-svg-alert-name",
         AlertGraphLayer.ResourceGroup => "graph-svg-resource-group",
+        AlertGraphLayer.Domain => "graph-svg-resource-group",
+        AlertGraphLayer.Role => "graph-svg-alert-name",
         _ => "graph-svg-target"
     };
 
@@ -218,6 +196,8 @@
         AlertGraphLayer.Subscription => "legend-subscription",
         AlertGraphLayer.AlertName => "legend-alert-name",
         AlertGraphLayer.ResourceGroup => "legend-resource-group",
+        AlertGraphLayer.Domain => "legend-resource-group",
+        AlertGraphLayer.Role => "legend-alert-name",
         _ => "legend-target"
     };
 
@@ -233,8 +213,6 @@
     public async ValueTask DisposeAsync()
     {
         AlertStore.Changed -= HandleStoreChanged;
-        refreshCancellation.Cancel();
-        refreshCancellation.Dispose();
 
         if (!graphInitialized)
         {
