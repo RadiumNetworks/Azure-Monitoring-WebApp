@@ -65,7 +65,7 @@ public sealed class AddAlertRules : Migration
                 {
                     new Guid("d82b566a-ce6e-4201-b7b9-9a366426e7b8"),
                     "Suppress isolated DFSREvent failure", true, 20, "DCDiag", "DCDiag",
-                    AlertRuleConditionTypes.OnlyFailedItem, 0, "DFSREvent", "Suppressed alerts", false,
+                    "OnlyFailedItem", 0, "DFSREvent", "Suppressed alerts", false,
                     true, "info"
                 }
             });

@@ -176,6 +176,30 @@ namespace MonitoringApp.Migrations
                     b.ToTable("Settings", (string)null);
                 });
 
+            modelBuilder.Entity("MonitoringApp.LogbookEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("User")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("LogbookEntries", (string)null);
+                });
+
             modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
                 {
                     b.Property<Guid>("Id")

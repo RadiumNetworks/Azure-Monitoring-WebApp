@@ -1,0 +1,156 @@
+@page "/logbook"
+@rendermode InteractiveServer
+@inject LogbookStore LogbookStore
+
+<PageTitle>Logbook</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Operations</p>
+        <h1>Logbook</h1>
+        <p class="subtitle">Record operational notes with an automatic UTC timestamp and your logged-on username.</p>
+    </div>
+    <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadEntriesAsync">
+        @(isLoading ? "Refreshing..." : "Refresh")
+    </button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+<section class="logbook-compose" aria-labelledby="new-logbook-entry">
+    <div class="admin-section-heading">
+        <div>
+            <p class="eyebrow">New entry</p>
+            <h2 id="new-logbook-entry">Write a comment</h2>
+            <span>Writing as @(string.IsNullOrWhiteSpace(currentUser) ? "no logged-on user" : currentUser)</span>
+        </div>
+    </div>
+    <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+        <label class="admin-field admin-field-wide">
+            <span>Comment</span>
+            <textarea required maxlength="4000" rows="5" @bind="commentDraft"></textarea>
+            <small>@commentDraft.Length / 4000 characters. Date and user are added automatically.</small>
+        </label>
+        <div class="admin-form-actions">
+            <button class="admin-primary" type="submit" disabled="@(isSaving || string.IsNullOrWhiteSpace(currentUser))">
+                @(isSaving ? "Saving..." : "Add to logbook")
+            </button>
+        </div>
+    </form>
+</section>
+
+<section class="logbook-history" aria-labelledby="logbook-history-heading">
+    <div class="admin-section-heading">
+        <div>
+            <h2 id="logbook-history-heading">Entries</h2>
+            <span>@EntryCountLabel(entries.Count)</span>
+        </div>
+    </div>
+
+    @if (isLoading && entries.Count == 0)
+    {
+        <p class="admin-empty">Loading logbook entries...</p>
+    }
+    else if (entries.Count == 0)
+    {
+        <p class="admin-empty">The logbook does not contain any entries yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll">
+            <table class="logbook-table">
+                <thead>
+                    <tr>
+                        <th>Datetime (UTC)</th>
+                        <th>User</th>
+                        <th>Comment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in entries)
+                    {
+                        <tr>
+                            <td><time class="timestamp" datetime="@entry.CreatedAt.ToString("O")">@entry.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</time></td>
+                            <td class="logbook-user">@entry.User</td>
+                            <td class="logbook-comment">@entry.Comment</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private IReadOnlyList<LogbookEntry> entries = [];
+    private string currentUser = string.Empty;
+    private string commentDraft = string.Empty;
+    private string? statusMessage;
+    private string? errorMessage;
+    private bool isLoading;
+    private bool isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authenticationState = await AuthenticationStateTask;
+        currentUser = authenticationState.User.Identity?.Name?.Trim() ?? string.Empty;
+        await LoadEntriesAsync();
+    }
+
+    private async Task LoadEntriesAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            entries = await LogbookStore.GetAllAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Could not load the logbook: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        isSaving = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            await LogbookStore.AddAsync(currentUser, commentDraft);
+            commentDraft = string.Empty;
+            statusMessage = "The comment was added to the logbook.";
+            await LoadEntriesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string EntryCountLabel(int count) => count == 1 ? "1 entry" : $"{count} entries";
+}

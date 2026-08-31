@@ -766,15 +766,30 @@ public sealed class AlertStore
 
             rule.FailedItemName = string.Empty;
         }
-        else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItem)
+        else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItems)
         {
-            if (string.IsNullOrWhiteSpace(rule.FailedItemName) || rule.FailedItemName.Length > 256)
+            var failedItemNames = rule.FailedItemName
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (failedItemNames.Length == 0)
             {
                 throw new InvalidOperationException(
-                    "Failed item name is required for an OnlyFailedItem condition.");
+                    "At least one failed item name is required for an OnlyFailedItems condition.");
+            }
+
+            rule.FailedItemName = string.Join(", ", failedItemNames);
+            if (rule.FailedItemName.Length > 256)
+            {
+                throw new InvalidOperationException("Failed item names may contain at most 256 characters.");
             }
 
             rule.Threshold = 0;
+        }
+        else if (rule.ConditionType == AlertRuleConditionTypes.NoFailedItems)
+        {
+            rule.Threshold = 0;
+            rule.FailedItemName = string.Empty;
         }
         else
         {
@@ -1221,6 +1236,15 @@ public sealed class AlertStore
                     dbContext,
                     resolvedAlert.AlertId,
                     cancellationToken);
+                var logbookEntry = CriticalAlertLogbook.CreateEntry(
+                    resolvedAlert,
+                    parsedAlert.IsCritical,
+                    DateTimeOffset.UtcNow);
+                if (logbookEntry is not null)
+                {
+                    dbContext.LogbookEntries.Add(logbookEntry);
+                }
+
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new AddAlertResult(alert, true);
@@ -1343,6 +1367,7 @@ public sealed class AlertStore
     public async Task<bool> UpdateCommentsAsync(
         Guid id,
         string comments,
+        string user,
         CancellationToken cancellationToken = default)
     {
         EnsureDatabaseIsConfigured();
@@ -1353,15 +1378,45 @@ public sealed class AlertStore
             throw new ArgumentException("Comments cannot exceed 4000 characters.", nameof(comments));
         }
 
-        int updatedRows;
         try
         {
             await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-            updatedRows = await dbContext.Alerts
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            var storedAlert = await dbContext.Alerts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(alert => alert.Id == id, cancellationToken);
+            if (storedAlert is null)
+            {
+                return false;
+            }
+
+            if (storedAlert.Comments.Equals(normalizedComments, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var logbookEntry = AlertCommentLogbook.CreateEntry(
+                ResolveDisplayIdentity(storedAlert),
+                user,
+                normalizedComments,
+                DateTimeOffset.UtcNow);
+            if (logbookEntry is not null)
+            {
+                dbContext.LogbookEntries.Add(logbookEntry);
+            }
+
+            var updatedRows = await dbContext.Alerts
                 .Where(alert => alert.Id == id)
                 .ExecuteUpdateAsync(
                     setters => setters.SetProperty(alert => alert.Comments, normalizedComments),
                     cancellationToken);
+            if (updatedRows == 0)
+            {
+                return false;
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (Exception exception)
         {
@@ -1369,12 +1424,8 @@ public sealed class AlertStore
             throw;
         }
 
-        if (updatedRows > 0)
-        {
-            Changed?.Invoke();
-        }
-
-        return updatedRows > 0;
+        Changed?.Invoke();
+        return true;
     }
 
     /// <summary>

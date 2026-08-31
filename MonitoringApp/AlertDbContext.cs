@@ -13,6 +13,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<SqlAuthenticationUser> AuthenticationUsers => Set<SqlAuthenticationUser>();
     public DbSet<DatabaseSetting> Settings => Set<DatabaseSetting>();
     public DbSet<ParsedAlertRecord> ParsedAlerts => Set<ParsedAlertRecord>();
+    public DbSet<LogbookEntry> LogbookEntries => Set<LogbookEntry>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -110,5 +111,14 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         setting.HasKey(value => value.Name);
         setting.Property(value => value.Name).HasMaxLength(128);
         setting.Property(value => value.JsonValue).HasColumnType("nvarchar(max)");
+
+        var logbookEntry = modelBuilder.Entity<LogbookEntry>();
+        logbookEntry.ToTable("LogbookEntries");
+        logbookEntry.HasKey(entry => entry.Id);
+        logbookEntry.Property(entry => entry.Id).ValueGeneratedNever();
+        logbookEntry.Property(entry => entry.CreatedAt).HasColumnType("datetimeoffset");
+        logbookEntry.Property(entry => entry.User).HasMaxLength(256);
+        logbookEntry.Property(entry => entry.Comment).HasColumnType("nvarchar(max)");
+        logbookEntry.HasIndex(entry => entry.CreatedAt);
     }
 }

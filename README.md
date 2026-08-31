@@ -1,110 +1,200 @@
-## Azure Monitoring Console // Grid Operations Node
+# Azure Monitoring Console // Matrix Operations Node
 
-Welcome to the grid, chummer. This console pulls Azure Monitor alerts out of the corporate data stream and lands them in one hardened operations node. When a system goes dark, the crew can trace the signal, identify the affected target or site, cut through background noise, and spot a real outage before the run goes sideways.
+Willkommen im Grid, Chummer.
 
-This is an ASP.NET Core Blazor application backed by SQL Server or Azure SQL. Azure Monitor and Logic Apps feed the node through its REST ingress, while operators work the live alert stream from the browser. The repository also carries a CLI for deckers who prefer a direct line to the data.
+Die **Azure Monitoring Console** zieht Azure-Monitor-Alerts aus dem Konzernrauschen, zerlegt ihre Payloads und legt die verwertbaren Signale in einem gehärteten Operations-Node ab. Statt zwischen Portalen, Log-Queries und halbgaren Alarmmeldungen zu springen, bekommt die Crew eine gemeinsame Sicht auf aktive Störungen, historische Ereignisse, betroffene Systeme und kritische Lebenszyklen.
 
-### What is wired into the node
+Unter der Chromhaube läuft eine **ASP.NET Core Blazor** WebApp auf **.NET 9**, gespeist von Azure Monitor und Logic Apps und abgesichert durch SQL Server oder Azure SQL. Für Decker mit Vorliebe für die Kommandozeile liegt zusätzlich ein CLI im Repository.
 
-- A live alert inbox with active/history views, filtering, severity styling, comments, result presentation, and a target heatmap.
-- A parsed-alert store that keeps normalized alert details and links every signal to the computer inventory when possible.
-- A three-layer graph fed by parsed alerts and operator-maintained inventory data instead of trusting incomplete telemetry.
-- A computer inventory for correcting subscription, resource group, site, domain, role, and computer metadata.
-- Database-driven rules for inbox categorization and automatic inventory-role assignment.
-- Built-in SQL authentication with salted PBKDF2-HMAC-SHA256 password hashes.
-- Server-side role-based access for Readers, Operators, and Admins.
-- Database-backed application settings with validation before startup.
-- Query endpoints, Copilot prompt preparation, Logic App enrichment workflows, and a command-line client.
+> **Straßenregel Nr. 1:** Vertraue keinem unvalidierten Payload.
+>
+> **Straßenregel Nr. 2:** Sorge für ein Backup, bevor du das Schema anfasst.
+>
+> **Straßenregel Nr. 3:** Mach niemals einen Deal mit einem Drachen.
 
-Watch the heatmap, follow the data trail, and keep the infrastructure online. In the sprawl, visibility is survival.
+## Was im Node verdrahtet ist
 
-## Alert inbox // Live traffic
+- Live-Inbox für aktive Alerts und Ereignishistorie mit Filtern, Kategorien und frei konfigurierbarer Severity-Darstellung.
+- Zwei 48-Stunden-Timelines für ausgelöste Alerts und gleichzeitig aktive kritische Alerts.
+- Normalisierte Speicherung in `ParsedAlerts` zusätzlich zur unveränderten Original-Payload in `Alerts`.
+- Kritische Alert-Lebenszyklen mit automatischer Erkennung von Fired und Resolved.
+- SQL-basiertes Logbuch für manuelle Einsatznotizen und automatische Systemmeldungen.
+- Dreistufiger Infrastrukturgraph aus Parsed Alerts und korrigierten Inventardaten.
+- Wartbares Computerinventar für Subscription, Resource Group, Computer, Site, Domain und Rolle.
+- Datenbankgesteuerte Regeln für Kategorisierung, Unterdrückung, Kritikalität und automatische Rollenzuweisung.
+- SQL-Authentifizierung mit gesalzenen PBKDF2-HMAC-SHA256-Passworthashes.
+- Serverseitige Rollen und Berechtigungen für Reader, Operator und Admin.
+- Datenbankgestützte Anwendungseinstellungen mit Validierung beim Start.
+- Query-Endpunkte, kontrollierte Copilot-Prompt-Erzeugung, Logic-App-Workflows und CLI.
 
-The inbox is where the incoming noise gets sorted. It shows the current active state as well as full event history, supports free-text and time filters, and groups matching signals with database-managed alert rules. Operators can inspect query results, add comments, and mark an alert as resolved without deleting the original evidence.
+## Alert Inbox // Jack in
 
-Categorization rules can suppress known static or flag a wider target outage. Severity colors and font styles are also database-managed, so the visual threat level can be tuned without rebuilding the application.
+Die Inbox ist das AR-Overlay für den laufenden Einsatz. Sie zeigt aktive Zustände und historische Events, unterstützt Text-, Ziel-, Subscription-, Resource-Group- und Zeitfilter und gruppiert Signale anhand priorisierter Regeln aus der Datenbank.
 
-![Alert inbox with filters, heatmap, and categorized alerts](./Media/Inbox.png)
+Die erste Timeline zählt ausschließlich **Fired**-Ereignisse. Direkt darunter zeigt eine rote 48-Stunden-Linie, wie viele kritische Alert-Lebenszyklen zu jedem Zeitpunkt aktiv waren. Ein späteres Resolved-Event beendet den kritischen Zeitraum, ohne die vorherigen Spuren aus der Matrix zu löschen.
 
-## Alert graph // Trace the signal
+Query-Ergebnisse wie DCDiag oder Portprüfungen werden lesbar aufbereitet. Kommentare können direkt am Alert gespeichert werden. Jeder neue oder geänderte Inbox-Kommentar erzeugt zusätzlich einen Logbucheintrag mit:
 
-The graph turns the alert stream into a configurable three-layer topology. Layers can use subscription, resource group, alert name, target, site, domain, or role.
+- angemeldetem Benutzer,
+- automatischem UTC-Zeitstempel,
+- Alertname,
+- Targetname,
+- Kommentartext.
 
-The graph reads normalized records from `ParsedAlerts` and enriches them through `ComputerInventory`. That means a corrected site, domain, role, or resource group is reflected in the graph even when the original alert arrived with missing or bad metadata. Older alerts that predate parsed storage are backfilled automatically when the graph loads, so no ghosts disappear just because the schema evolved.
+Unverändertes erneutes Speichern erzeugt keinen Doppelgänger im Logbuch. Ein leerer Kommentar wird ebenfalls nicht als Logbucheintrag materialisiert. Geisterdaten sind schon schlimm genug.
 
-![Alert topology graph with configurable hierarchy layers](./Media/Graph.png)
+![Alert Inbox mit Filtern, Heatmap und kategorisierten Alerts](./Media/Inbox.png)
 
-## Computer inventory // Your local truth
+## Regelwerk // ICE gegen das Rauschen
 
-Telemetry lies, or at least turns up half dressed. The inventory gives the crew a maintained source of truth for every discovered system:
+Regeln liegen in `AlertRules` und werden nach aufsteigender `Priority` ausgewertet. Die erste passende Kategorisierungsregel gewinnt.
+
+### Kategorisierungsbedingungen
+
+- `RowCountGreaterThan`: Die Zahl der Query-Zeilen muss größer als der konfigurierte Schwellwert sein.
+- `OnlyFailedItems`: Mindestens einer der kommagetrennt angegebenen Einträge muss fehlschlagen; kein Fehler darf außerhalb dieser Liste liegen.
+- `NoFailedItems`: Im dargestellten Ergebnis darf kein fehlgeschlagener Eintrag vorhanden sein.
+
+Bei `OnlyFailedItems` passt zum Beispiel `DFSREvent, KCCError` auf:
+
+- nur `DFSREvent`,
+- nur `KCCError`,
+- `DFSREvent` und `KCCError` gemeinsam, unabhängig von Reihenfolge und Groß-/Kleinschreibung.
+
+Kommt zusätzlich ein nicht erlaubter Fehler vor, schlägt die Regel nicht an. Bekannte gesunde oder isolierte Ergebnisse können so in **Suppressed alerts** landen, während echte Mehrfachstörungen sichtbar bleiben.
+
+Eine Kategorisierungsregel kann außerdem als **Critical** markiert werden. Die eingebaute System-Outage-Regel nutzt das bereits. Kritikalität und Auflösungszeit werden über alle Events mit derselben Alert-ID synchronisiert.
+
+Inventory-Role-Regeln laufen separat. Die mitgelieferten Regeln erkennen DCDiag- und Replication-Signale und weisen dem Ziel die Rolle `domaincontrollers` zu.
+
+## Logbook // Das Gedächtnis der Crew
+
+Das Logbuch unter `/logbook` ist die gemeinsame Chronik des Runs. Jeder angemeldete Benutzer kann dort Kommentare erfassen. Benutzer und UTC-Zeitstempel setzt der Server automatisch; beide Werte können im Formular nicht manipuliert werden.
+
+Zusätzlich schreibt der Node selbst als Benutzer **System**, wenn:
+
+- ein Alert durch eine kritische Regel als kritisch ausgelöst wird,
+- ein kritischer Alert aufgelöst wird.
+
+Automatische Einträge enthalten Alertname, Target, Severity und Alert-ID. Doppelt zugestellte Alert-Events werden dedupliziert und erzeugen keine zweite Systemmeldung. Logbucheinträge werden neueste zuerst angezeigt und bleiben als eigenständige Einsatzhistorie erhalten.
+
+## Alert Graph // Folge dem Datenpfad
+
+Der Graph verwandelt Alarmrauschen in eine konfigurierbare Topologie mit drei Ebenen. Jede Ebene kann unter anderem Subscription, Resource Group, Alertname, Target, Site, Domain oder Rolle verwenden.
+
+Die Darstellung basiert auf `ParsedAlerts` und wird mit `ComputerInventory` angereichert. Korrigiert ein Operator Site, Domain, Rolle oder Resource Group, erscheint die Änderung im Graphen, ohne die historische Original-Payload umzuschreiben. Alte Alerts ohne Parsed-Record werden bei Bedarf nachgezogen.
+
+Der sichtbare Zeitraum verwendet dieselbe konfigurierbare `AlertHistory`-Einstellung wie die Inbox. Standardmäßig zeigt der Node die letzten sieben Tage statt jeden Schatten, der jemals durch die Leitungen gekrochen ist.
+
+![Topologiegraph mit konfigurierbaren Hierarchieebenen](./Media/Graph.png)
+
+## Computer Inventory // Lokale Wahrheit
+
+Telemetry ist nicht immer gelogen, aber häufig unvollständig. Das Inventar hält deshalb die wartbare Wahrheit über entdeckte Systeme:
 
 - Subscription
-- Resource group
+- Resource Group
 - Computer
 - Site
 - Domain
-- Role
+- Rolle
 
-Incoming alerts discover new systems and fill missing metadata, but they do not overwrite values already corrected by an operator. The inventory can also be prefilled from recent alert history. Filters for subscription, resource group, site, domain, and role keep the console usable when the system count gets heavy.
+Neue Alerts entdecken Systeme und ergänzen fehlende Werte. Bereits manuell korrigierte Angaben werden nicht blind überschrieben. Das Inventar kann aus der vorhandenen Alert-Historie vorgefüllt und nach allen wichtigen Feldern gefiltert werden.
 
-Inventory-role rules run separately from inbox categorization. The built-in rules assign `domaincontrollers` when a target produces a DCDiag or replication alert. More role rules can be maintained from the Rules page without hard-wiring every new pattern into the code.
+![Computerinventar mit Metadaten und Filtern](./Media/Inventory.png)
 
-![Computer inventory with metadata and dedicated filters](./Media/Inventory.png)
+## Authentication // Wards vor dem Host
 
-## Authentication // Keep the door warded
+Der Datensatz `Authentication` in `dbo.Settings` bestimmt den Zugangsmodus:
 
-Application authentication is controlled by the `Authentication` row in `dbo.Settings`:
+- `sql`: sicherer Standard mit Konten aus `AuthenticationUsers`.
+- `open`: anonymer Zugriff, nur für kontrollierte Initialisierung oder isolierte Entwicklung.
 
-- `sql` is the secure default and requires a login stored in `AuthenticationUsers`.
-- `open` allows anonymous access and is intended only for controlled setups or initial configuration.
+Passwörter landen niemals als Klartext in der Datenbank. Sie werden als versionierte, gesalzene PBKDF2-HMAC-SHA256-Hashes mit hohem Arbeitsfaktor gespeichert. Das Login-Cookie schützt Weboberfläche und interaktive Endpunkte. Die Alert-Ingestion besitzt davon unabhängig ihre eigene Bearer-Token-Policy für Logic Apps und Managed Identities.
 
-Passwords never land in the database as clear text. Each password is stored as a versioned, salted PBKDF2-HMAC-SHA256 hash with a high work factor. The login cookie protects the Blazor interface and application endpoints, while alert ingestion has its own independent bearer-token policy for Logic Apps and managed identities.
+### Zugriffsrollen
 
-### Crew access levels
-
-| Role | Grid access |
+| Rolle | Matrixzugriff |
 | --- | --- |
-| **Reader** | Standard operational views such as Inbox, Graph, Queries, and Copilot Prompt |
-| **Operator** | Reader access plus alert Rules and Computer Inventory maintenance |
-| **Admin** | Operator access plus Authentication Users and Application Settings |
+| **Reader** | Inbox, Graph, Queries, Logbook und Copilot Prompt |
+| **Operator** | Reader-Rechte plus Regeln und Computerinventar |
+| **Admin** | Operator-Rechte plus Benutzer- und Anwendungseinstellungen |
 
-These are server-side authorization boundaries, not just hidden navigation links. Direct page requests are checked too. The final user and final Admin are protected from deletion or demotion, which helps prevent the crew from locking itself outside the host.
+Die Grenzen werden serverseitig geprüft und nicht nur im Menü versteckt. Der letzte Benutzer und der letzte Admin sind gegen versehentliche Löschung oder Herabstufung geschützt. Sich selbst aus dem eigenen Host auszusperren ist kein guter Karriere-Move.
 
-![Authentication user administration with Reader, Operator, and Admin roles](./Media/User.png)
+![Benutzerverwaltung mit Reader-, Operator- und Admin-Rollen](./Media/User.png)
 
-## Application settings // Tune the host
+## Application Settings // Host konfigurieren
 
-Startup-critical configuration lives in `dbo.Settings`. Admins can maintain authentication mode, alert-history options, graph layers, and severity presentation from the Settings page. JSON values are validated before they are written, and startup fails loudly if required settings are missing or malformed instead of quietly falling back to an unsafe configuration.
+Startkritische Einstellungen liegen in `dbo.Settings`. Admins verwalten dort unter anderem:
 
-Saved startup settings take effect after an application restart.
+- Authentifizierungsmodus,
+- Aufbewahrungs- und Anzeigezeitraum der Alerts,
+- Ebenen des Alert-Graphen,
+- Farben und Schriftstile der Severity-Werte.
 
-![Database-backed application settings](./Media/Settings.png)
+JSON-Konfigurationen werden vor dem Speichern validiert. Fehlen erforderliche Werte oder ist das Format beschädigt, startet die Anwendung lieber laut als heimlich mit einer unsicheren Ersatzkonfiguration. Änderungen an Startparametern werden nach einem Neustart aktiv.
 
-## Query interface // Jack in directly
+![Datenbankgestützte Anwendungseinstellungen](./Media/Settings.png)
 
-The read-only query API supports active-alert and event-history requests for integrations, agents, and automation. The Queries page shows ready-to-use request URLs and their current JSON responses, making it a quick diagnostics deck before another system is connected.
+## Query Interface // Direkter Datenjack
 
-![Query examples with active-alert and event-history responses](./Media/Queries.png)
+Die schreibgeschützte Query-API liefert aktive Alerts und Ereignishistorie für Integrationen, Agenten und Automatisierung. Die Queries-Seite zeigt sofort verwendbare URLs und aktuelle JSON-Antworten. Ideal, um die Leitung zu prüfen, bevor ein weiterer Host angeschlossen wird.
 
-## Copilot handoff // Human stays in the loop
+![Query-Beispiele mit aktuellen JSON-Antworten](./Media/Queries.png)
 
-The Copilot Prompt page assembles a controlled incident snapshot from selected alerts. The operator chooses the scope, time range, alerts, and detail fields before copying the prompt. Nothing is sent automatically; the handoff stays visible and human-controlled.
+## Copilot Handoff // Mensch in der Schleife
 
-![Copilot prompt preparation and alert selection](./Media/Prompt.png)
+Die Copilot-Prompt-Seite baut aus ausgewählten Alerts einen kontrollierten Incident-Snapshot. Der Operator bestimmt Zeitraum, Signale und Detailtiefe. Nichts wird automatisch an einen externen Dienst übertragen; der fertige Prompt bleibt sichtbar und wird bewusst kopiert.
 
-## Data flow // From sensor to street map
+Auch in der Matrix gilt: Ein Agent ist ein Werkzeug, kein Johnson, dem man blind vertraut.
 
-1. Azure Monitor fires an alert.
-2. A Logic App can enrich the Common Alert Schema payload with query results.
-3. `POST /api/alerts` validates and deduplicates the event.
-4. The original event is stored in `Alerts` and its normalized twin in `ParsedAlerts`.
-5. The target is linked to `ComputerInventory`; missing inventory values can be discovered or assigned by role rules.
-6. The Inbox works the current alert lifecycle, while the Graph uses parsed history plus corrected inventory metadata.
+![Vorbereitung eines Copilot-Prompts mit Alert-Auswahl](./Media/Prompt.png)
 
-Deleting an original alert also removes its parsed twin. Deleting an inventory entry keeps parsed history intact and clears only the inventory link, so the evidence survives even when the local map is rebuilt.
+## Datenfluss // Vom Sensor zum Straßenplan
 
-## Deployment notes // Before the run
+1. Azure Monitor löst einen Alert aus.
+2. Eine Logic App kann die Common-Alert-Schema-Payload um Query-Ergebnisse anreichern.
+3. `POST /api/alerts` authentifiziert, validiert und dedupliziert das Event.
+4. Die Originalmeldung landet in `Alerts`; die normalisierte Projektion wird in `ParsedAlerts` gespeichert.
+5. Das Ziel wird mit `ComputerInventory` verbunden und gegebenenfalls durch Rollenregeln ergänzt.
+6. Kritische Regeln bestimmen Kritikalität und Lebenszyklus.
+7. Fired- und Resolved-Events kritischer Alerts erzeugen transaktional Systemeinträge im Logbuch.
+8. Inbox, Timelines und Graph lesen dieselbe persistierte Lage aus unterschiedlichen Blickwinkeln.
 
-The main web project is under `MonitoringApp`, with EF Core migrations in `MonitoringApp/Migrations` and the idempotent database bootstrap script in `MonitoringApp/Database/CreateMonitoringDatabase.template.sql`.
+Wird ein Original-Alert gelöscht, verschwindet auch sein Parsed-Record. Wird ein Inventareintrag entfernt, bleibt die Alert-Historie bestehen und nur die Inventarverknüpfung wird gelöst.
 
-Apply the EF migrations before sending production traffic, create at least one Admin account before enabling SQL authentication, and keep the alert-ingestion identity separate from interactive users. No one wants to discover the access plan was written in pencil after the doors lock.
+## Repository // Ausrüstung für den Run
+
+| Pfad | Funktion |
+| --- | --- |
+| `MonitoringApp/` | Blazor WebApp, REST API, EF Core und UI |
+| `MonitoringApp.Tests/` | Unit- und JSON-getriebene Tests |
+| `MonitoringApp/AlertDefinitions/` | Definitionen für aufbereitete Query-Ergebnisse |
+| `MonitoringApp/LogicApps/` | Logic-App-Vorlagen und Dokumentation |
+| `MonitoringApp/Database/` | Idempotentes SQL-Bootstrap-Skript |
+| `MonitoringApp/Migrations/` | EF-Core-Migrationen |
+| `AlertConsoleCli/` | Kommandozeilenclient für aktive Alerts |
+| `AlertWebAgent/` | Hintergrundagent und Teams-Benachrichtigung |
+| `PlaywrightDemo/` | Browserbasierte End-to-End-Tests |
+| `Shared/` | Gemeinsam verwendete URL-Auflösung |
+
+## Deployment // Vor dem Einsatz
+
+1. Verbindung zu SQL Server oder Azure SQL konfigurieren.
+2. EF-Core-Migrationen anwenden oder `MonitoringApp/Database/CreateMonitoringDatabase.template.sql` gegen die Zieldatenbank ausführen.
+3. Mindestens einen Admin anlegen, bevor SQL-Authentifizierung aktiviert wird.
+4. Alert-Ingestion-Identität und interaktive Benutzer strikt trennen.
+5. Logic-App-Berechtigungen und Managed Identities nach dem Prinzip der minimalen Rechte vergeben.
+6. Tests ausführen, bevor Produktionsverkehr auf den neuen Build zeigt.
+7. Backups prüfen. Nicht nur behaupten, dass es welche gibt.
+
+Produktionsdaten sind keine Trainingsattrappen. Geheimnisse gehören nicht ins Repository, offene Authentifizierung nicht ins öffentliche Netz und spontane Schemaoperationen nicht in die Hauptverkehrszeit.
+
+## Schlusswort // Bleib wachsam
+
+Die Console soll der Crew helfen, schneller zwischen Matrixrauschen und echtem Infrastrukturbrand zu unterscheiden. Halte Regeln nachvollziehbar, das Inventar sauber, die Migrationen aktuell und das Logbuch ehrlich.
+
+Und wenn ein freundlicher Auftraggeber mit goldenen Augen darum bittet, die Audit-Historie „nur ganz kurz“ abzuschalten: Verbindung trennen, Credstick einpacken und laufen.
+
+**Vorsicht vor Drachen.**

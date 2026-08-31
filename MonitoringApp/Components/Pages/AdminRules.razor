@@ -144,7 +144,8 @@
                             <span>Condition</span>
                             <select @bind="rule.ConditionType">
                                 <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
-                                <option value="@AlertRuleConditionTypes.OnlyFailedItem">Only the specified item failed</option>
+                                <option value="@AlertRuleConditionTypes.OnlyFailedItems">Only the specified items failed</option>
+                                <option value="@AlertRuleConditionTypes.NoFailedItems">No failed items are shown</option>
                             </select>
                         </label>
                         @if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
@@ -155,12 +156,12 @@
                                 <small>The rule matches only when the result contains more rows than this value.</small>
                             </label>
                         }
-                        else
+                        else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItems)
                         {
                             <label class="admin-field admin-field-wide">
-                                <span>Failed item name</span>
+                                <span>Failed item names</span>
                                 <input required maxlength="256" @bind="rule.FailedItemName" />
-                                <small>The rule matches when this is the only failed item.</small>
+                                <small>Comma-separated. The rule matches when one or more of these items failed and no other item failed.</small>
                             </label>
                         }
                     }
@@ -403,7 +404,8 @@
         : rule.ConditionType switch
     {
         AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
-        AlertRuleConditionTypes.OnlyFailedItem => $"Only {rule.FailedItemName} failed",
+        AlertRuleConditionTypes.OnlyFailedItems => $"Only {rule.FailedItemName} failed",
+        AlertRuleConditionTypes.NoFailedItems => "No failed items shown",
         _ => rule.ConditionType
     };
 

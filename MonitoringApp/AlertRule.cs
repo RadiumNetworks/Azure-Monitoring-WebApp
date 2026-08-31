@@ -32,7 +32,8 @@ public static class AlertRuleTypes
 public static class AlertRuleConditionTypes
 {
     public const string RowCountGreaterThan = "RowCountGreaterThan";
-    public const string OnlyFailedItem = "OnlyFailedItem";
+    public const string OnlyFailedItems = "OnlyFailedItems";
+    public const string NoFailedItems = "NoFailedItems";
 }
 
 public sealed record AlertCategoryGroup(

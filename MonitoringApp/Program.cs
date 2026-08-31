@@ -205,6 +205,7 @@ builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
 builder.Services.AddSingleton<SqlAuthenticationService>();
 builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
 builder.Services.AddSingleton<AlertRuleEvaluator>();

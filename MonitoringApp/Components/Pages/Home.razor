@@ -377,6 +377,9 @@
 </section>
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
     private IReadOnlyList<AlertRecord> alerts = [];
     private IReadOnlyList<AlertRule> alertRules = [];
     private IReadOnlyList<CriticalAlertLifecycle> criticalAlertLifecycles = [];
@@ -395,6 +398,7 @@
     private Guid? expandedAlertId;
     private string commentDraft = string.Empty;
     private string commentSaveError = string.Empty;
+    private string currentUser = string.Empty;
     private bool isSavingComment;
     private bool isEditingDateTime;
     private readonly HashSet<string> expandedSubscriptions = new(StringComparer.OrdinalIgnoreCase);
@@ -637,6 +641,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var authenticationState = await AuthenticationStateTask;
+        currentUser = authenticationState.User.Identity?.Name?.Trim() ?? string.Empty;
         alerts = await AlertStore.GetAllAsync();
         alertRules = await AlertStore.GetAlertRulesAsync();
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
@@ -742,7 +748,7 @@
 
         try
         {
-            if (!await AlertStore.UpdateCommentsAsync(id, commentDraft))
+            if (!await AlertStore.UpdateCommentsAsync(id, commentDraft, currentUser))
             {
                 commentSaveError = "This alert no longer exists.";
             }

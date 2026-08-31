@@ -269,6 +269,37 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[LogbookEntries]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[LogbookEntries]
+    (
+        [Id]        uniqueidentifier NOT NULL,
+        [CreatedAt] datetimeoffset    NOT NULL,
+        [User]      nvarchar(256)     NOT NULL,
+        [Comment]   nvarchar(max)     NOT NULL,
+        CONSTRAINT [PK_LogbookEntries] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[LogbookEntries]', N'Comment') <> -1
+BEGIN
+    ALTER TABLE [dbo].[LogbookEntries] ALTER COLUMN [Comment] nvarchar(max) NOT NULL;
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_LogbookEntries_CreatedAt'
+      AND [object_id] = OBJECT_ID(N'[dbo].[LogbookEntries]')
+)
+BEGIN
+    CREATE INDEX [IX_LogbookEntries_CreatedAt]
+        ON [dbo].[LogbookEntries] ([CreatedAt]);
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'Authentication')
 BEGIN
     INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
@@ -421,7 +452,7 @@ SET [Name] = N'Suppress isolated DFSREvent failure',
     [InventoryRole] = N'',
     [AlertNameContains] = N'DCDiag',
     [QueryResultType] = N'DCDiag',
-    [ConditionType] = N'OnlyFailedItem',
+    [ConditionType] = N'OnlyFailedItems',
     [Threshold] = 0,
     [FailedItemName] = N'DFSREvent',
     [CategoryName] = N'Suppressed alerts',
@@ -436,7 +467,34 @@ BEGIN
     INSERT INTO [dbo].[AlertRules]
         ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
     VALUES
-        ('d82b566a-ce6e-4201-b7b9-9a366426e7b8', N'Suppress isolated DFSREvent failure', 1, 20, N'DCDiag', N'DCDiag', N'OnlyFailedItem', 0, N'DFSREvent', N'Suppressed alerts', 0, 1, N'info');
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7b8', N'Suppress isolated DFSREvent failure', 1, 20, N'DCDiag', N'DCDiag', N'OnlyFailedItems', 0, N'DFSREvent', N'Suppressed alerts', 0, 1, N'info');
+END;
+GO
+
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'Suppress healthy DCDiag results',
+    [Enabled] = 1,
+    [Priority] = 30,
+    [RuleType] = N'Categorization',
+    [InventoryRole] = N'',
+    [AlertNameContains] = N'DCDiag',
+    [QueryResultType] = N'DCDiag',
+    [ConditionType] = N'NoFailedItems',
+    [Threshold] = 0,
+    [FailedItemName] = N'',
+    [CategoryName] = N'Suppressed alerts',
+    [ApplyToTarget] = 0,
+    [Collapsed] = 1,
+    [Tone] = N'info',
+    [IsCritical] = 0
+WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7b9';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical])
+    VALUES
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7b9', N'Suppress healthy DCDiag results', 1, 30, N'Categorization', N'DCDiag', N'DCDiag', N'NoFailedItems', 0, N'', N'Suppressed alerts', 0, 1, N'info', N'', 0);
 END;
 GO
 
@@ -747,6 +805,58 @@ IF NOT EXISTS
 BEGIN
     INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20260831180000_AddParsedAlertCriticalLifecycle', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831190000_AddHealthyDCDiagSuppressionRule'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831190000_AddHealthyDCDiagSuppressionRule', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831200000_AllowMultipleFailedItems'
+)
+BEGIN
+    UPDATE [dbo].[AlertRules]
+    SET [ConditionType] = N'OnlyFailedItems'
+    WHERE [ConditionType] = N'OnlyFailedItem';
+
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831200000_AllowMultipleFailedItems', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831210000_AddLogbook'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831210000_AddLogbook', N'9.0.19');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260831220000_ExpandLogbookComments'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260831220000_ExpandLogbookComments', N'9.0.19');
 END;
 GO
 

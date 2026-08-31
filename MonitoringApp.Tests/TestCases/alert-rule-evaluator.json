@@ -69,7 +69,7 @@
         "priority": 20,
         "alertNameContains": "DCDiag",
         "queryResultType": "DCDiag",
-        "conditionType": "OnlyFailedItem",
+        "conditionType": "OnlyFailedItems",
         "failedItemName": "DFSREvent",
         "categoryName": "Suppressed alerts",
         "applyToTarget": false,
@@ -108,6 +108,116 @@
         { "name": "Suppressed alerts", "collapsed": true, "alertIds": ["isolated"] }
       ],
       "expectedUncategorizedAlertIds": ["multiple"]
+    },
+    {
+      "name": "DCDiag rule matches any configured failed item or combination",
+      "rule": {
+        "id": "d82b566a-ce6e-4201-b7b9-9a366426e7c0",
+        "name": "Suppress selected failures",
+        "enabled": true,
+        "priority": 25,
+        "alertNameContains": "DCDiag",
+        "queryResultType": "DCDiag",
+        "conditionType": "OnlyFailedItems",
+        "failedItemName": "DFSREvent, KCCError",
+        "categoryName": "Suppressed alerts",
+        "applyToTarget": false,
+        "collapsed": true,
+        "tone": "info"
+      },
+      "alerts": [
+        {
+          "alertId": "two-configured-failures",
+          "name": "DCDiag Alert",
+          "target": "server-1",
+          "site": "site-1",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-1", "site-1", "2000-01-01T12:00:00Z", "{\"Advertising\":\"Passed\",\"KCCError\":\"Failed\",\"DFSREvent\":\"Failed\"}"]]
+            }
+          }
+        },
+        {
+          "alertId": "one-configured-failure",
+          "name": "DCDiag Alert",
+          "target": "server-2",
+          "site": "site-2",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-2", "site-2", "2000-01-01T12:00:00Z", "{\"Advertising\":\"Passed\",\"DFSREvent\":\"Failed\",\"KCCError\":\"Passed\"}"]]
+            }
+          }
+        },
+        {
+          "alertId": "configured-and-unconfigured-failure",
+          "name": "DCDiag Alert",
+          "target": "server-3",
+          "site": "site-3",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-3", "site-3", "2000-01-01T12:00:00Z", "{\"DFSREvent\":\"Failed\",\"Replications\":\"Failed\"}"]]
+            }
+          }
+        }
+      ],
+      "expectedCategories": [
+        { "name": "Suppressed alerts", "collapsed": true, "alertIds": ["two-configured-failures", "one-configured-failure"] }
+      ],
+      "expectedUncategorizedAlertIds": ["configured-and-unconfigured-failure"]
+    },
+    {
+      "name": "DCDiag suppresses results without a shown failed item",
+      "rule": {
+        "id": "d82b566a-ce6e-4201-b7b9-9a366426e7b9",
+        "name": "Suppress healthy DCDiag results",
+        "enabled": true,
+        "priority": 30,
+        "alertNameContains": "DCDiag",
+        "queryResultType": "DCDiag",
+        "conditionType": "NoFailedItems",
+        "categoryName": "Suppressed alerts",
+        "applyToTarget": false,
+        "collapsed": true,
+        "tone": "info"
+      },
+      "alerts": [
+        {
+          "alertId": "healthy",
+          "name": "DCDiag Alert",
+          "target": "server-1",
+          "site": "site-1",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-1", "site-1", "2000-01-01T12:00:00Z", "{\"Advertising\":\"Passed\",\"DFSREvent\":\"Passed\",\"Replications\":\"Passed\"}"]]
+            }
+          }
+        },
+        {
+          "alertId": "failed",
+          "name": "DCDiag Alert",
+          "target": "server-2",
+          "site": "site-2",
+          "payload": {
+            "queryResult": {
+              "type": "DCDiag",
+              "columns": [{ "name": "Computer" }, { "name": "Site" }, { "name": "TimeGenerated" }, { "name": "Status" }],
+              "rows": [["server-2", "site-2", "2000-01-01T12:00:00Z", "{\"Advertising\":\"Passed\",\"Replications\":\"Failed\"}"]]
+            }
+          }
+        }
+      ],
+      "expectedCategories": [
+        { "name": "Suppressed alerts", "collapsed": true, "alertIds": ["healthy"] }
+      ],
+      "expectedUncategorizedAlertIds": ["failed"]
     }
   ]
 }

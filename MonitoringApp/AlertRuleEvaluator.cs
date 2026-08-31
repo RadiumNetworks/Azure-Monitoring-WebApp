@@ -78,20 +78,35 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
         return rule.ConditionType switch
         {
             AlertRuleConditionTypes.RowCountGreaterThan => rowCount > rule.Threshold,
-            AlertRuleConditionTypes.OnlyFailedItem => HasOnlyFailedItem(alert, rule.FailedItemName),
+            AlertRuleConditionTypes.OnlyFailedItems => HasOnlyFailedItems(alert, rule.FailedItemName),
+            AlertRuleConditionTypes.NoFailedItems => HasNoFailedItems(alert),
             _ => false
         };
     }
 
-    private bool HasOnlyFailedItem(AlertRecord alert, string failedItemName)
+    private bool HasOnlyFailedItems(AlertRecord alert, string failedItemNames)
     {
+        var allowedFailures = failedItemNames
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var presentation = queryResultPresenter.Parse(alert.RawJson);
         var failures = presentation?.Rows
             .SelectMany(row => row.Alerts)
             .Where(item => !item.Value.Equals("Passed", StringComparison.OrdinalIgnoreCase))
-            .ToArray() ?? [];
-        return failures.Length == 1 &&
-            failures[0].Label.Equals(failedItemName, StringComparison.OrdinalIgnoreCase);
+            .Select(item => item.Label)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        return allowedFailures.Count > 0 &&
+            failures.Count > 0 &&
+            failures.IsSubsetOf(allowedFailures);
+    }
+
+    private bool HasNoFailedItems(AlertRecord alert)
+    {
+        var presentation = queryResultPresenter.Parse(alert.RawJson);
+        return presentation is not null &&
+            !presentation.Rows
+                .SelectMany(row => row.Alerts)
+                .Any(item => !item.Value.Equals("Passed", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryReadQueryResult(string rawJson, out string type, out int rowCount)
