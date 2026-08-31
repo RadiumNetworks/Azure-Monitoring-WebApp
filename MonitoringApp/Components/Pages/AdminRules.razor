@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Administration</p>
         <h1>Alert rules</h1>
-        <p class="subtitle">Create, update, and delete the database rules that categorize alerts in the Inbox.</p>
+        <p class="subtitle">Manage database rules that categorize inbox alerts or assign roles to discovered computers.</p>
     </div>
     <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
 </section>
@@ -63,9 +63,17 @@
                         </div>
                         <dl class="admin-rule-summary">
                             <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                            <div><dt>Type</dt><dd>@RuleTypeLabel(rule)</dd></div>
                             <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
-                            <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
-                            <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
+                            @if (rule.RuleType == AlertRuleTypes.Categorization)
+                            {
+                                <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
+                                <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
+                            }
+                            else
+                            {
+                                <div><dt>Inventory role</dt><dd>@rule.InventoryRole</dd></div>
+                            }
                         </dl>
                     </article>
                 }
@@ -78,7 +86,7 @@
         {
             <div class="admin-editor-placeholder">
                 <strong>Select or create a rule</strong>
-                <span>Choose an existing rule to update it, or create a new categorization rule.</span>
+                <span>Choose an existing rule to update it, or create a new alert rule.</span>
             </div>
         }
         else
@@ -109,6 +117,14 @@
                     <span>Rule enabled</span>
                 </label>
 
+                <label class="admin-field admin-field-wide">
+                    <span>Rule type</span>
+                    <select @bind="rule.RuleType">
+                        <option value="@AlertRuleTypes.Categorization">Categorize inbox alerts</option>
+                        <option value="@AlertRuleTypes.InventoryRoleAssignment">Assign computer inventory role</option>
+                    </select>
+                </label>
+
                 <fieldset class="admin-fieldset">
                     <legend>Alert matching</legend>
                     <label class="admin-field">
@@ -121,32 +137,45 @@
                         <input maxlength="128" @bind="rule.QueryResultType" />
                         <small>For example: DCPort or DCDiag.</small>
                     </label>
-                    <label class="admin-field admin-field-wide">
-                        <span>Condition</span>
-                        <select @bind="rule.ConditionType">
-                            <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
-                            <option value="@AlertRuleConditionTypes.OnlyFailedItem">Only the specified item failed</option>
-                        </select>
-                    </label>
-                    @if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+                    @if (rule.RuleType == AlertRuleTypes.Categorization)
                     {
                         <label class="admin-field admin-field-wide">
-                            <span>Row-count threshold</span>
-                            <input type="number" min="0" required @bind="rule.Threshold" />
-                            <small>The rule matches only when the result contains more rows than this value.</small>
+                            <span>Condition</span>
+                            <select @bind="rule.ConditionType">
+                                <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
+                                <option value="@AlertRuleConditionTypes.OnlyFailedItem">Only the specified item failed</option>
+                            </select>
                         </label>
+                        @if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+                        {
+                            <label class="admin-field admin-field-wide">
+                                <span>Row-count threshold</span>
+                                <input type="number" min="0" required @bind="rule.Threshold" />
+                                <small>The rule matches only when the result contains more rows than this value.</small>
+                            </label>
+                        }
+                        else
+                        {
+                            <label class="admin-field admin-field-wide">
+                                <span>Failed item name</span>
+                                <input required maxlength="256" @bind="rule.FailedItemName" />
+                                <small>The rule matches when this is the only failed item.</small>
+                            </label>
+                        }
                     }
                     else
                     {
                         <label class="admin-field admin-field-wide">
-                            <span>Failed item name</span>
-                            <input required maxlength="256" @bind="rule.FailedItemName" />
-                            <small>The rule matches when this is the only failed item.</small>
+                            <span>Inventory role</span>
+                            <input required maxlength="256" @bind="rule.InventoryRole" />
+                            <small>The matching alert assigns this role to its target computer.</small>
                         </label>
                     }
                 </fieldset>
 
-                <fieldset class="admin-fieldset">
+                @if (rule.RuleType == AlertRuleTypes.Categorization)
+                {
+                    <fieldset class="admin-fieldset">
                     <legend>Category presentation</legend>
                     <label class="admin-field admin-field-wide">
                         <span>Category name</span>
@@ -169,7 +198,8 @@
                             <span>Include all alerts for the target</span>
                         </label>
                     </div>
-                </fieldset>
+                    </fieldset>
+                }
 
                 <div class="admin-form-actions">
                     <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
@@ -189,8 +219,10 @@
             <p class="eyebrow">Permanent action</p>
             <h2 id="delete-rule-heading">Delete alert rule?</h2>
             <p>
-                Delete <strong>@ruleToDelete.Name</strong>? Alerts assigned by this rule will no longer be placed
-                in the <strong>@ruleToDelete.CategoryName</strong> category.
+                Delete <strong>@ruleToDelete.Name</strong>?
+                @(ruleToDelete.RuleType == AlertRuleTypes.InventoryRoleAssignment
+                    ? "Matching alerts will no longer assign the inventory role."
+                    : $"Alerts assigned by this rule will no longer be placed in the {ruleToDelete.CategoryName} category.")
             </p>
             <div class="admin-form-actions">
                 <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
@@ -239,6 +271,7 @@
         {
             Enabled = true,
             Priority = rules.Count == 0 ? 10 : rules.Max(rule => rule.Priority) + 10,
+            RuleType = AlertRuleTypes.Categorization,
             ConditionType = AlertRuleConditionTypes.RowCountGreaterThan,
             Collapsed = true,
             Tone = "info"
@@ -346,6 +379,7 @@
         Name = source.Name,
         Enabled = source.Enabled,
         Priority = source.Priority,
+        RuleType = source.RuleType,
         AlertNameContains = source.AlertNameContains,
         QueryResultType = source.QueryResultType,
         ConditionType = source.ConditionType,
@@ -354,15 +388,21 @@
         CategoryName = source.CategoryName,
         ApplyToTarget = source.ApplyToTarget,
         Collapsed = source.Collapsed,
-        Tone = source.Tone
+        Tone = source.Tone,
+        InventoryRole = source.InventoryRole
     };
 
-    private static string ConditionLabel(AlertRule rule) => rule.ConditionType switch
+    private static string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryRoleAssignment
+        ? $"{(string.IsNullOrWhiteSpace(rule.QueryResultType) ? "Matching alert" : rule.QueryResultType)} → {rule.InventoryRole}"
+        : rule.ConditionType switch
     {
         AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
         AlertRuleConditionTypes.OnlyFailedItem => $"Only {rule.FailedItemName} failed",
         _ => rule.ConditionType
     };
+
+    private static string RuleTypeLabel(AlertRule rule) =>
+        rule.RuleType == AlertRuleTypes.InventoryRoleAssignment ? "Inventory role" : "Categorization";
 
     private static string RuleCountLabel(int count) => count == 1 ? "1 configured rule" : $"{count} configured rules";
 }

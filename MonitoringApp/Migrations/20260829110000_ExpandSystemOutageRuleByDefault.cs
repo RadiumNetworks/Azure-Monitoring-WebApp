@@ -10,18 +10,12 @@ namespace MonitoringApp.Migrations;
 public sealed class ExpandSystemOutageRuleByDefault : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder) =>
-        migrationBuilder.UpdateData(
-            table: "AlertRules",
-            keyColumn: "Id",
-            keyValue: new Guid("47a96c56-ccf5-4f4e-97ce-6a72bb462f91"),
-            column: "Collapsed",
-            value: false);
+        migrationBuilder.Sql(
+            "UPDATE [AlertRules] SET [Collapsed] = CAST(0 AS bit) " +
+            "WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';");
 
     protected override void Down(MigrationBuilder migrationBuilder) =>
-        migrationBuilder.UpdateData(
-            table: "AlertRules",
-            keyColumn: "Id",
-            keyValue: new Guid("47a96c56-ccf5-4f4e-97ce-6a72bb462f91"),
-            column: "Collapsed",
-            value: true);
+        migrationBuilder.Sql(
+            "UPDATE [AlertRules] SET [Collapsed] = CAST(1 AS bit) " +
+            "WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';");
 }

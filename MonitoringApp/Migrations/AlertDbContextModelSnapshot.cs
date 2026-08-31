@@ -116,9 +116,11 @@ namespace MonitoringApp.Migrations
                     b.Property<string>("ConditionType").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)");
                     b.Property<bool>("Enabled").HasColumnType("bit");
                     b.Property<string>("FailedItemName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
+                    b.Property<string>("InventoryRole").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
                     b.Property<string>("Name").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
                     b.Property<int>("Priority").HasColumnType("int");
                     b.Property<string>("QueryResultType").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
+                    b.Property<string>("RuleType").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)");
                     b.Property<int>("Threshold").HasColumnType("int");
                     b.Property<string>("Tone").IsRequired().HasMaxLength(32).HasColumnType("nvarchar(32)");
                     b.HasKey("Id");
@@ -141,6 +143,14 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("ResourceGroup")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<string>("Site")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -148,6 +158,88 @@ namespace MonitoringApp.Migrations
                     b.HasKey("SubscriptionId", "Computer");
 
                     b.ToTable("ComputerInventory", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.DatabaseSetting", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("JsonValue")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Name");
+
+                    b.ToTable("Settings", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AlertId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("AlertName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("Dimensions")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("FiredDateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("InventoryComputer")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("InventorySubscriptionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("MonitorCondition")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("OriginalAlertId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("QueryResults")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ResourceGroup")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("SearchQuery")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlertId");
+
+                    b.HasIndex("InventorySubscriptionId", "InventoryComputer");
+
+                    b.ToTable("ParsedAlerts", (string)null);
                 });
 
             modelBuilder.Entity("MonitoringApp.SqlAuthenticationUser", b =>
@@ -169,6 +261,27 @@ namespace MonitoringApp.Migrations
                     b.HasKey("Username");
 
                     b.ToTable("AuthenticationUsers", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
+                {
+                    b.HasOne("MonitoringApp.AlertRecord", null)
+                        .WithOne()
+                        .HasForeignKey("MonitoringApp.ParsedAlertRecord", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.ComputerInventoryEntry", "InventoryComputerEntry")
+                        .WithMany("ParsedAlerts")
+                        .HasForeignKey("InventorySubscriptionId", "InventoryComputer")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("InventoryComputerEntry");
+                });
+
+            modelBuilder.Entity("MonitoringApp.ComputerInventoryEntry", b =>
+                {
+                    b.Navigation("ParsedAlerts");
                 });
 #pragma warning restore 612, 618
         }

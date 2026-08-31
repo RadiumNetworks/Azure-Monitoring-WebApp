@@ -201,6 +201,18 @@ public sealed record AlertRecord(
 public sealed record AddAlertResult(AlertRecord Alert, bool Created);
 
 /// <summary>
+/// Summarizes an inventory prefill operation based on recently received alerts.
+/// </summary>
+public sealed record ComputerInventoryPrefillResult(
+    int AlertsScanned,
+    int SystemsFound,
+    int SystemsCreated,
+    int SitesFilled,
+    int ResourceGroupsFilled,
+    int RolesAssigned,
+    int SystemsUnchanged);
+
+/// <summary>
 /// Provides database-backed alert ingestion, retrieval, and comment updates. It centralizes persistence errors, duplicate detection, and change notifications.
 /// </summary>
 public sealed class AlertStore
@@ -384,6 +396,143 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Scans alerts received during the last seven days and prefills the computer inventory.
+    /// Existing domain and site values are preserved; only a missing site may be filled from an alert.
+    /// </summary>
+    public async Task<ComputerInventoryPrefillResult> PrefillComputerInventoryFromLastSevenDaysAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseConfigured();
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-7);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var alerts = await context.Alerts
+            .AsNoTracking()
+            .Where(alert => alert.ReceivedAt >= cutoff)
+            .OrderByDescending(alert => alert.ReceivedAt)
+            .ToArrayAsync(cancellationToken);
+        var roleRules = await context.AlertRules
+            .AsNoTracking()
+            .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
+            .ToArrayAsync(cancellationToken);
+
+        var candidates = new Dictionary<string, ComputerInventoryEntry>(StringComparer.Ordinal);
+        foreach (var alert in alerts)
+        {
+            var resolvedAlert = ResolveDisplayIdentity(alert);
+            var subscriptionId = resolvedAlert.SubscriptionId.Trim();
+            var computer = resolvedAlert.TargetName.Trim();
+            var site = resolvedAlert.SiteName.Trim();
+            var resourceGroup = resolvedAlert.ResourceGroup.Trim();
+            var role = InventoryRoleRuleMatcher.FindRole(resolvedAlert, roleRules);
+            if (subscriptionId.Length is 0 or > 64 || computer.Length is 0 or > 256)
+            {
+                continue;
+            }
+
+            var key = InventoryKey(subscriptionId, computer);
+            var validSite = site.Length is > 0 and <= 256 ? site : null;
+            if (!candidates.TryGetValue(key, out var candidate))
+            {
+                candidates.Add(key, new ComputerInventoryEntry
+                {
+                    SubscriptionId = subscriptionId,
+                    Computer = computer,
+                    Site = validSite,
+                    ResourceGroup = resourceGroup.Length is > 0 and <= 256 ? resourceGroup : null,
+                    Role = role
+                });
+            }
+            else if (string.IsNullOrWhiteSpace(candidate.Site) && validSite is not null)
+            {
+                candidate.Site = validSite;
+            }
+
+            if (candidates.TryGetValue(key, out candidate))
+            {
+                if (string.IsNullOrWhiteSpace(candidate.ResourceGroup) && resourceGroup.Length is > 0 and <= 256)
+                {
+                    candidate.ResourceGroup = resourceGroup;
+                }
+
+                if (string.IsNullOrWhiteSpace(candidate.Role) && !string.IsNullOrWhiteSpace(role))
+                {
+                    candidate.Role = role;
+                }
+            }
+        }
+
+        var storedEntries = await context.ComputerInventory.ToArrayAsync(cancellationToken);
+        var storedByKey = storedEntries.ToDictionary(
+            entry => InventoryKey(entry.SubscriptionId, entry.Computer),
+            StringComparer.Ordinal);
+        var systemsCreated = 0;
+        var sitesFilled = 0;
+        var resourceGroupsFilled = 0;
+        var rolesAssigned = 0;
+        var changedSystems = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (key, candidate) in candidates)
+        {
+            if (!storedByKey.TryGetValue(key, out var stored))
+            {
+                context.ComputerInventory.Add(candidate);
+                systemsCreated++;
+                changedSystems.Add(key);
+            }
+            else if (string.IsNullOrWhiteSpace(stored.Site) && !string.IsNullOrWhiteSpace(candidate.Site))
+            {
+                stored.Site = candidate.Site;
+                sitesFilled++;
+                changedSystems.Add(key);
+            }
+
+            if (storedByKey.TryGetValue(key, out stored))
+            {
+                if (string.IsNullOrWhiteSpace(stored.ResourceGroup) && !string.IsNullOrWhiteSpace(candidate.ResourceGroup))
+                {
+                    stored.ResourceGroup = candidate.ResourceGroup;
+                    resourceGroupsFilled++;
+                    changedSystems.Add(key);
+                }
+
+                if (string.IsNullOrWhiteSpace(stored.Role) && !string.IsNullOrWhiteSpace(candidate.Role))
+                {
+                    stored.Role = candidate.Role;
+                    rolesAssigned++;
+                    changedSystems.Add(key);
+                }
+            }
+        }
+
+        if (systemsCreated > 0 || sitesFilled > 0 || resourceGroupsFilled > 0 || rolesAssigned > 0)
+        {
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception)
+            {
+                logger.LogError(exception, "Failed to prefill computer inventory from recent alerts.");
+                throw new InvalidOperationException(
+                    "The computer inventory could not be prefilled. Refresh the page and try again.",
+                    exception);
+            }
+
+            Changed?.Invoke();
+        }
+
+        return new ComputerInventoryPrefillResult(
+            alerts.Length,
+            candidates.Count,
+            systemsCreated,
+            sitesFilled,
+            resourceGroupsFilled,
+            rolesAssigned,
+            candidates.Count - changedSystems.Count);
+    }
+
+    /// <summary>
     /// Creates a manually maintained computer inventory entry. Its subscription must have been observed in an alert.
     /// </summary>
     public async Task<ComputerInventoryEntry> CreateComputerInventoryEntryAsync(
@@ -457,6 +606,8 @@ public sealed class AlertStore
 
         stored.Domain = normalized.Domain;
         stored.Site = normalized.Site;
+        stored.ResourceGroup = normalized.ResourceGroup;
+        stored.Role = normalized.Role;
 
         try
         {
@@ -527,6 +678,9 @@ public sealed class AlertStore
         }
     }
 
+    private static string InventoryKey(string subscriptionId, string computer) =>
+        $"{subscriptionId.Trim().ToUpperInvariant()}\0{computer.Trim().ToUpperInvariant()}";
+
     private static AlertRule NormalizeAndValidateRule(AlertRule source)
     {
         var rule = new AlertRule
@@ -535,6 +689,7 @@ public sealed class AlertStore
             Name = source.Name.Trim(),
             Enabled = source.Enabled,
             Priority = source.Priority,
+            RuleType = source.RuleType.Trim(),
             AlertNameContains = source.AlertNameContains.Trim(),
             QueryResultType = source.QueryResultType.Trim(),
             ConditionType = source.ConditionType.Trim(),
@@ -543,7 +698,8 @@ public sealed class AlertStore
             CategoryName = source.CategoryName.Trim(),
             ApplyToTarget = source.ApplyToTarget,
             Collapsed = source.Collapsed,
-            Tone = source.Tone.Trim().ToLowerInvariant()
+            Tone = source.Tone.Trim().ToLowerInvariant(),
+            InventoryRole = source.InventoryRole.Trim()
         };
 
         if (string.IsNullOrWhiteSpace(rule.Name) || rule.Name.Length > 256)
@@ -551,6 +707,34 @@ public sealed class AlertStore
             throw new InvalidOperationException("Rule name is required and may contain at most 256 characters.");
         }
 
+        if (rule.RuleType is not (AlertRuleTypes.Categorization or AlertRuleTypes.InventoryRoleAssignment))
+        {
+            throw new InvalidOperationException("Select a supported rule type.");
+        }
+
+        if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
+        {
+            if (string.IsNullOrWhiteSpace(rule.InventoryRole) || rule.InventoryRole.Length > 256)
+            {
+                throw new InvalidOperationException("Inventory role is required and may contain at most 256 characters.");
+            }
+
+            if (string.IsNullOrWhiteSpace(rule.QueryResultType) && string.IsNullOrWhiteSpace(rule.AlertNameContains))
+            {
+                throw new InvalidOperationException("An inventory-role rule requires an alert name or query-result type.");
+            }
+
+            rule.ConditionType = string.Empty;
+            rule.CategoryName = string.Empty;
+            rule.FailedItemName = string.Empty;
+            rule.Threshold = 0;
+            rule.ApplyToTarget = false;
+            rule.Collapsed = false;
+            rule.Tone = "info";
+            return rule;
+        }
+
+        rule.InventoryRole = string.Empty;
         if (string.IsNullOrWhiteSpace(rule.CategoryName) || rule.CategoryName.Length > 256)
         {
             throw new InvalidOperationException("Category name is required and may contain at most 256 characters.");
@@ -603,6 +787,7 @@ public sealed class AlertStore
         destination.Name = source.Name;
         destination.Enabled = source.Enabled;
         destination.Priority = source.Priority;
+        destination.RuleType = source.RuleType;
         destination.AlertNameContains = source.AlertNameContains;
         destination.QueryResultType = source.QueryResultType;
         destination.ConditionType = source.ConditionType;
@@ -612,6 +797,7 @@ public sealed class AlertStore
         destination.ApplyToTarget = source.ApplyToTarget;
         destination.Collapsed = source.Collapsed;
         destination.Tone = source.Tone;
+        destination.InventoryRole = source.InventoryRole;
     }
 
     private static string? NormalizeOptionalInventoryValue(string? value, int maximumLength, string fieldName)
@@ -637,7 +823,9 @@ public sealed class AlertStore
             SubscriptionId = entry.SubscriptionId.Trim(),
             Computer = entry.Computer.Trim(),
             Domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain"),
-            Site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site")
+            Site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site"),
+            ResourceGroup = NormalizeOptionalInventoryValue(entry.ResourceGroup, 256, "Resource group"),
+            Role = NormalizeOptionalInventoryValue(entry.Role, 256, "Role")
         };
 
         if (string.IsNullOrWhiteSpace(normalized.SubscriptionId) || normalized.SubscriptionId.Length > 64)
@@ -813,6 +1001,7 @@ public sealed class AlertStore
 
                 dbContext.Alerts.Add(alert);
                 await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
+                dbContext.ParsedAlerts.Add(ParsedAlertFactory.Create(resolvedAlert));
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new AddAlertResult(alert, true);
@@ -844,6 +1033,12 @@ public sealed class AlertStore
         var subscriptionId = alert.SubscriptionId.Trim();
         var computer = alert.TargetName.Trim();
         var site = alert.SiteName.Trim();
+        var resourceGroup = alert.ResourceGroup.Trim();
+        var roleRules = await context.AlertRules
+            .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
+            .OrderBy(rule => rule.Priority)
+            .ToArrayAsync(cancellationToken);
+        var role = InventoryRoleRuleMatcher.FindRole(alert, roleRules);
 
         if (string.IsNullOrWhiteSpace(subscriptionId) ||
             subscriptionId.Length > 64 ||
@@ -865,7 +1060,9 @@ public sealed class AlertStore
             {
                 SubscriptionId = subscriptionId,
                 Computer = computer,
-                Site = string.IsNullOrWhiteSpace(site) || site.Length > 256 ? null : site
+                Site = string.IsNullOrWhiteSpace(site) || site.Length > 256 ? null : site,
+                ResourceGroup = string.IsNullOrWhiteSpace(resourceGroup) || resourceGroup.Length > 256 ? null : resourceGroup,
+                Role = role
             });
             return;
         }
@@ -875,6 +1072,18 @@ public sealed class AlertStore
             site.Length <= 256)
         {
             stored.Site = site;
+        }
+
+        if (string.IsNullOrWhiteSpace(stored.ResourceGroup) &&
+            !string.IsNullOrWhiteSpace(resourceGroup) &&
+            resourceGroup.Length <= 256)
+        {
+            stored.ResourceGroup = resourceGroup;
+        }
+
+        if (string.IsNullOrWhiteSpace(stored.Role) && !string.IsNullOrWhiteSpace(role))
+        {
+            stored.Role = role;
         }
     }
 

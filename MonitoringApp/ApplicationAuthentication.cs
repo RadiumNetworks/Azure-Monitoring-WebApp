@@ -14,7 +14,7 @@ public sealed class ApplicationAuthenticationOptions
     public const string Open = "open";
     public const string Sql = "sql";
 
-    public string Type { get; init; } = Open;
+    public string Type { get; init; } = Sql;
     public bool IsSql => string.Equals(Type, Sql, StringComparison.OrdinalIgnoreCase);
     public bool IsOpen => string.Equals(Type, Open, StringComparison.OrdinalIgnoreCase);
 

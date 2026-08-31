@@ -1,0 +1,222 @@
+@page "/admin/settings"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminAccess")]
+@using System.Text.Json
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AlertDbContext> DbContextFactory
+
+<PageTitle>Application Settings</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Application settings</h1>
+        <p class="subtitle">Edit startup settings stored in the database.</p>
+    </div>
+    <div class="admin-heading-actions">
+        <button class="admin-secondary" type="button" disabled="@(isLoading || isSaving)" @onclick="LoadAsync">
+            @(isLoading ? "Loading..." : "Reset changes")
+        </button>
+    </div>
+</section>
+
+<div class="admin-message admin-message-warning" role="alert">
+    <strong>Restart required.</strong> Saved settings take effect when the application is restarted.
+    Invalid values are rejected before they are written.
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+@if (isLoading)
+{
+    <p class="admin-empty">Loading application settings...</p>
+}
+else
+{
+    <form class="admin-form settings-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+        <label class="admin-field admin-field-wide">
+            <span>Authentication</span>
+            <select required @bind="authenticationType">
+                <option value="open">open</option>
+                <option value="sql">sql</option>
+            </select>
+            <small>SQL mode requires at least one authentication user. Changing this setting can affect access after restart.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
+            <span>Alert history</span>
+            <textarea rows="5" required spellcheck="false" @bind="alertHistoryJson"></textarea>
+            <small>JSON free-text value. Days must be between 1 and 3650.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
+            <span>Alert graph</span>
+            <textarea rows="16" required spellcheck="false" @bind="alertGraphJson"></textarea>
+            <small>JSON free-text value containing all graph layers and defaults.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
+            <span>Alert severity display</span>
+            <textarea rows="16" required spellcheck="false" @bind="alertSeverityDisplayJson"></textarea>
+            <small>JSON free-text value containing severity colors, font styles, and the default style.</small>
+        </label>
+
+        <div class="admin-form-actions">
+            <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="LoadAsync">Reset changes</button>
+            <button class="admin-primary" type="submit" disabled="@isSaving">
+                @(isSaving ? "Saving..." : "Save settings")
+            </button>
+        </div>
+    </form>
+}
+
+@code {
+    private static readonly JsonSerializerOptions PrettyJson = new() { WriteIndented = true };
+
+    private string authenticationType = ApplicationAuthenticationOptions.Open;
+    private string alertHistoryJson = string.Empty;
+    private string alertGraphJson = string.Empty;
+    private string alertSeverityDisplayJson = string.Empty;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        isLoading = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            var settings = await context.Settings
+                .Where(setting => DatabaseSettingsLoader.RequiredNames.Contains(setting.Name))
+                .ToDictionaryAsync(setting => setting.Name, StringComparer.OrdinalIgnoreCase);
+
+            var missing = DatabaseSettingsLoader.RequiredNames
+                .Where(name => !settings.ContainsKey(name))
+                .ToArray();
+            if (missing.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Required database settings are missing: {string.Join(", ", missing)}.");
+            }
+
+            var authentication = DatabaseSettingsLoader.Deserialize<ApplicationAuthenticationOptions>(
+                DatabaseSettingsLoader.Authentication,
+                settings[DatabaseSettingsLoader.Authentication].JsonValue);
+            authenticationType = authentication.Type;
+            alertHistoryJson = FormatJson(settings[DatabaseSettingsLoader.AlertHistory].JsonValue);
+            alertGraphJson = FormatJson(settings[DatabaseSettingsLoader.AlertGraph].JsonValue);
+            alertSeverityDisplayJson = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue);
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        statusMessage = null;
+        errorMessage = null;
+        isSaving = true;
+        try
+        {
+            var authentication = new ApplicationAuthenticationOptions { Type = authenticationType };
+            EnsureValid(DatabaseSettingsLoader.Authentication, authentication.Validate());
+
+            var alertHistory = DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(
+                DatabaseSettingsLoader.AlertHistory,
+                alertHistoryJson);
+            EnsureValid(DatabaseSettingsLoader.AlertHistory, alertHistory.Validate());
+
+            var alertGraph = DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(
+                DatabaseSettingsLoader.AlertGraph,
+                alertGraphJson);
+            EnsureValid(DatabaseSettingsLoader.AlertGraph, alertGraph.Validate());
+
+            var alertSeverityDisplay = DatabaseSettingsLoader.Deserialize<AlertSeverityDisplayOptions>(
+                DatabaseSettingsLoader.AlertSeverityDisplay,
+                alertSeverityDisplayJson);
+            EnsureValid(DatabaseSettingsLoader.AlertSeverityDisplay, alertSeverityDisplay.Validate());
+
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            if (authentication.IsSql && !await context.AuthenticationUsers.AnyAsync())
+            {
+                throw new InvalidOperationException(
+                    "Create at least one authentication user before enabling SQL authentication.");
+            }
+
+            var settings = await context.Settings
+                .Where(setting => DatabaseSettingsLoader.RequiredNames.Contains(setting.Name))
+                .ToDictionaryAsync(setting => setting.Name, StringComparer.OrdinalIgnoreCase);
+            var missing = DatabaseSettingsLoader.RequiredNames
+                .Where(name => !settings.ContainsKey(name))
+                .ToArray();
+            if (missing.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Required database settings are missing: {string.Join(", ", missing)}.");
+            }
+
+            settings[DatabaseSettingsLoader.Authentication].JsonValue = JsonSerializer.Serialize(authentication);
+            settings[DatabaseSettingsLoader.AlertHistory].JsonValue = FormatJson(alertHistoryJson);
+            settings[DatabaseSettingsLoader.AlertGraph].JsonValue = FormatJson(alertGraphJson);
+            settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue = FormatJson(alertSeverityDisplayJson);
+            await context.SaveChangesAsync();
+
+            alertHistoryJson = settings[DatabaseSettingsLoader.AlertHistory].JsonValue;
+            alertGraphJson = settings[DatabaseSettingsLoader.AlertGraph].JsonValue;
+            alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue;
+            statusMessage = "Settings saved. Restart the application to apply them.";
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static void EnsureValid(string name, IReadOnlyList<string> errors)
+    {
+        if (errors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Invalid setting '{name}': {string.Join(" ", errors)}");
+        }
+    }
+
+    private static string FormatJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return JsonSerializer.Serialize(document.RootElement, PrettyJson);
+    }
+}

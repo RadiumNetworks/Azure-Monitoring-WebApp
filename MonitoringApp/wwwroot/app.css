@@ -287,10 +287,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .inventory-filter { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .inventory-filter .admin-field { width: min(100%, 520px); }
 .inventory-filter > span { padding-bottom: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: .72rem; }
+.inventory-filter-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)) auto; align-items: end; gap: 12px; margin: -4px 0 22px; }
+.inventory-filter-grid .admin-secondary { margin-bottom: 1px; white-space: nowrap; }
 .inventory-cards { max-height: 680px; padding-right: 4px; overflow-y: auto; }
 .auth-user-cards { max-height: 680px; padding-right: 4px; overflow-y: auto; }
 .inventory-subscription { grid-column: 1 / -1; }
 .admin-field input[readonly] { border-color: #d8dfdc; background: #f4f6f5; color: #68736f; cursor: default; }
+.settings-form { max-width: 980px; }
+.settings-form textarea { min-height: 110px; resize: vertical; font-family: "IBM Plex Mono", monospace; font-size: .72rem; line-height: 1.5; }
 .admin-dialog-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(18, 29, 25, .58); }
 .admin-dialog { width: min(100%, 440px); padding: 25px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 22px 60px rgba(0, 0, 0, .25); }
 .admin-dialog h2 { margin: 5px 0 12px; font-size: 1.18rem; }
@@ -416,6 +420,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .navigation-overview { grid-template-columns: 1fr; }
     .alert-heatmap { padding: 18px 0; border-top: 1px solid var(--line); border-left: 0; }
     .heatmap-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); max-height: 210px; }
+    .inventory-filter-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
 }
 @media (max-width: 760px) {
     .header-inner, main { width: min(100% - 28px, 1480px); }
@@ -445,6 +450,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .agent-alert-list { max-height: 390px; }
     .admin-workspace { grid-template-columns: 1fr; gap: 28px; }
     .admin-editor { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
+    .inventory-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 480px) {
@@ -457,6 +463,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .alert-count { grid-row: 2; flex-direction: row; align-items: baseline; }
     .alert-trend { grid-row: 3; }
     .controls { grid-template-columns: 1fr; }
+    .inventory-filter-grid { grid-template-columns: 1fr; }
     .search-field { grid-column: auto; }
     .graph-heading { display: grid; grid-template-columns: 1fr auto; gap: 20px; }
     .graph-layer-controls { grid-template-columns: 1fr; }

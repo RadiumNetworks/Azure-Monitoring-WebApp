@@ -12,7 +12,10 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
         IEnumerable<AlertRule> rules)
     {
         var assignments = new Dictionary<Guid, AlertRule>();
-        var orderedRules = rules.Where(rule => rule.Enabled).OrderBy(rule => rule.Priority).ToArray();
+        var orderedRules = rules
+            .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.Categorization)
+            .OrderBy(rule => rule.Priority)
+            .ToArray();
 
         foreach (var rule in orderedRules)
         {

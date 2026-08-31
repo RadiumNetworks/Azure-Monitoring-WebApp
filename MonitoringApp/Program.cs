@@ -18,48 +18,6 @@ const string SqlCookieScheme = "SqlAuthentication";
 const string OperatorPolicy = "OperatorAccess";
 const string AdminPolicy = "AdminAccess";
 
-var applicationAuthentication = builder.Configuration
-    .GetSection(ApplicationAuthenticationOptions.SectionName)
-    .Get<ApplicationAuthenticationOptions>() ?? new ApplicationAuthenticationOptions();
-var applicationAuthenticationErrors = applicationAuthentication.Validate();
-if (applicationAuthenticationErrors.Count > 0)
-{
-    throw new InvalidOperationException(
-        $"Invalid application authentication configuration: {string.Join(" ", applicationAuthenticationErrors)}");
-}
-
-var alertHistory = builder.Configuration
-    .GetSection(AlertHistoryOptions.SectionName)
-    .Get<AlertHistoryOptions>() ?? new AlertHistoryOptions();
-var alertHistoryErrors = alertHistory.Validate();
-if (alertHistoryErrors.Count > 0)
-{
-    throw new InvalidOperationException(
-        $"Invalid alert history configuration: {string.Join(" ", alertHistoryErrors)}");
-}
-
-var alertSeverityDisplaySection = builder.Configuration.GetSection(AlertSeverityDisplayOptions.SectionName);
-var alertSeverityDisplay = alertSeverityDisplaySection.Get<AlertSeverityDisplayOptions>()
-    ?? throw new InvalidOperationException(
-        $"Missing required configuration section '{AlertSeverityDisplayOptions.SectionName}'.");
-var alertSeverityDisplayErrors = alertSeverityDisplay.Validate();
-if (alertSeverityDisplayErrors.Count > 0)
-{
-    throw new InvalidOperationException(
-        $"Invalid alert severity display configuration: {string.Join(" ", alertSeverityDisplayErrors)}");
-}
-
-var alertGraphSection = builder.Configuration.GetSection(AlertGraphOptions.SectionName);
-var alertGraph = alertGraphSection.Get<AlertGraphOptions>()
-    ?? throw new InvalidOperationException(
-        $"Missing required configuration section '{AlertGraphOptions.SectionName}'.");
-var alertGraphErrors = alertGraph.Validate();
-if (alertGraphErrors.Count > 0)
-{
-    throw new InvalidOperationException(
-        $"Invalid alert graph configuration: {string.Join(" ", alertGraphErrors)}");
-}
-
 var ingestionAuthentication = builder.Configuration
     .GetSection(AlertIngestionAuthenticationOptions.SectionName)
     .Get<AlertIngestionAuthenticationOptions>() ?? new AlertIngestionAuthenticationOptions();
@@ -104,6 +62,46 @@ var databaseConfiguration = new DatabaseConfigurationStatus(
 var effectiveConnectionString = databaseConfiguration.IsValid
     ? alertsConnectionString!
     : "Server=127.0.0.1,1;Database=Unavailable;Connect Timeout=1;Encrypt=False";
+
+if (!databaseConfiguration.IsValid)
+{
+    throw new InvalidOperationException(
+        $"A valid AlertsDatabase connection is required to load application settings: {databaseConfiguration.Error}");
+}
+
+var databaseSettings = DatabaseSettingsLoader.LoadRequired(effectiveConnectionString);
+var applicationAuthentication = databaseSettings.Authentication;
+var alertHistory = databaseSettings.AlertHistory;
+var alertGraph = databaseSettings.AlertGraph;
+var alertSeverityDisplay = databaseSettings.AlertSeverityDisplay;
+
+var applicationAuthenticationErrors = applicationAuthentication.Validate();
+if (applicationAuthenticationErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.Authentication}': {string.Join(" ", applicationAuthenticationErrors)}");
+}
+
+var alertHistoryErrors = alertHistory.Validate();
+if (alertHistoryErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.AlertHistory}': {string.Join(" ", alertHistoryErrors)}");
+}
+
+var alertGraphErrors = alertGraph.Validate();
+if (alertGraphErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.AlertGraph}': {string.Join(" ", alertGraphErrors)}");
+}
+
+    var alertSeverityDisplayErrors = alertSeverityDisplay.Validate();
+    if (alertSeverityDisplayErrors.Count > 0)
+    {
+        throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.AlertSeverityDisplay}': {string.Join(" ", alertSeverityDisplayErrors)}");
+    }
 
 builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>

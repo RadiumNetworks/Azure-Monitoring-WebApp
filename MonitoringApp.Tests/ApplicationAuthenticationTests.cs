@@ -31,6 +31,19 @@ public sealed class ApplicationAuthenticationOptionsTests
     }
 }
 
+public sealed class ApplicationAuthenticationTests
+{
+    [Fact]
+    public void DefaultsToSqlAuthentication()
+    {
+        var options = new ApplicationAuthenticationOptions();
+
+        Assert.True(options.IsSql);
+        Assert.False(options.IsOpen);
+        Assert.Empty(options.Validate());
+    }
+}
+
 public sealed class SqlPasswordHasherTests
 {
     private readonly SqlPasswordHasher hasher = new();

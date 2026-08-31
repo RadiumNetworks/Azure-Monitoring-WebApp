@@ -9,13 +9,16 @@
     <div>
         <p class="eyebrow">Administration</p>
         <h1>Computer inventory</h1>
-        <p class="subtitle">Review discovered systems and maintain their domain and site information.</p>
+        <p class="subtitle">Review discovered systems and maintain their location, resource group, and role metadata.</p>
     </div>
     <div class="admin-heading-actions">
-        <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadInventoryAsync">
+        <button class="admin-secondary" type="button" disabled="@(isLoading || isPrefilling)" @onclick="PrefillFromAlertsAsync">
+            @(isPrefilling ? "Checking alerts..." : "Prefill from last 7 days")
+        </button>
+        <button class="admin-secondary" type="button" disabled="@(isLoading || isPrefilling)" @onclick="LoadInventoryAsync">
             @(isLoading ? "Refreshing..." : "Refresh")
         </button>
-        <button class="admin-primary" type="button" @onclick="BeginCreate">Create entry</button>
+        <button class="admin-primary" type="button" disabled="@isPrefilling" @onclick="BeginCreate">Create entry</button>
     </div>
 </section>
 
@@ -34,6 +37,60 @@
         <input type="search" placeholder="Computer, site, domain, or subscription" @bind="searchText" @bind:event="oninput" />
     </label>
     <span>@InventoryCountLabel(FilteredEntries.Count)</span>
+</div>
+
+<div class="inventory-filter-grid" aria-label="Inventory filters">
+    <label class="admin-field">
+        <span>Subscription</span>
+        <select @bind="subscriptionFilter">
+            <option value="">All subscriptions</option>
+            @foreach (var value in FilterOptions(entries.Select(entry => entry.SubscriptionId)))
+            {
+                <option value="@value">@value</option>
+            }
+        </select>
+    </label>
+    <label class="admin-field">
+        <span>Resource group</span>
+        <select @bind="resourceGroupFilter">
+            <option value="">All resource groups</option>
+            @foreach (var value in FilterOptions(entries.Select(entry => entry.ResourceGroup)))
+            {
+                <option value="@value">@value</option>
+            }
+        </select>
+    </label>
+    <label class="admin-field">
+        <span>Site</span>
+        <select @bind="siteFilter">
+            <option value="">All sites</option>
+            @foreach (var value in FilterOptions(entries.Select(entry => entry.Site)))
+            {
+                <option value="@value">@value</option>
+            }
+        </select>
+    </label>
+    <label class="admin-field">
+        <span>Domain</span>
+        <select @bind="domainFilter">
+            <option value="">All domains</option>
+            @foreach (var value in FilterOptions(entries.Select(entry => entry.Domain)))
+            {
+                <option value="@value">@value</option>
+            }
+        </select>
+    </label>
+    <label class="admin-field">
+        <span>Role</span>
+        <select @bind="roleFilter">
+            <option value="">All roles</option>
+            @foreach (var value in FilterOptions(entries.Select(entry => entry.Role)))
+            {
+                <option value="@value">@value</option>
+            }
+        </select>
+    </label>
+    <button class="admin-secondary" type="button" disabled="@(!HasInventoryFilters)" @onclick="ClearInventoryFilters">Clear filters</button>
 </div>
 
 <div class="admin-workspace">
@@ -72,6 +129,8 @@
                         <dl class="admin-rule-summary">
                             <div><dt>Site</dt><dd>@DisplayValue(entry.Site)</dd></div>
                             <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
+                            <div><dt>Role</dt><dd>@DisplayValue(entry.Role)</dd></div>
+                            <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
                             <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
                         </dl>
                     </article>
@@ -141,6 +200,16 @@
                     <input maxlength="256" @bind="entry.Domain" />
                     <small>Can be maintained manually until alerts provide this value.</small>
                 </label>
+                <label class="admin-field">
+                    <span>Resource group</span>
+                    <input maxlength="256" @bind="entry.ResourceGroup" />
+                    <small>Discovered from alerts when available.</small>
+                </label>
+                <label class="admin-field">
+                    <span>Role</span>
+                    <input maxlength="256" @bind="entry.Role" />
+                    <small>May be assigned automatically by an inventory-role alert rule.</small>
+                </label>
                 <div class="admin-form-actions">
                     <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
                     <button class="admin-primary" type="submit" disabled="@isSaving">
@@ -178,8 +247,14 @@
     private ComputerInventoryEntry? editingEntry;
     private ComputerInventoryEntry? entryToDelete;
     private string searchText = string.Empty;
+    private string subscriptionFilter = string.Empty;
+    private string resourceGroupFilter = string.Empty;
+    private string siteFilter = string.Empty;
+    private string domainFilter = string.Empty;
+    private string roleFilter = string.Empty;
     private bool isCreating;
     private bool isLoading;
+    private bool isPrefilling;
     private bool isSaving;
     private bool isDeleting;
     private string? statusMessage;
@@ -189,9 +264,23 @@
         .Where(entry => string.IsNullOrWhiteSpace(searchText) ||
             entry.Computer.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
             entry.SubscriptionId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+            (entry.ResourceGroup?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
             (entry.Site?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (entry.Domain?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+            (entry.Domain?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (entry.Role?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(entry => MatchesFilter(entry.SubscriptionId, subscriptionFilter))
+        .Where(entry => MatchesFilter(entry.ResourceGroup, resourceGroupFilter))
+        .Where(entry => MatchesFilter(entry.Site, siteFilter))
+        .Where(entry => MatchesFilter(entry.Domain, domainFilter))
+        .Where(entry => MatchesFilter(entry.Role, roleFilter))
         .ToArray();
+
+    private bool HasInventoryFilters =>
+        !string.IsNullOrWhiteSpace(subscriptionFilter) ||
+        !string.IsNullOrWhiteSpace(resourceGroupFilter) ||
+        !string.IsNullOrWhiteSpace(siteFilter) ||
+        !string.IsNullOrWhiteSpace(domainFilter) ||
+        !string.IsNullOrWhiteSpace(roleFilter);
 
     protected override Task OnInitializedAsync() => LoadInventoryAsync();
 
@@ -225,6 +314,35 @@
         errorMessage = subscriptionIds.Count == 0
             ? "No subscription IDs have been observed in alerts yet."
             : null;
+    }
+
+    private async Task PrefillFromAlertsAsync()
+    {
+        if (isPrefilling)
+        {
+            return;
+        }
+
+        isPrefilling = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var result = await AlertStore.PrefillComputerInventoryFromLastSevenDaysAsync();
+            await LoadInventoryAsync();
+            statusMessage = $"Checked {result.AlertsScanned} alerts and found {result.SystemsFound} systems. " +
+                $"Created {result.SystemsCreated}, filled {result.SitesFilled} missing sites, " +
+                $"filled {result.ResourceGroupsFilled} resource groups, assigned {result.RolesAssigned} roles, " +
+                $"and left {result.SystemsUnchanged} unchanged.";
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isPrefilling = false;
+        }
     }
 
     private void BeginEdit(ComputerInventoryEntry source)
@@ -335,8 +453,29 @@
         SubscriptionId = source.SubscriptionId,
         Computer = source.Computer,
         Site = source.Site,
-        Domain = source.Domain
+        Domain = source.Domain,
+        ResourceGroup = source.ResourceGroup,
+        Role = source.Role
     };
+
+    private void ClearInventoryFilters()
+    {
+        subscriptionFilter = string.Empty;
+        resourceGroupFilter = string.Empty;
+        siteFilter = string.Empty;
+        domainFilter = string.Empty;
+        roleFilter = string.Empty;
+    }
+
+    private static bool MatchesFilter(string? value, string filter) =>
+        string.IsNullOrWhiteSpace(filter) || string.Equals(value, filter, StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<string> FilterOptions(IEnumerable<string?> values) => values
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Select(value => value!)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     private static string DisplayValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Not available" : value;
