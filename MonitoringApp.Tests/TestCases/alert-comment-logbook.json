@@ -1,0 +1,40 @@
+{
+  "alert": {
+    "receivedAt": "2026-08-31T11:55:00Z",
+    "alertId": "alert-42",
+    "name": "Replication alert",
+    "severity": "Sev1",
+    "status": "Fired",
+    "signalType": "Log",
+    "monitorCondition": "Fired",
+    "target": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.HybridCompute/machines/DC-01",
+    "resourceGroup": "rg",
+    "subscriptionId": "sub",
+    "firedAt": "2026-08-31T11:55:00Z",
+    "payload": {}
+  },
+  "createdAt": "2026-08-31T12:00:00Z",
+  "cases": [
+    {
+      "name": "valid alert comment",
+      "user": " operator ",
+      "comment": " Investigating replication. ",
+      "expectEntry": true,
+      "expectedUser": "operator",
+      "expectedContains": ["Investigating replication.", "Replication alert", "DC-01"]
+    },
+    {
+      "name": "empty comment",
+      "user": "operator",
+      "comment": "   ",
+      "expectEntry": false
+    },
+    {
+      "name": "missing logged-on user",
+      "user": "",
+      "comment": "Investigating",
+      "expectEntry": false,
+      "expectedError": "logged-on user"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "name": "counts active alerts at hourly snapshots",
+      "firstHour": "2026-08-30T09:00:00Z",
+      "now": "2026-08-30T12:30:00Z",
+      "hours": 4,
+      "lifecycles": [
+        { "alertId": "resolved", "startedAt": "2026-08-30T09:15:00Z", "resolvedAt": "2026-08-30T11:30:00Z" },
+        { "alertId": "open", "startedAt": "2026-08-30T10:30:00Z", "resolvedAt": null }
+      ],
+      "expectedCounts": [1, 2, 1, 1]
+    },
+    {
+      "name": "inactive at exact resolution boundary",
+      "firstHour": "2026-08-30T09:00:00Z",
+      "now": "2026-08-30T10:00:00Z",
+      "hours": 1,
+      "lifecycles": [
+        { "alertId": "resolved-on-boundary", "startedAt": "2026-08-30T09:15:00Z", "resolvedAt": "2026-08-30T10:00:00Z" }
+      ],
+      "expectedCounts": [0]
+    }
+  ],
+  "invalidHours": 0
+}

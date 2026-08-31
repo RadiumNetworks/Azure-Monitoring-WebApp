@@ -1,0 +1,5 @@
+{
+  "referenceTime": "2000-01-08T12:00:00Z",
+  "expectedCutoff": "2000-01-01T12:00:00Z",
+  "invalidDays": [0, -1, 3651]
+}

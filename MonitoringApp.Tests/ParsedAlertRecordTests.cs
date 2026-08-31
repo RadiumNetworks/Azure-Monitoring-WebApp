@@ -5,40 +5,28 @@ namespace MonitoringApp.Tests;
 
 public sealed class ParsedAlertRecordTests
 {
+    private static readonly ParsedAlertRecordTestCases TestCases =
+        TestCaseLoader.Load<ParsedAlertRecordTestCases>("parsed-alert-record.json");
+
     [Fact]
     public void ExtractsAlertFieldsAndInventoryReference()
     {
-        const string rawJson = """
-            {
-              "originalAlertId":"original-42",
-              "data":{"alertContext":{"condition":{"allOf":[{
-                "searchQuery":"Heartbeat | where Computer == 'DC-01'",
-                "dimensions":[{"name":"Computer","value":"DC-01"},{"name":"Site","value":"North"}]
-              }]}}},
-              "queryResult":{"type":"Heartbeat","columns":[{"name":"Computer"}],"rows":[["DC-01"]]}
-            }
-            """;
-        var id = Guid.NewGuid();
-        var firedAt = DateTimeOffset.Parse("2026-08-31T01:02:03Z");
-        var alert = new AlertRecord(
-            id, firedAt, "alert-42", "Heartbeat missing", "Sev2", "Fired", "Metric",
-            "Fired", "/subscriptions/sub-1/resourceGroups/rg-1/providers/test/machines/DC-01",
-            "rg-1", "sub-1", firedAt, string.Empty, string.Empty, string.Empty, rawJson)
+        var alert = TestAlertFactory.FromFixture(TestCases.Alert) with
         {
-            DisplayIdentity = new AlertDisplayIdentity("DC-01", "North")
+            DisplayIdentity = new AlertDisplayIdentity(TestCases.ExpectedInventoryComputer, "North")
         };
 
         var parsed = ParsedAlertFactory.Create(alert);
 
-        Assert.Equal(id, parsed.Id);
-        Assert.Equal(firedAt, parsed.FiredDateTime);
-        Assert.Equal("alert-42", parsed.AlertId);
-        Assert.Equal("original-42", parsed.OriginalAlertId);
-        Assert.Equal("sub-1", parsed.InventorySubscriptionId);
-        Assert.Equal("DC-01", parsed.InventoryComputer);
+        Assert.Equal(alert.Id, parsed.Id);
+        Assert.Equal(TestCases.Alert.FiredAt, parsed.FiredDateTime);
+        Assert.Equal(TestCases.Alert.AlertId, parsed.AlertId);
+        Assert.Equal(TestCases.ExpectedOriginalAlertId, parsed.OriginalAlertId);
+        Assert.Equal(TestCases.ExpectedInventorySubscriptionId, parsed.InventorySubscriptionId);
+        Assert.Equal(TestCases.ExpectedInventoryComputer, parsed.InventoryComputer);
         Assert.Equal(alert.SearchQuery, parsed.SearchQuery);
         Assert.Equal(JsonValueKind.Array, JsonDocument.Parse(parsed.Dimensions).RootElement.ValueKind);
-        Assert.Equal("Heartbeat", JsonDocument.Parse(parsed.QueryResults).RootElement.GetProperty("type").GetString());
+        Assert.Equal(TestCases.ExpectedQueryResultType, JsonDocument.Parse(parsed.QueryResults).RootElement.GetProperty("type").GetString());
     }
 
     [Fact]

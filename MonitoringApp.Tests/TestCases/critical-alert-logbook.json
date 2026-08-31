@@ -1,0 +1,55 @@
+{
+  "alert": {
+    "receivedAt": "2026-08-31T10:00:00Z",
+    "alertId": "critical-alert-42",
+    "name": "Port health alert",
+    "severity": "Sev0",
+    "status": "Fired",
+    "signalType": "Log",
+    "monitorCondition": "Fired",
+    "target": "DC-01",
+    "resourceGroup": "rg-test",
+    "subscriptionId": "sub-test",
+    "firedAt": "2026-08-31T10:00:00Z",
+    "payload": {}
+  },
+  "createdAt": "2026-08-31T10:15:00Z",
+  "cases": [
+    {
+      "name": "critical fired",
+      "condition": "Fired",
+      "isCritical": true,
+      "expectEntry": true,
+      "expectedPrefix": "Critical alert fired:",
+      "expectedContains": ["Port health alert", "DC-01", "Sev0", "critical-alert-42"]
+    },
+    {
+      "name": "critical resolved",
+      "condition": "Resolved",
+      "isCritical": true,
+      "expectEntry": true,
+      "expectedPrefix": "Critical alert resolved:",
+      "expectedContains": ["Port health alert", "DC-01", "Sev0", "critical-alert-42"]
+    },
+    {
+      "name": "condition matching ignores case",
+      "condition": "fired",
+      "isCritical": true,
+      "expectEntry": true,
+      "expectedPrefix": "Critical alert fired:",
+      "expectedContains": ["Port health alert", "DC-01", "Sev0", "critical-alert-42"]
+    },
+    {
+      "name": "non-critical fired alert",
+      "condition": "Fired",
+      "isCritical": false,
+      "expectEntry": false
+    },
+    {
+      "name": "unsupported critical condition",
+      "condition": "Acknowledged",
+      "isCritical": true,
+      "expectEntry": false
+    }
+  ]
+}

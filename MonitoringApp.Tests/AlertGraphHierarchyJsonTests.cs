@@ -12,6 +12,7 @@ public sealed class AlertGraphHierarchyJsonTests
         new(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
     public static IEnumerable<object[]> GroupingCaseIndexes => Indexes(Cases.Groupings.Count);
     public static IEnumerable<object[]> ChoiceCaseIndexes => Indexes(Cases.Choices.Count);
+    public static IEnumerable<object[]> RecordGroupingCaseIndexes => Indexes(Cases.RecordGroupings.Count);
 
     [Theory]
     [MemberData(nameof(GroupingCaseIndexes))]
@@ -41,41 +42,26 @@ public sealed class AlertGraphHierarchyJsonTests
         Assert.Equal(testCase.ExpectedLabels, choices.Select(choice => choice.Label));
     }
 
-    [Fact]
-    public void GroupsCompleteParsedHistoryByMaintainedInventoryValues()
+    [Theory]
+    [MemberData(nameof(RecordGroupingCaseIndexes))]
+    public void GroupsParsedHistoryUsingJsonCases(int caseIndex)
     {
-        var oldAlert = new AlertGraphRecord(
-            Guid.NewGuid(), Cases.BaseTime.AddYears(-2), "old-alert", "Fired", string.Empty,
-            "Replication", "sub-inventory", "rg-corrected", "DC-01", "North", "contoso.test",
-            "domaincontrollers");
-
-        var hierarchy = AlertGraphHierarchy.Build(
-            [oldAlert], AlertGraphLayer.Domain, AlertGraphLayer.Role, AlertGraphLayer.Target);
-
-        var domain = Assert.Single(hierarchy);
-        Assert.Equal("contoso.test", domain.Name);
-        var role = Assert.Single(domain.Children);
-        Assert.Equal("domaincontrollers", role.Name);
-        Assert.Equal("DC-01", Assert.Single(role.Children).Name);
-        Assert.Equal(1, domain.HistoryCount);
-        Assert.Equal(1, domain.Count);
-    }
-
-    [Fact]
-    public void UsesDashForMissingInventoryValues()
-    {
+        var testCase = Cases.RecordGroupings[caseIndex];
+        var source = testCase.Alert;
         var alert = new AlertGraphRecord(
-            Guid.NewGuid(), Cases.BaseTime, "alert", "Resolved", string.Empty,
-            "Heartbeat", "sub", "", "computer", "", "", "");
+            Guid.NewGuid(), source.ReceivedAt, source.AlertId, source.MonitorCondition, source.Category,
+            source.AlertName, source.SubscriptionId, source.ResourceGroup, source.Target, source.Site,
+            source.Domain, source.Role);
 
         var hierarchy = AlertGraphHierarchy.Build(
-            [alert], AlertGraphLayer.ResourceGroup, AlertGraphLayer.Site, AlertGraphLayer.Role);
+            [alert], testCase.Layers[0], testCase.Layers[1], testCase.Layers[2]);
 
         var root = Assert.Single(hierarchy);
-        Assert.Equal("-", root.Name);
-        Assert.Equal("-", Assert.Single(root.Children).Name);
-        Assert.Equal("-", Assert.Single(root.Children.Single().Children).Name);
-        Assert.Equal(0, root.Count);
+        var middle = Assert.Single(root.Children);
+        var leaf = Assert.Single(middle.Children);
+        Assert.Equal(testCase.ExpectedNames, new[] { root.Name, middle.Name, leaf.Name });
+        Assert.Equal(testCase.ExpectedRootHistoryCount, root.HistoryCount);
+        Assert.Equal(testCase.ExpectedRootCount, root.Count);
     }
 
     private static void AssertGrouping(GraphGroupingCase testCase, AlertRecord[] alerts)

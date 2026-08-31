@@ -4,12 +4,15 @@ namespace MonitoringApp.Tests;
 
 public sealed class DatabaseSettingsTests
 {
+    private static readonly DatabaseSettingsTestCases TestCases =
+        TestCaseLoader.Load<DatabaseSettingsTestCases>("database-settings.json");
+
     [Fact]
     public void DeserializesAuthenticationSetting()
     {
         var setting = DatabaseSettingsLoader.Deserialize<ApplicationAuthenticationOptions>(
             DatabaseSettingsLoader.Authentication,
-            "{\"Type\":\"sql\"}");
+            TestCases.Authentication.ToJsonString());
 
         Assert.True(setting.IsSql);
         Assert.Empty(setting.Validate());
@@ -20,51 +23,33 @@ public sealed class DatabaseSettingsTests
     {
         var setting = DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(
             DatabaseSettingsLoader.AlertHistory,
-            "{\"Days\":30}");
+            TestCases.AlertHistory.ToJsonString());
 
-        Assert.Equal(30, setting.Days);
+        Assert.Equal(TestCases.ExpectedHistoryDays, setting.Days);
         Assert.Empty(setting.Validate());
     }
 
     [Fact]
     public void DeserializesAlertGraphEnumsFromNames()
     {
-        const string json = """
-            {
-              "Layer1":[{"Value":"Subscription","Label":"Subscription"}],
-              "Layer2":[{"Value":"Site","Label":"Site"}],
-              "Layer3":[{"Value":"Target","Label":"Target"}],
-              "DefaultLayer1":"Subscription",
-              "DefaultLayer2":"Site",
-              "DefaultLayer3":"Target"
-            }
-            """;
-
         var setting = DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(
             DatabaseSettingsLoader.AlertGraph,
-            json);
+            TestCases.AlertGraph.ToJsonString());
 
-        Assert.Equal(AlertGraphLayer.Subscription, setting.DefaultLayer1);
-        Assert.Equal(AlertGraphLayer.Site, setting.DefaultLayer2);
-        Assert.Equal(AlertGraphLayer.Target, setting.DefaultLayer3);
+        Assert.Equal(TestCases.ExpectedLayer1, setting.DefaultLayer1);
+        Assert.Equal(TestCases.ExpectedLayer2, setting.DefaultLayer2);
+        Assert.Equal(TestCases.ExpectedLayer3, setting.DefaultLayer3);
         Assert.Empty(setting.Validate());
     }
 
     [Fact]
     public void DeserializesAlertSeverityDisplaySetting()
     {
-        const string json = """
-            {
-              "Severities":[{"Severity":"Sev0","Color":"red","FontStyle":"bold"}],
-              "Default":{"Color":"black","FontStyle":"normal"}
-            }
-            """;
-
         var setting = DatabaseSettingsLoader.Deserialize<AlertSeverityDisplayOptions>(
             DatabaseSettingsLoader.AlertSeverityDisplay,
-            json);
+            TestCases.SeverityDisplay.ToJsonString());
 
-        Assert.Equal("severity-color-red severity-style-bold", setting.CssClass("Sev0"));
+        Assert.Equal(TestCases.ExpectedSeverityClass, setting.CssClass(TestCases.Severity));
         Assert.Empty(setting.Validate());
         Assert.Contains(DatabaseSettingsLoader.AlertSeverityDisplay, DatabaseSettingsLoader.RequiredNames);
     }
@@ -75,7 +60,7 @@ public sealed class DatabaseSettingsTests
         Assert.Throws<InvalidOperationException>(() =>
             DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(
                 DatabaseSettingsLoader.AlertHistory,
-                "not-json"));
+                TestCases.MalformedJson));
     }
 
     [Fact]

@@ -31,6 +31,15 @@ internal static class TestAlertFactory
         source.SignalType, source.Condition, source.Target, source.ResourceGroup, source.SubscriptionId,
         source.FiredAt, source.Description, source.SearchResultsUrl, source.Comments, Serialize(source.Payload));
 
+    public static AlertRecord FromFixture(
+        AlertRecordFixtureCase source,
+        string? monitorCondition = null,
+        JsonObject? payload = null) => new(
+        Guid.NewGuid(), source.ReceivedAt, source.AlertId, source.Name, source.Severity, source.Status,
+        source.SignalType, monitorCondition ?? source.MonitorCondition, source.Target, source.ResourceGroup,
+        source.SubscriptionId, source.FiredAt, source.Description, source.SearchResultsUrl, source.Comments,
+        Serialize(payload ?? source.Payload));
+
     public static AlertRecord WithPayload(JsonObject payload, AlertRecordDefaults defaults) => new(
         Guid.NewGuid(), DateTimeOffset.UnixEpoch, string.Empty, defaults.Name, defaults.Severity, string.Empty,
         defaults.SignalType, string.Empty, defaults.Target, defaults.ResourceGroup, defaults.SubscriptionId,

@@ -24,5 +24,47 @@
     { "level": 1, "expectedValues": ["Subscription", "ResourceGroup"], "expectedLabels": ["Subscription", "Resourcegroup"] },
     { "level": 2, "expectedValues": ["AlertName", "ResourceGroup", "Site"], "expectedLabels": ["AlertName", "Resourcegroup", "Site"] },
     { "level": 3, "expectedValues": ["Target", "Site"], "expectedLabels": ["Target", "Site"] }
+  ],
+  "recordGroupings": [
+    {
+      "name": "complete parsed history uses maintained inventory values",
+      "alert": {
+        "receivedAt": "2024-08-23T08:00:00Z",
+        "alertId": "old-alert",
+        "monitorCondition": "Fired",
+        "category": "",
+        "alertName": "Replication",
+        "subscriptionId": "sub-inventory",
+        "resourceGroup": "rg-corrected",
+        "target": "DC-01",
+        "site": "North",
+        "domain": "contoso.test",
+        "role": "domaincontrollers"
+      },
+      "layers": ["Domain", "Role", "Target"],
+      "expectedNames": ["contoso.test", "domaincontrollers", "DC-01"],
+      "expectedRootCount": 1,
+      "expectedRootHistoryCount": 1
+    },
+    {
+      "name": "missing inventory values use dashes",
+      "alert": {
+        "receivedAt": "2026-08-23T08:00:00Z",
+        "alertId": "alert",
+        "monitorCondition": "Resolved",
+        "category": "",
+        "alertName": "Heartbeat",
+        "subscriptionId": "sub",
+        "resourceGroup": "",
+        "target": "computer",
+        "site": "",
+        "domain": "",
+        "role": ""
+      },
+      "layers": ["ResourceGroup", "Site", "Role"],
+      "expectedNames": ["-", "-", "-"],
+      "expectedRootCount": 0,
+      "expectedRootHistoryCount": 1
+    }
   ]
 }

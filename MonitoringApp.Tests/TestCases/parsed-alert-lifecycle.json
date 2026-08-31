@@ -1,0 +1,35 @@
+{
+  "alert": {
+    "receivedAt": "2026-08-31T01:00:00Z",
+    "name": "Port health alert",
+    "severity": "Sev0",
+    "signalType": "Log",
+    "target": "DC-01",
+    "resourceGroup": "rg-test",
+    "subscriptionId": "sub-test",
+    "payload": {}
+  },
+  "firedAt": "2026-08-31T01:00:00Z",
+  "resolvedAt": "2026-08-31T02:15:00Z",
+  "criticalAlertId": "critical-lifecycle",
+  "standardAlertId": "standard-lifecycle",
+  "firedPayload": {
+    "queryResult": {
+      "type": "DCPort",
+      "rows": [[1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11]]
+    }
+  },
+  "criticalRule": {
+    "id": "47a96c56-ccf5-4f4e-97ce-6a72bb462f91",
+    "name": "System outage",
+    "enabled": true,
+    "ruleType": "Categorization",
+    "priority": 10,
+    "alertNameContains": "Port",
+    "queryResultType": "DCPort",
+    "conditionType": "RowCountGreaterThan",
+    "threshold": 10,
+    "categoryName": "System Outage",
+    "isCritical": true
+  }
+}

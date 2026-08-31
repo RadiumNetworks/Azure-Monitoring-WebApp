@@ -1,0 +1,44 @@
+{
+  "alert": {
+    "receivedAt": "2000-01-01T12:00:00Z",
+    "alertId": "alert-id",
+    "name": "Test alert",
+    "severity": "Sev1",
+    "signalType": "Log",
+    "monitorCondition": "Fired",
+    "target": "dc01.contoso.test",
+    "resourceGroup": "rg-test",
+    "subscriptionId": "sub-test",
+    "payload": {}
+  },
+  "cases": [
+    {
+      "name": "DCDiag assigns domain controller",
+      "queryResultType": "DCDiag",
+      "rules": [{ "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "domaincontrollers" }],
+      "expectedRole": "domaincontrollers"
+    },
+    {
+      "name": "Replication assigns domain controller",
+      "queryResultType": "Replication",
+      "rules": [{ "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "Replication", "inventoryRole": "domaincontrollers" }],
+      "expectedRole": "domaincontrollers"
+    },
+    {
+      "name": "unrelated query result",
+      "queryResultType": "Heartbeat",
+      "rules": [{ "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "domaincontrollers" }],
+      "expectedRole": null
+    },
+    {
+      "name": "highest priority enabled rule",
+      "queryResultType": "DCDiag",
+      "rules": [
+        { "enabled": true, "priority": 20, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "later" },
+        { "enabled": false, "priority": 1, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "disabled" },
+        { "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "first" }
+      ],
+      "expectedRole": "first"
+    }
+  ]
+}

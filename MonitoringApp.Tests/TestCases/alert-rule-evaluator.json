@@ -218,6 +218,26 @@
         { "name": "Suppressed alerts", "collapsed": true, "alertIds": ["healthy"] }
       ],
       "expectedUncategorizedAlertIds": ["failed"]
+    },
+    {
+      "name": "Inventory role assignment rules are ignored during categorization",
+      "rule": {
+        "id": "7867b923-9acc-4916-8846-e07c9694fabe",
+        "enabled": true,
+        "ruleType": "InventoryRoleAssignment",
+        "queryResultType": "DCDiag",
+        "inventoryRole": "domaincontrollers"
+      },
+      "alerts": [
+        {
+          "alertId": "role-alert",
+          "name": "DCDiag alert",
+          "target": "dc01.contoso.test",
+          "payload": {}
+        }
+      ],
+      "expectedCategories": [],
+      "expectedUncategorizedAlertIds": ["role-alert"]
     }
   ]
 }

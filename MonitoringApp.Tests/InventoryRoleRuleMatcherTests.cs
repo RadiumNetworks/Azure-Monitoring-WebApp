@@ -1,75 +1,25 @@
-using System.Text.Json;
-
 namespace MonitoringApp.Tests;
 
 public sealed class InventoryRoleRuleMatcherTests
 {
+    private static readonly InventoryRoleRuleMatcherTestCases TestCases =
+        TestCaseLoader.Load<InventoryRoleRuleMatcherTestCases>("inventory-role-rule-matcher.json");
+
+    public static TheoryData<InventoryRoleRuleMatcherCase> Cases =>
+        new(TestCases.Cases);
+
     [Theory]
-    [InlineData("DCDiag")]
-    [InlineData("Replication")]
-    public void AssignsDomainControllerRoleForMatchingQueryResult(string queryResultType)
+    [MemberData(nameof(Cases))]
+    public void FindsExpectedRole(InventoryRoleRuleMatcherCase testCase)
     {
-        var alert = CreateAlert(queryResultType);
-        var rule = CreateRule(queryResultType, "domaincontrollers");
-
-        var role = InventoryRoleRuleMatcher.FindRole(alert, [rule]);
-
-        Assert.Equal("domaincontrollers", role);
-    }
-
-    [Fact]
-    public void DoesNotAssignRoleForUnrelatedQueryResult()
-    {
-        var role = InventoryRoleRuleMatcher.FindRole(
-            CreateAlert("Heartbeat"),
-            [CreateRule("DCDiag", "domaincontrollers")]);
-
-        Assert.Null(role);
-    }
-
-    [Fact]
-    public void UsesTheHighestPriorityEnabledMatchingRule()
-    {
-        var rules = new[]
+        var payload = new System.Text.Json.Nodes.JsonObject
         {
-            CreateRule("DCDiag", "later", priority: 20),
-            CreateRule("DCDiag", "disabled", priority: 1, enabled: false),
-            CreateRule("DCDiag", "first", priority: 10)
+            ["queryResult"] = new System.Text.Json.Nodes.JsonObject { ["type"] = testCase.QueryResultType }
         };
+        var alert = TestAlertFactory.FromFixture(TestCases.Alert, payload: payload);
 
-        var role = InventoryRoleRuleMatcher.FindRole(CreateAlert("DCDiag"), rules);
+        var role = InventoryRoleRuleMatcher.FindRole(alert, testCase.Rules);
 
-        Assert.Equal("first", role);
+        Assert.Equal(testCase.ExpectedRole, role);
     }
-
-    private static AlertRule CreateRule(
-        string queryResultType,
-        string role,
-        int priority = 10,
-        bool enabled = true) => new()
-    {
-        Enabled = enabled,
-        Priority = priority,
-        RuleType = AlertRuleTypes.InventoryRoleAssignment,
-        QueryResultType = queryResultType,
-        InventoryRole = role
-    };
-
-    private static AlertRecord CreateAlert(string queryResultType) => new(
-        Guid.NewGuid(),
-        new DateTimeOffset(2000, 1, 1, 12, 0, 0, TimeSpan.Zero),
-        "alert-id",
-        "Test alert",
-        "Sev1",
-        string.Empty,
-        "Log",
-        "Fired",
-        "dc01.contoso.test",
-        "rg-test",
-        "sub-test",
-        null,
-        string.Empty,
-        string.Empty,
-        string.Empty,
-        JsonSerializer.Serialize(new { queryResult = new { type = queryResultType } }));
 }

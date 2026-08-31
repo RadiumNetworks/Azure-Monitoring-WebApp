@@ -1,0 +1,27 @@
+{
+  "alert": {
+    "receivedAt": "2026-08-31T01:02:03Z",
+    "alertId": "alert-42",
+    "name": "Heartbeat missing",
+    "severity": "Sev2",
+    "status": "Fired",
+    "signalType": "Metric",
+    "monitorCondition": "Fired",
+    "target": "/subscriptions/sub-1/resourceGroups/rg-1/providers/test/machines/DC-01",
+    "resourceGroup": "rg-1",
+    "subscriptionId": "sub-1",
+    "firedAt": "2026-08-31T01:02:03Z",
+    "payload": {
+      "originalAlertId": "original-42",
+      "data": { "alertContext": { "condition": { "allOf": [{
+        "searchQuery": "Heartbeat | where Computer == 'DC-01'",
+        "dimensions": [{ "name": "Computer", "value": "DC-01" }, { "name": "Site", "value": "North" }]
+      }] } } },
+      "queryResult": { "type": "Heartbeat", "columns": [{ "name": "Computer" }], "rows": [["DC-01"]] }
+    }
+  },
+  "expectedOriginalAlertId": "original-42",
+  "expectedInventoryComputer": "DC-01",
+  "expectedInventorySubscriptionId": "sub-1",
+  "expectedQueryResultType": "Heartbeat"
+}

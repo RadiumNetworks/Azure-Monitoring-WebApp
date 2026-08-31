@@ -1,0 +1,24 @@
+{
+  "supportedTypes": [
+    { "type": "open", "isOpen": true, "isSql": false },
+    { "type": "OPEN", "isOpen": true, "isSql": false },
+    { "type": "sql", "isOpen": false, "isSql": true },
+    { "type": "SQL", "isOpen": false, "isSql": true }
+  ],
+  "unsupportedTypes": ["", "entra", "anonymous", null],
+  "password": "correct horse battery staple",
+  "wrongPassword": "wrong password",
+  "malformedHashes": [
+    "",
+    "not-a-hash",
+    "PBKDF2-SHA256$600000$invalid$invalid",
+    "PBKDF2-SHA1$600000$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ=",
+    "PBKDF2-SHA256$1$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ="
+  ],
+  "supportedRoles": [
+    { "input": "reader", "expected": "Reader" },
+    { "input": "Operator", "expected": "Operator" },
+    { "input": " ADMIN ", "expected": "Admin" }
+  ],
+  "unsupportedRoles": ["", "Owner"]
+}

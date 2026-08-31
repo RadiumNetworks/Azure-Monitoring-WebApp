@@ -1,0 +1,21 @@
+{
+  "valid": {
+    "layer1": [
+      { "value": "Subscription", "label": "Subscription" },
+      { "value": "ResourceGroup", "label": "Resourcegroup" }
+    ],
+    "layer2": [{ "value": "ResourceGroup", "label": "Resourcegroup" }],
+    "layer3": [
+      { "value": "Target", "label": "Target" },
+      { "value": "Site", "label": "Site" }
+    ],
+    "defaultLayer1": "Subscription",
+    "defaultLayer2": "ResourceGroup",
+    "defaultLayer3": "Target"
+  },
+  "missingDefault": {
+    "layer1": [{ "value": "ResourceGroup", "label": "Resourcegroup" }],
+    "defaultLayer1": "Subscription"
+  },
+  "missingDefaultError": "DefaultLayer1"
+}

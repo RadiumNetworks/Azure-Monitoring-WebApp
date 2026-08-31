@@ -2,20 +2,22 @@ namespace MonitoringApp.Tests;
 
 public sealed class AlertHistoryOptionsTests
 {
+    private static readonly AlertHistoryOptionsTestCases TestCases =
+        TestCaseLoader.Load<AlertHistoryOptionsTestCases>("alert-history-options.json");
+
+    public static IEnumerable<object[]> InvalidDays =>
+        TestCases.InvalidDays.Select(days => new object[] { days });
+
     [Fact]
     public void DefaultsToSevenDayCutoff()
     {
-        var referenceTime = new DateTimeOffset(2000, 1, 8, 12, 0, 0, TimeSpan.Zero);
+        var cutoff = new AlertHistoryOptions().GetCutoff(TestCases.ReferenceTime);
 
-        var cutoff = new AlertHistoryOptions().GetCutoff(referenceTime);
-
-        Assert.Equal(new DateTimeOffset(2000, 1, 1, 12, 0, 0, TimeSpan.Zero), cutoff);
+        Assert.Equal(TestCases.ExpectedCutoff, cutoff);
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(3651)]
+    [MemberData(nameof(InvalidDays))]
     public void RejectsInvalidHistoryDays(int days)
     {
         var options = new AlertHistoryOptions { Days = days };

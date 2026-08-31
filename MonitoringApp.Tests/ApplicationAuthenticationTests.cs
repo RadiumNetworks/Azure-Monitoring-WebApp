@@ -2,27 +2,42 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MonitoringApp.Tests;
 
+internal static class AuthenticationTestData
+{
+    public static readonly AuthenticationTestCases Cases =
+        TestCaseLoader.Load<AuthenticationTestCases>("application-authentication.json");
+
+    public static IEnumerable<object[]> SupportedTypes =>
+        Cases.SupportedTypes.Select(testCase => new object[] { testCase });
+
+    public static IEnumerable<object?[]> UnsupportedTypes =>
+        Cases.UnsupportedTypes.Select(type => new object?[] { type });
+
+    public static IEnumerable<object[]> MalformedHashes =>
+        Cases.MalformedHashes.Select(hash => new object[] { hash });
+
+    public static IEnumerable<object[]> SupportedRoles =>
+        Cases.SupportedRoles.Select(testCase => new object[] { testCase });
+
+    public static IEnumerable<object[]> UnsupportedRoles =>
+        Cases.UnsupportedRoles.Select(role => new object[] { role });
+}
+
 public sealed class ApplicationAuthenticationOptionsTests
 {
     [Theory]
-    [InlineData("open", true, false)]
-    [InlineData("OPEN", true, false)]
-    [InlineData("sql", false, true)]
-    [InlineData("SQL", false, true)]
-    public void AcceptsSupportedTypes(string type, bool isOpen, bool isSql)
+    [MemberData(nameof(AuthenticationTestData.SupportedTypes), MemberType = typeof(AuthenticationTestData))]
+    public void AcceptsSupportedTypes(AuthenticationTypeCase testCase)
     {
-        var options = new ApplicationAuthenticationOptions { Type = type };
+        var options = new ApplicationAuthenticationOptions { Type = testCase.Type };
 
         Assert.Empty(options.Validate());
-        Assert.Equal(isOpen, options.IsOpen);
-        Assert.Equal(isSql, options.IsSql);
+        Assert.Equal(testCase.IsOpen, options.IsOpen);
+        Assert.Equal(testCase.IsSql, options.IsSql);
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("entra")]
-    [InlineData("anonymous")]
-    [InlineData(null)]
+    [MemberData(nameof(AuthenticationTestData.UnsupportedTypes), MemberType = typeof(AuthenticationTestData))]
     public void RejectsUnsupportedTypes(string? type)
     {
         var options = new ApplicationAuthenticationOptions { Type = type! };
@@ -51,36 +66,33 @@ public sealed class SqlPasswordHasherTests
     [Fact]
     public void HashesAndVerifiesPassword()
     {
-        const string password = "correct horse battery staple";
+        var password = AuthenticationTestData.Cases.Password;
 
         var hash = hasher.Hash(password);
 
         Assert.StartsWith("PBKDF2-SHA256$600000$", hash);
         Assert.DoesNotContain(password, hash, StringComparison.Ordinal);
         Assert.True(hasher.Verify(password, hash));
-        Assert.False(hasher.Verify("wrong password", hash));
+        Assert.False(hasher.Verify(AuthenticationTestData.Cases.WrongPassword, hash));
     }
 
     [Fact]
     public void UsesRandomSaltForEachHash()
     {
-        var first = hasher.Hash("same password");
-        var second = hasher.Hash("same password");
+        var password = AuthenticationTestData.Cases.Password;
+        var first = hasher.Hash(password);
+        var second = hasher.Hash(password);
 
         Assert.NotEqual(first, second);
-        Assert.True(hasher.Verify("same password", first));
-        Assert.True(hasher.Verify("same password", second));
+        Assert.True(hasher.Verify(password, first));
+        Assert.True(hasher.Verify(password, second));
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("not-a-hash")]
-    [InlineData("PBKDF2-SHA256$600000$invalid$invalid")]
-    [InlineData("PBKDF2-SHA1$600000$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ=")]
-    [InlineData("PBKDF2-SHA256$1$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ=")]
+    [MemberData(nameof(AuthenticationTestData.MalformedHashes), MemberType = typeof(AuthenticationTestData))]
     public void RejectsMalformedOrUnsupportedHashes(string hash)
     {
-        Assert.False(hasher.Verify("password", hash));
+        Assert.False(hasher.Verify(AuthenticationTestData.Cases.Password, hash));
     }
 }
 
@@ -115,17 +127,14 @@ public sealed class SqlAuthenticationUserModelTests
 public sealed class SqlAuthenticationRoleTests
 {
     [Theory]
-    [InlineData("reader", SqlAuthenticationRoles.Reader)]
-    [InlineData("Operator", SqlAuthenticationRoles.Operator)]
-    [InlineData(" ADMIN ", SqlAuthenticationRoles.Admin)]
-    public void NormalizesSupportedRoles(string input, string expected)
+    [MemberData(nameof(AuthenticationTestData.SupportedRoles), MemberType = typeof(AuthenticationTestData))]
+    public void NormalizesSupportedRoles(AuthenticationRoleCase testCase)
     {
-        Assert.Equal(expected, SqlAuthenticationRoles.Normalize(input));
+        Assert.Equal(testCase.Expected, SqlAuthenticationRoles.Normalize(testCase.Input));
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("Owner")]
+    [MemberData(nameof(AuthenticationTestData.UnsupportedRoles), MemberType = typeof(AuthenticationTestData))]
     public void RejectsUnsupportedRoles(string input)
     {
         Assert.Throws<InvalidOperationException>(() => SqlAuthenticationRoles.Normalize(input));

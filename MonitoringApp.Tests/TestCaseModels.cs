@@ -220,6 +220,32 @@ public sealed class AlertGraphHierarchyTestCases
     public IReadOnlyList<GraphAlertCase> SiteAlerts { get; init; } = [];
     public GraphGroupingCase SiteGrouping { get; init; } = new();
     public IReadOnlyList<GraphChoiceCase> Choices { get; init; } = [];
+    public IReadOnlyList<GraphRecordGroupingCase> RecordGroupings { get; init; } = [];
+}
+
+public sealed class GraphRecordGroupingCase
+{
+    public string Name { get; init; } = string.Empty;
+    public GraphRecordCase Alert { get; init; } = new();
+    public IReadOnlyList<AlertGraphLayer> Layers { get; init; } = [];
+    public IReadOnlyList<string> ExpectedNames { get; init; } = [];
+    public int ExpectedRootCount { get; init; }
+    public int ExpectedRootHistoryCount { get; init; }
+}
+
+public sealed class GraphRecordCase
+{
+    public DateTimeOffset ReceivedAt { get; init; }
+    public string AlertId { get; init; } = string.Empty;
+    public string MonitorCondition { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
+    public string AlertName { get; init; } = string.Empty;
+    public string SubscriptionId { get; init; } = string.Empty;
+    public string ResourceGroup { get; init; } = string.Empty;
+    public string Target { get; init; } = string.Empty;
+    public string Site { get; init; } = string.Empty;
+    public string Domain { get; init; } = string.Empty;
+    public string Role { get; init; } = string.Empty;
 }
 
 public sealed class GraphAlertCase
@@ -313,4 +339,181 @@ public sealed class ExpectedAlertCategoryCase
     public string Name { get; init; } = string.Empty;
     public bool Collapsed { get; init; }
     public IReadOnlyList<string> AlertIds { get; init; } = [];
+}
+
+public sealed class AlertRecordFixtureCase
+{
+    public DateTimeOffset ReceivedAt { get; init; }
+    public string AlertId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Severity { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public string SignalType { get; init; } = string.Empty;
+    public string MonitorCondition { get; init; } = string.Empty;
+    public string Target { get; init; } = string.Empty;
+    public string ResourceGroup { get; init; } = string.Empty;
+    public string SubscriptionId { get; init; } = string.Empty;
+    public DateTimeOffset? FiredAt { get; init; }
+    public string Description { get; init; } = string.Empty;
+    public string SearchResultsUrl { get; init; } = string.Empty;
+    public string Comments { get; init; } = string.Empty;
+    public JsonObject Payload { get; init; } = [];
+}
+
+public sealed class CriticalAlertLogbookTestCases
+{
+    public AlertRecordFixtureCase Alert { get; init; } = new();
+    public DateTimeOffset CreatedAt { get; init; }
+    public IReadOnlyList<CriticalAlertLogbookCase> Cases { get; init; } = [];
+}
+
+public sealed class CriticalAlertLogbookCase
+{
+    public string Name { get; init; } = string.Empty;
+    public string Condition { get; init; } = string.Empty;
+    public bool IsCritical { get; init; }
+    public bool ExpectEntry { get; init; }
+    public string ExpectedPrefix { get; init; } = string.Empty;
+    public IReadOnlyList<string> ExpectedContains { get; init; } = [];
+}
+
+public sealed class AlertCommentLogbookTestCases
+{
+    public AlertRecordFixtureCase Alert { get; init; } = new();
+    public DateTimeOffset CreatedAt { get; init; }
+    public IReadOnlyList<AlertCommentLogbookCase> Cases { get; init; } = [];
+}
+
+public sealed class AlertCommentLogbookCase
+{
+    public string Name { get; init; } = string.Empty;
+    public string User { get; init; } = string.Empty;
+    public string Comment { get; init; } = string.Empty;
+    public bool ExpectEntry { get; init; }
+    public string ExpectedUser { get; init; } = string.Empty;
+    public IReadOnlyList<string> ExpectedContains { get; init; } = [];
+    public string ExpectedError { get; init; } = string.Empty;
+}
+
+public sealed class InventoryRoleRuleMatcherTestCases
+{
+    public AlertRecordFixtureCase Alert { get; init; } = new();
+    public IReadOnlyList<InventoryRoleRuleMatcherCase> Cases { get; init; } = [];
+}
+
+public sealed class InventoryRoleRuleMatcherCase
+{
+    public string Name { get; init; } = string.Empty;
+    public string QueryResultType { get; init; } = string.Empty;
+    public IReadOnlyList<AlertRule> Rules { get; init; } = [];
+    public string? ExpectedRole { get; init; }
+}
+
+public sealed class AuthenticationTestCases
+{
+    public IReadOnlyList<AuthenticationTypeCase> SupportedTypes { get; init; } = [];
+    public IReadOnlyList<string?> UnsupportedTypes { get; init; } = [];
+    public IReadOnlyList<string> MalformedHashes { get; init; } = [];
+    public IReadOnlyList<AuthenticationRoleCase> SupportedRoles { get; init; } = [];
+    public IReadOnlyList<string> UnsupportedRoles { get; init; } = [];
+    public string Password { get; init; } = string.Empty;
+    public string WrongPassword { get; init; } = string.Empty;
+}
+
+public sealed class AuthenticationTypeCase
+{
+    public string Type { get; init; } = string.Empty;
+    public bool IsOpen { get; init; }
+    public bool IsSql { get; init; }
+}
+
+public sealed class AuthenticationRoleCase
+{
+    public string Input { get; init; } = string.Empty;
+    public string Expected { get; init; } = string.Empty;
+}
+
+public sealed class AlertHistoryOptionsTestCases
+{
+    public DateTimeOffset ReferenceTime { get; init; }
+    public DateTimeOffset ExpectedCutoff { get; init; }
+    public IReadOnlyList<int> InvalidDays { get; init; } = [];
+}
+
+public sealed class AlertSeverityDisplayOptionsTestCases
+{
+    public AlertSeverityDisplayOptions Valid { get; init; } = new();
+    public string ConfiguredSeverity { get; init; } = string.Empty;
+    public string UnknownSeverity { get; init; } = string.Empty;
+    public string ExpectedConfiguredClass { get; init; } = string.Empty;
+    public string ExpectedDefaultClass { get; init; } = string.Empty;
+    public AlertSeverityDisplayOptions Unsupported { get; init; } = new();
+    public IReadOnlyList<string> UnsupportedErrors { get; init; } = [];
+    public AlertSeverityDisplayOptions Duplicates { get; init; } = new();
+    public string DuplicateError { get; init; } = string.Empty;
+}
+
+public sealed class AlertGraphOptionsTestCases
+{
+    public AlertGraphOptions Valid { get; init; } = new();
+    public AlertGraphOptions MissingDefault { get; init; } = new();
+    public string MissingDefaultError { get; init; } = string.Empty;
+}
+
+public sealed class DatabaseSettingsTestCases
+{
+    public JsonObject Authentication { get; init; } = [];
+    public JsonObject AlertHistory { get; init; } = [];
+    public int ExpectedHistoryDays { get; init; }
+    public JsonObject AlertGraph { get; init; } = [];
+    public AlertGraphLayer ExpectedLayer1 { get; init; }
+    public AlertGraphLayer ExpectedLayer2 { get; init; }
+    public AlertGraphLayer ExpectedLayer3 { get; init; }
+    public JsonObject SeverityDisplay { get; init; } = [];
+    public string Severity { get; init; } = string.Empty;
+    public string ExpectedSeverityClass { get; init; } = string.Empty;
+    public string MalformedJson { get; init; } = string.Empty;
+}
+
+public sealed class ParsedAlertRecordTestCases
+{
+    public AlertRecordFixtureCase Alert { get; init; } = new();
+    public string ExpectedOriginalAlertId { get; init; } = string.Empty;
+    public string ExpectedInventoryComputer { get; init; } = string.Empty;
+    public string ExpectedInventorySubscriptionId { get; init; } = string.Empty;
+    public string ExpectedQueryResultType { get; init; } = string.Empty;
+}
+
+public sealed class ParsedAlertLifecycleTestCases
+{
+    public AlertRecordFixtureCase Alert { get; init; } = new();
+    public DateTimeOffset FiredAt { get; init; }
+    public DateTimeOffset ResolvedAt { get; init; }
+    public JsonObject FiredPayload { get; init; } = [];
+    public AlertRule CriticalRule { get; init; } = new();
+    public string CriticalAlertId { get; init; } = string.Empty;
+    public string StandardAlertId { get; init; } = string.Empty;
+}
+
+public sealed class CriticalAlertTimelineTestCases
+{
+    public IReadOnlyList<CriticalAlertTimelineCase> Cases { get; init; } = [];
+    public int InvalidHours { get; init; }
+}
+
+public sealed class CriticalAlertTimelineCase
+{
+    public string Name { get; init; } = string.Empty;
+    public DateTimeOffset FirstHour { get; init; }
+    public DateTimeOffset Now { get; init; }
+    public int Hours { get; init; }
+    public IReadOnlyList<CriticalAlertLifecycleCase> Lifecycles { get; init; } = [];
+    public IReadOnlyList<int> ExpectedCounts { get; init; } = [];
+}
+
+public sealed class CriticalAlertLifecycleCase
+{
+    public string AlertId { get; init; } = string.Empty;
+    public DateTimeOffset StartedAt { get; init; }
+    public DateTimeOffset? ResolvedAt { get; init; }
 }

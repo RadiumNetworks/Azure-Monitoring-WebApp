@@ -1,0 +1,21 @@
+{
+  "valid": {
+    "severities": [{ "severity": "Sev0", "color": "red", "fontStyle": "bold" }],
+    "default": { "color": "black", "fontStyle": "normal" }
+  },
+  "configuredSeverity": "sev0",
+  "unknownSeverity": "unknown",
+  "expectedConfiguredClass": "severity-color-red severity-style-bold",
+  "expectedDefaultClass": "severity-color-black severity-style-normal",
+  "unsupported": {
+    "severities": [{ "severity": "Sev0", "color": "blue", "fontStyle": "italic" }]
+  },
+  "unsupportedErrors": ["Color 'blue'", "FontStyle 'italic'"],
+  "duplicates": {
+    "severities": [
+      { "severity": "Sev1", "color": "red", "fontStyle": "bold" },
+      { "severity": "sev1", "color": "yellow", "fontStyle": "normal" }
+    ]
+  },
+  "duplicateError": "duplicate Severity"
+}

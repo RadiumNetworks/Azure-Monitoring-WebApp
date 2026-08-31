@@ -2,48 +2,35 @@ namespace MonitoringApp.Tests;
 
 public sealed class AlertSeverityDisplayOptionsTests
 {
+    private static readonly AlertSeverityDisplayOptionsTestCases TestCases =
+        TestCaseLoader.Load<AlertSeverityDisplayOptionsTestCases>("alert-severity-display-options.json");
+
     [Fact]
     public void ResolvesConfiguredSeverityAndDefaultClasses()
     {
-        var options = ValidOptions();
+        var options = TestCases.Valid;
 
-        Assert.Equal("severity-color-red severity-style-bold", options.CssClass("sev0"));
-        Assert.Equal("severity-color-black severity-style-normal", options.CssClass("unknown"));
+        Assert.Equal(TestCases.ExpectedConfiguredClass, options.CssClass(TestCases.ConfiguredSeverity));
+        Assert.Equal(TestCases.ExpectedDefaultClass, options.CssClass(TestCases.UnknownSeverity));
         Assert.Empty(options.Validate());
     }
 
     [Fact]
     public void RejectsUnsupportedColorAndFontStyle()
     {
-        var options = new AlertSeverityDisplayOptions
+        var errors = TestCases.Unsupported.Validate();
+
+        foreach (var expectedError in TestCases.UnsupportedErrors)
         {
-            Severities = [new() { Severity = "Sev0", Color = "blue", FontStyle = "italic" }]
-        };
-
-        var errors = options.Validate();
-
-        Assert.Contains(errors, error => error.Contains("Color 'blue'", StringComparison.Ordinal));
-        Assert.Contains(errors, error => error.Contains("FontStyle 'italic'", StringComparison.Ordinal));
+            Assert.Contains(errors, error => error.Contains(expectedError, StringComparison.Ordinal));
+        }
     }
 
     [Fact]
     public void RejectsDuplicateSeverityNamesIgnoringCase()
     {
-        var options = new AlertSeverityDisplayOptions
-        {
-            Severities =
-            [
-                new() { Severity = "Sev1", Color = "red", FontStyle = "bold" },
-                new() { Severity = "sev1", Color = "yellow", FontStyle = "normal" }
-            ]
-        };
-
-        Assert.Contains(options.Validate(), error => error.Contains("duplicate Severity", StringComparison.Ordinal));
+        Assert.Contains(
+            TestCases.Duplicates.Validate(),
+            error => error.Contains(TestCases.DuplicateError, StringComparison.Ordinal));
     }
-
-    private static AlertSeverityDisplayOptions ValidOptions() => new()
-    {
-        Severities = [new() { Severity = "Sev0", Color = "red", FontStyle = "bold" }],
-        Default = new() { Color = "black", FontStyle = "normal" }
-    };
 }

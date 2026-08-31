@@ -2,51 +2,38 @@ namespace MonitoringApp.Tests;
 
 public sealed class CriticalAlertTimelineTests
 {
-    [Fact]
-    public void CountsCriticalAlertsActiveAtEachHourlySnapshot()
+    private static readonly CriticalAlertTimelineTestCases TestCases =
+        TestCaseLoader.Load<CriticalAlertTimelineTestCases>("critical-alert-timeline.json");
+
+    public static TheoryData<CriticalAlertTimelineCase> Cases =>
+        new(TestCases.Cases);
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void ProducesExpectedHourlyCounts(CriticalAlertTimelineCase testCase)
     {
-        var firstHour = DateTimeOffset.Parse("2026-08-30T09:00:00Z");
-        var now = DateTimeOffset.Parse("2026-08-30T12:30:00Z");
-        var lifecycles = new[]
-        {
-            new CriticalAlertLifecycle(
-                "resolved",
-                DateTimeOffset.Parse("2026-08-30T09:15:00Z"),
-                DateTimeOffset.Parse("2026-08-30T11:30:00Z")),
-            new CriticalAlertLifecycle(
-                "open",
-                DateTimeOffset.Parse("2026-08-30T10:30:00Z"),
-                null)
-        };
+        var lifecycles = testCase.Lifecycles.Select(lifecycle => new CriticalAlertLifecycle(
+            lifecycle.AlertId,
+            lifecycle.StartedAt,
+            lifecycle.ResolvedAt));
 
-        var buckets = CriticalAlertTimeline.GetHourlyCounts(lifecycles, firstHour, 4, now);
+        var buckets = CriticalAlertTimeline.GetHourlyCounts(
+            lifecycles,
+            testCase.FirstHour,
+            testCase.Hours,
+            testCase.Now);
 
-        Assert.Equal([1, 2, 1, 1], buckets.Select(bucket => bucket.Count));
-    }
-
-    [Fact]
-    public void TreatsAlertAsInactiveAtItsResolutionTime()
-    {
-        var firstHour = DateTimeOffset.Parse("2026-08-30T09:00:00Z");
-        var resolvedAt = DateTimeOffset.Parse("2026-08-30T10:00:00Z");
-        var lifecycle = new CriticalAlertLifecycle(
-            "resolved-on-boundary",
-            DateTimeOffset.Parse("2026-08-30T09:15:00Z"),
-            resolvedAt);
-
-        var bucket = Assert.Single(CriticalAlertTimeline.GetHourlyCounts(
-            [lifecycle],
-            firstHour,
-            1,
-            resolvedAt));
-
-        Assert.Equal(0, bucket.Count);
+        Assert.Equal(testCase.ExpectedCounts, buckets.Select(bucket => bucket.Count));
     }
 
     [Fact]
     public void RejectsEmptyChartWindow()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            CriticalAlertTimeline.GetHourlyCounts([], DateTimeOffset.UtcNow, 0, DateTimeOffset.UtcNow));
+            CriticalAlertTimeline.GetHourlyCounts(
+                [],
+                DateTimeOffset.UnixEpoch,
+                TestCases.InvalidHours,
+                DateTimeOffset.UnixEpoch));
     }
 }

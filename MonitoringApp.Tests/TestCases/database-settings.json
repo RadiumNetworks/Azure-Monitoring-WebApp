@@ -1,0 +1,23 @@
+{
+  "authentication": { "type": "sql" },
+  "alertHistory": { "days": 30 },
+  "expectedHistoryDays": 30,
+  "alertGraph": {
+    "layer1": [{ "value": "Subscription", "label": "Subscription" }],
+    "layer2": [{ "value": "Site", "label": "Site" }],
+    "layer3": [{ "value": "Target", "label": "Target" }],
+    "defaultLayer1": "Subscription",
+    "defaultLayer2": "Site",
+    "defaultLayer3": "Target"
+  },
+  "expectedLayer1": "Subscription",
+  "expectedLayer2": "Site",
+  "expectedLayer3": "Target",
+  "severityDisplay": {
+    "severities": [{ "severity": "Sev0", "color": "red", "fontStyle": "bold" }],
+    "default": { "color": "black", "fontStyle": "normal" }
+  },
+  "severity": "Sev0",
+  "expectedSeverityClass": "severity-color-red severity-style-bold",
+  "malformedJson": "not-json"
+}
