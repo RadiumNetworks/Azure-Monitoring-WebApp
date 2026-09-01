@@ -1,0 +1,40 @@
+@page "/login"
+@attribute [AllowAnonymous]
+
+<PageTitle>Sign in</PageTitle>
+
+<div class="mx-auto mt-5" style="max-width: 28rem">
+    <h1>Sign in</h1>
+    <p>Credentials are checked against the SQL Server <strong>Users</strong> table.</p>
+
+    @if (Setup == "complete")
+    {
+        <div class="alert alert-success">Administrator created. You can now sign in.</div>
+    }
+    @if (Error == "invalid")
+    {
+        <div class="alert alert-danger">The username or password is incorrect.</div>
+    }
+
+    <form method="post" action="/auth/login">
+        <AntiforgeryToken />
+        <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input class="form-control" id="username" name="Username" required maxlength="128" autocomplete="username" autofocus />
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="password">Password</label>
+            <input class="form-control" id="password" name="Password" type="password" required maxlength="1024" autocomplete="current-password" />
+        </div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+        <a class="btn btn-link" href="/setup">First-time setup</a>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "setup")]
+    public string? Setup { get; set; }
+}

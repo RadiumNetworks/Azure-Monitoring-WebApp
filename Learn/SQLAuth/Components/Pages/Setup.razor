@@ -1,0 +1,46 @@
+@page "/setup"
+@attribute [AllowAnonymous]
+@inject SqlUserService Users
+
+<PageTitle>Initial setup</PageTitle>
+
+<div class="mx-auto mt-5" style="max-width: 32rem">
+    <h1>Initial setup</h1>
+    @if (hasUsers)
+    {
+        <div class="alert alert-info">Setup is complete. An administrator already exists.</div>
+        <a class="btn btn-primary" href="/login">Go to sign in</a>
+    }
+    else
+    {
+        <p>Create the first SQL-backed account. The first account receives the <strong>Admin</strong> role.</p>
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="alert alert-danger">@Error</div>
+        }
+        <form method="post" action="/auth/setup">
+            <AntiforgeryToken />
+            <div class="mb-3">
+                <label class="form-label" for="username">Username</label>
+                <input class="form-control" id="username" name="Username" required maxlength="128" autocomplete="username" autofocus />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">Password (at least 12 characters)</label>
+                <input class="form-control" id="password" name="Password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password" />
+            </div>
+            <button class="btn btn-primary" type="submit">Create administrator</button>
+        </form>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private bool hasUsers;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hasUsers = await Users.HasUsersAsync();
+    }
+}

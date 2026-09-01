@@ -1,0 +1,89 @@
+@page "/notes"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Notes</PageTitle>
+
+<h1>My SQL-backed notes</h1>
+<p>Each account only sees its own rows.</p>
+
+<EditForm Model="newNote" OnValidSubmit="AddAsync" class="row g-2 mb-4">
+    <DataAnnotationsValidator />
+    <div class="col">
+        <InputText class="form-control" @bind-Value="newNote.Text" placeholder="Write a note" maxlength="500" />
+    </div>
+    <div class="col-auto"><button class="btn btn-primary" type="submit">Add</button></div>
+</EditForm>
+
+@if (notes.Count == 0)
+{
+    <p><em>No notes yet.</em></p>
+}
+else
+{
+    <div class="list-group">
+        @foreach (var note in notes)
+        {
+            <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div><div>@note.Text</div><small class="text-muted">@note.CreatedAt.ToLocalTime().ToString("g")</small></div>
+                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(note.Id)">Delete</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly NoteInput newNote = new();
+    private List<Note> notes = [];
+    private string username = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        username = authenticationState.User.Identity?.Name
+            ?? throw new InvalidOperationException("An authenticated username is required.");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        notes = await db.Notes.AsNoTracking()
+            .Where(note => note.OwnerUsername == username)
+            .OrderByDescending(note => note.CreatedAt)
+            .ToListAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        var text = newNote.Text.Trim();
+        if (text.Length == 0) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Notes.Add(new Note
+        {
+            Text = text,
+            OwnerUsername = username,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        newNote.Text = string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await db.Notes.Where(note => note.Id == id && note.OwnerUsername == username).ExecuteDeleteAsync();
+        await LoadAsync();
+    }
+
+    private sealed class NoteInput
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(500)]
+        public string Text { get; set; } = string.Empty;
+    }
+}

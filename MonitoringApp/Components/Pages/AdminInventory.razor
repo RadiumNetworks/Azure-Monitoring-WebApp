@@ -117,7 +117,7 @@
                 {
                     var isExpanded = IsExpanded(entry);
                     <article class="admin-rule-card inventory-card @(IsSelected(entry) ? "selected" : null) @(isExpanded ? "expanded" : null)">
-                        <button class="inventory-card-toggle" type="button" aria-expanded="@isExpanded" @onclick="() => ToggleExpanded(entry)">
+                        <button class="inventory-card-toggle" type="button" aria-expanded="@isExpanded.ToString().ToLowerInvariant()" @onclick="() => ToggleExpanded(entry)">
                             <strong title="@entry.Computer">@entry.Computer</strong>
                             <span title="@DisplayValue(entry.Role)">@DisplayValue(entry.Role)</span>
                             <span class="inventory-card-chevron" aria-hidden="true"></span>

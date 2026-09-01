@@ -1,0 +1,80 @@
+@page "/users"
+@attribute [Authorize(Roles = UserRoles.Admin)]
+@rendermode InteractiveServer
+@inject SqlUserService UsersService
+
+<PageTitle>Users</PageTitle>
+
+<h1>SQL users</h1>
+<p>Only administrators can open this page.</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<EditForm Model="newUser" OnValidSubmit="CreateAsync" class="card card-body mb-4">
+    <DataAnnotationsValidator />
+    <h2 class="h5">Create account</h2>
+    <div class="row g-3">
+        <div class="col-md-4"><label class="form-label">Username</label><InputText class="form-control" @bind-Value="newUser.Username" /></div>
+        <div class="col-md-4"><label class="form-label">Password</label><InputText class="form-control" type="password" @bind-Value="newUser.Password" /></div>
+        <div class="col-md-2">
+            <label class="form-label">Role</label>
+            <InputSelect class="form-select" @bind-Value="newUser.Role"><option value="User">User</option><option value="Admin">Admin</option></InputSelect>
+        </div>
+        <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary" type="submit">Create</button></div>
+    </div>
+</EditForm>
+
+<table class="table">
+    <thead><tr><th>Username</th><th>Role</th></tr></thead>
+    <tbody>
+        @foreach (var user in users)
+        {
+            <tr><td>@user.Username</td><td>@user.Role</td></tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private readonly NewUserInput newUser = new();
+    private IReadOnlyList<UserSummary> users = [];
+    private string? message;
+    private bool isError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() => users = await UsersService.GetUsersAsync();
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            await UsersService.CreateUserAsync(newUser.Username, newUser.Password, newUser.Role);
+            message = $"User '{newUser.Username.Trim()}' created.";
+            isError = false;
+            newUser.Username = string.Empty;
+            newUser.Password = string.Empty;
+            newUser.Role = UserRoles.User;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+            isError = true;
+        }
+    }
+
+    private sealed class NewUserInput
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(128)]
+        public string Username { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(1024, MinimumLength = 12)]
+        public string Password { get; set; } = string.Empty;
+
+        public string Role { get; set; } = UserRoles.User;
+    }
+}

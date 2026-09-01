@@ -34,3 +34,4 @@ MonitoringApp/logic-app-*.codeview.json
 *.txt
 *.md
 /.tools
+/Learn/SQLAuth/wwwroot
