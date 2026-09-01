@@ -1,0 +1,5 @@
+bin/
+obj/
+ui-learning.db
+ui-learning.db-shm
+ui-learning.db-wal

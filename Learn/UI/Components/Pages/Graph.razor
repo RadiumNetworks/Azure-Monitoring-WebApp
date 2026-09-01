@@ -1,0 +1,71 @@
+@page "/graph"
+@inject UiDataService Data
+
+<PageTitle>Hierarchy graph</PageTitle>
+
+<div class="page-heading">
+    <div><p class="eyebrow">Visualization / graph</p><h1>Organization hierarchy</h1></div>
+    <p class="page-intro">Departments connect to teams and people. Every node and edge is rendered with native SVG.</p>
+</div>
+
+<div class="legend"><span><i class="dot department"></i>Department</span><span><i class="dot team"></i>Team</span><span><i class="dot person"></i>Person</span></div>
+<section class="visual-panel graph-panel">
+    <svg class="hierarchy-svg" viewBox="0 0 1050 760" role="img" aria-label="Organization hierarchy graph">
+        <defs><filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity=".12" /></filter></defs>
+        @foreach (var department in departments)
+        {
+            var departmentY = DepartmentY(department);
+            foreach (var team in department.Teams)
+            {
+                var teamY = TeamY(team);
+                <path class="graph-edge" d="M 250 @departmentY C 330 @departmentY, 335 @teamY, 420 @teamY" />
+                foreach (var person in team.People)
+                {
+                    var personY = PersonY(person);
+                    <path class="graph-edge light" d="M 650 @teamY C 720 @teamY, 725 @personY, 790 @personY" />
+                }
+            }
+        }
+        @foreach (var department in departments)
+        {
+            <g class="graph-node" filter="url(#shadow)">
+                <rect class="node-department" x="40" y="@(DepartmentY(department) - 34)" width="210" height="68" rx="16" />
+                <text x="60" y="@(DepartmentY(department) - 3)">@department.Name</text>
+                <text class="node-meta" x="60" y="@(DepartmentY(department) + 18)">@department.Teams.Count teams</text>
+            </g>
+            foreach (var team in department.Teams)
+            {
+                <g class="graph-node" filter="url(#shadow)">
+                    <rect class="node-team" x="420" y="@(TeamY(team) - 30)" width="230" height="60" rx="12" />
+                    <text x="440" y="@(TeamY(team) - 1)">@team.Name</text>
+                    <text class="node-meta" x="440" y="@(TeamY(team) + 18)">@team.People.Count people</text>
+                </g>
+                foreach (var person in team.People)
+                {
+                    <g class="graph-node">
+                        <rect class="node-person" x="790" y="@(PersonY(person) - 25)" width="220" height="50" rx="10" />
+                        <text x="808" y="@(PersonY(person) - 2)">@person.Name</text>
+                        <text class="node-meta" x="808" y="@(PersonY(person) + 15)">@person.JobTitle</text>
+                    </g>
+                }
+            }
+        }
+    </svg>
+</section>
+
+@code {
+    private List<Department> departments = [];
+    private List<Team> teams = [];
+    private List<Person> people = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        departments = await Data.GetOrganizationAsync();
+        teams = departments.SelectMany(item => item.Teams).ToList();
+        people = teams.SelectMany(item => item.People).ToList();
+    }
+
+    private double DepartmentY(Department item) => 100 + departments.IndexOf(item) * 260;
+    private double TeamY(Team item) => 70 + teams.IndexOf(item) * 125;
+    private double PersonY(Person item) => 45 + people.IndexOf(item) * 60;
+}

@@ -1,0 +1,33 @@
+@page "/timeline"
+@rendermode InteractiveServer
+@inject UiDataService Data
+
+<PageTitle>Event timeline</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">Overview / timeline</p><h1>Operational events</h1></div><p class="page-intro">Chronological records loaded from SQLite. Select an event to expand its details.</p></div>
+
+<section class="timeline">
+    @foreach (var group in events.GroupBy(item => item.OccurredAt.LocalDateTime.Date))
+    {
+        <div class="timeline-day"><time datetime="@group.Key.ToString("O")">@group.Key.ToString("dddd, MMMM d")</time></div>
+        @foreach (var item in group)
+        {
+            <button class="timeline-item @(expandedId == item.Id ? "expanded" : null)" @onclick="() => expandedId = expandedId == item.Id ? null : item.Id">
+                <span class="timeline-time">@item.OccurredAt.ToLocalTime().ToString("HH:mm")</span>
+                <i class="timeline-marker severity-@item.Severity"></i>
+                <span class="timeline-content">
+                    <span class="category-chip">@item.Category</span>
+                    <strong>@item.Title</strong>
+                    @if (expandedId == item.Id) { <span class="timeline-detail">@item.Description</span> }
+                </span>
+                <span class="expand-icon">@(expandedId == item.Id ? "−" : "+")</span>
+            </button>
+        }
+    }
+</section>
+
+@code {
+    private List<TimelineEvent> events = [];
+    private int? expandedId;
+    protected override async Task OnInitializedAsync() => events = await Data.GetTimelineAsync();
+}

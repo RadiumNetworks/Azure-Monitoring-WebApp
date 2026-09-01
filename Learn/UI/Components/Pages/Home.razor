@@ -1,0 +1,38 @@
+﻿@page "/"
+@inject UiDataService Data
+
+<PageTitle>UI Pattern Lab</PageTitle>
+
+<div class="page-heading">
+	<div><p class="eyebrow">Learning workspace</p><h1>Monitoring UI patterns</h1></div>
+	<p class="page-intro">A focused collection of database-backed Blazor interfaces, rebuilt as small examples.</p>
+</div>
+
+<section class="stat-grid">
+	<div class="stat-card"><span>Departments</span><strong>@departmentCount</strong><small>organization graph roots</small></div>
+	<div class="stat-card"><span>Teams</span><strong>@teamCount</strong><small>visualized across reports</small></div>
+	<div class="stat-card"><span>Measurements</span><strong>@metricCount</strong><small>seeded SQLite rows</small></div>
+	<div class="stat-card accent"><span>UI examples</span><strong>5</strong><small>interactive patterns</small></div>
+</section>
+
+<section class="feature-grid">
+	<a class="feature-card" href="graph"><span class="feature-number">01</span><h2>Hierarchy graph</h2><p>Native SVG nodes and edges generated from relational data.</p><span class="feature-link">Explore graph →</span></a>
+	<a class="feature-card" href="users"><span class="feature-number">02</span><h2>Master-detail editor</h2><p>Select a record, edit its fields, validate, and persist changes.</p><span class="feature-link">Manage profiles →</span></a>
+	<a class="feature-card" href="heatmap"><span class="feature-number">03</span><h2>Health heatmap</h2><p>Aggregate database records and encode values as HSL colors.</p><span class="feature-link">View heatmap →</span></a>
+	<a class="feature-card" href="scatter"><span class="feature-number">04</span><h2>2D metric plot</h2><p>Map two measures onto SVG axes and reveal clusters.</p><span class="feature-link">Inspect metrics →</span></a>
+	<a class="feature-card" href="timeline"><span class="feature-number">05</span><h2>Event timeline</h2><p>Group events chronologically with expandable details.</p><span class="feature-link">Browse events →</span></a>
+</section>
+
+@code {
+	private int departmentCount;
+	private int teamCount;
+	private int metricCount;
+
+	protected override async Task OnInitializedAsync()
+	{
+		var organization = await Data.GetOrganizationAsync();
+		departmentCount = organization.Count;
+		teamCount = organization.Sum(item => item.Teams.Count);
+		metricCount = (await Data.GetMetricsAsync()).Count;
+	}
+}

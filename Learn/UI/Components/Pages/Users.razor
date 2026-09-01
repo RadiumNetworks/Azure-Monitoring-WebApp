@@ -1,0 +1,94 @@
+@page "/users"
+@rendermode InteractiveServer
+@inject UiDataService Data
+
+<PageTitle>User profiles</PageTitle>
+
+<div class="page-heading">
+    <div><p class="eyebrow">Manage / database editor</p><h1>User profiles</h1></div>
+    <button class="button primary" @onclick="NewProfile">+ New profile</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="status-message">@message</div>
+}
+
+<div class="master-detail">
+    <section class="record-list">
+        <div class="panel-title"><span>Database records</span><strong>@profiles.Count</strong></div>
+        @foreach (var profile in profiles)
+        {
+            <button class="record-card @(editor.Id == profile.Id ? "selected" : null)" @onclick="() => Select(profile)">
+                <span class="avatar">@Initials(profile.DisplayName)</span>
+                <span><strong>@profile.DisplayName</strong><small>@profile.Email</small></span>
+                <span class="record-department">@profile.Department</span>
+            </button>
+        }
+    </section>
+
+    <section class="editor-panel">
+        <div class="panel-title"><span>@(editor.Id == 0 ? "Create profile" : "Edit profile")</span><small>Changes are saved to SQLite</small></div>
+        <EditForm Model="editor" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                <label><span>Display name</span><InputText @bind-Value="editor.DisplayName" /></label>
+                <label><span>Email address</span><InputText @bind-Value="editor.Email" /></label>
+                <label><span>Department</span><InputSelect @bind-Value="editor.Department"><option>Platform</option><option>Operations</option><option>Experience</option></InputSelect></label>
+                <label><span>Time zone</span><InputSelect @bind-Value="editor.TimeZone"><option>UTC</option><option>Europe/Berlin</option><option>America/New_York</option><option>Asia/Singapore</option></InputSelect></label>
+                <label class="check-field"><InputCheckbox @bind-Value="editor.ReceiveReports" /><span>Receive weekly reports</span></label>
+            </div>
+            <div class="form-actions">
+                <button class="button primary" type="submit">Save profile</button>
+                <button class="button" type="button" @onclick="NewProfile">Cancel</button>
+                @if (editor.Id != 0)
+                {
+                    <button class="button danger" type="button" @onclick="DeleteAsync">Delete</button>
+                }
+            </div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    private List<UserProfile> profiles = [];
+    private UserProfile editor = EmptyProfile();
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => profiles = await Data.GetProfilesAsync();
+
+    private void Select(UserProfile profile)
+    {
+        editor = Copy(profile);
+        message = null;
+    }
+
+    private void NewProfile()
+    {
+        editor = EmptyProfile();
+        message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        var saved = await Data.SaveProfileAsync(editor);
+        await LoadAsync();
+        editor = Copy(saved);
+        message = $"Saved {saved.DisplayName} at {saved.UpdatedAt.ToLocalTime():t}.";
+    }
+
+    private async Task DeleteAsync()
+    {
+        await Data.DeleteProfileAsync(editor.Id);
+        message = $"Deleted {editor.DisplayName}.";
+        editor = EmptyProfile();
+        await LoadAsync();
+    }
+
+    private static UserProfile EmptyProfile() => new() { Department = "Platform", TimeZone = "UTC" };
+    private static UserProfile Copy(UserProfile item) => new() { Id = item.Id, DisplayName = item.DisplayName, Email = item.Email, Department = item.Department, TimeZone = item.TimeZone, ReceiveReports = item.ReceiveReports, UpdatedAt = item.UpdatedAt };
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(item => item[0]));
+}

@@ -1,0 +1,58 @@
+@page "/scatter"
+@inject UiDataService Data
+
+<PageTitle>2D metrics</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">Visualize / 2D plot</p><h1>Response time vs throughput</h1></div><p class="page-intro">Two database measures mapped to X/Y coordinates. Color identifies the owning team.</p></div>
+
+<div class="legend">
+    @foreach (var team in teams.Select((name, index) => (name, index)))
+    {
+        <span><i class="dot" style="background:@Color(team.index)"></i>@team.name</span>
+    }
+</div>
+<section class="visual-panel scatter-panel">
+    <svg class="scatter-svg" viewBox="0 0 920 520" role="img" aria-label="Response time versus throughput scatter chart">
+        @for (var index = 0; index <= 5; index++)
+        {
+            var y = 40 + index * 84;
+            <g>
+                <line class="chart-grid" x1="90" y1="@y" x2="880" y2="@y" />
+                <text class="axis-label" x="70" y="@(y + 5)" text-anchor="end">@(1000 - index * 180)</text>
+            </g>
+        }
+        @for (var index = 0; index <= 4; index++)
+        {
+            var x = 90 + index * 197.5;
+            <g>
+                <line class="chart-grid" x1="@x" y1="40" x2="@x" y2="460" />
+                <text class="axis-label" x="@x" y="490" text-anchor="middle">@(50 + index * 90) ms</text>
+            </g>
+        }
+        <text class="axis-title" x="485" y="515" text-anchor="middle">Response time</text>
+        <text class="axis-title" transform="translate(18 250) rotate(-90)" text-anchor="middle">Throughput / minute</text>
+        @foreach (var point in points)
+        {
+            <circle class="scatter-point" cx="@X(point.ResponseTimeMs)" cy="@Y(point.Throughput)" r="7" fill="@Color(teams.IndexOf(point.Team!.Name))">
+                <title>@point.Team.Name: @point.ResponseTimeMs ms, @point.Throughput/min</title>
+            </circle>
+        }
+    </svg>
+</section>
+
+@code {
+    private List<PerformanceMetric> points = [];
+    private List<string> teams = [];
+    private readonly string[] colors = ["#007a64", "#6f5bd3", "#d97706", "#0284c7", "#dc4967", "#64748b"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var metrics = await Data.GetMetricsAsync();
+        points = metrics.Where((_, index) => index % 4 == 0).TakeLast(126).ToList();
+        teams = metrics.Select(item => item.Team!.Name).Distinct().Order().ToList();
+    }
+
+    private static double X(double value) => 90 + Math.Clamp((value - 50) / 360, 0, 1) * 790;
+    private static double Y(double value) => 460 - Math.Clamp((value - 100) / 900, 0, 1) * 420;
+    private string Color(int index) => colors[Math.Max(0, index) % colors.Length];
+}

@@ -1,0 +1,44 @@
+@page "/heatmap"
+@inject UiDataService Data
+
+<PageTitle>Health heatmap</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">Visualize / heatmap</p><h1>Team health by region</h1></div><p class="page-intro">Average health scores from database records, encoded from red to green.</p></div>
+
+<div class="legend heat-legend"><span>Lower health</span><i></i><span>Higher health</span></div>
+<section class="visual-panel heatmap-panel">
+    <div class="heatmap-grid" style="grid-template-columns: 180px repeat(@regions.Count, minmax(120px, 1fr))">
+        <div class="heat-heading">Team</div>
+        @foreach (var region in regions) { <div class="heat-heading">@region</div> }
+        @foreach (var team in teams)
+        {
+            <div class="heat-row-label"><strong>@team</strong><small>84-day average</small></div>
+            @foreach (var region in regions)
+            {
+                var value = Score(team, region);
+                <div class="heat-cell" style="@CellStyle(value)"><strong>@value</strong><span>health score</span></div>
+            }
+        }
+    </div>
+</section>
+
+@code {
+    private List<PerformanceMetric> metrics = [];
+    private List<string> regions = [];
+    private List<string> teams = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        metrics = await Data.GetMetricsAsync();
+        regions = metrics.Select(item => item.Region).Distinct().Order().ToList();
+        teams = metrics.Select(item => item.Team!.Name).Distinct().Order().ToList();
+    }
+
+    private int Score(string team, string region) => (int)Math.Round(metrics.Where(item => item.Team!.Name == team && item.Region == region).Average(item => item.HealthScore));
+    private static string CellStyle(int score)
+    {
+        var normalized = Math.Clamp((score - 45d) / 55d, 0, 1);
+        var hue = normalized * 118;
+        return $"--heat-color:hsl({hue:F0} 62% 53%);--heat-soft:hsl({hue:F0} 70% 93%)";
+    }
+}
