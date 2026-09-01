@@ -115,24 +115,32 @@
             <div class="admin-rule-cards inventory-cards">
                 @foreach (var entry in FilteredEntries)
                 {
-                    <article class="admin-rule-card @(IsSelected(entry) ? "selected" : null)">
-                        <div class="admin-rule-card-heading">
-                            <div>
-                                <span class="admin-status enabled">Discovered</span>
-                                <h3>@entry.Computer</h3>
+                    var isExpanded = IsExpanded(entry);
+                    <article class="admin-rule-card inventory-card @(IsSelected(entry) ? "selected" : null) @(isExpanded ? "expanded" : null)">
+                        <button class="inventory-card-toggle" type="button" aria-expanded="@isExpanded" @onclick="() => ToggleExpanded(entry)">
+                            <strong title="@entry.Computer">@entry.Computer</strong>
+                            <span title="@DisplayValue(entry.Role)">@DisplayValue(entry.Role)</span>
+                            <span class="inventory-card-chevron" aria-hidden="true"></span>
+                        </button>
+                        @if (isExpanded)
+                        {
+                            <div class="inventory-card-details">
+                                <div class="inventory-card-toolbar">
+                                    <span class="admin-status enabled">Discovered</span>
+                                    <div class="inventory-card-actions">
+                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">Edit</button>
+                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(entry)">Delete</button>
+                                    </div>
+                                </div>
+                                <dl class="admin-rule-summary">
+                                    <div><dt>Site</dt><dd>@DisplayValue(entry.Site)</dd></div>
+                                    <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
+                                    <div><dt>Role</dt><dd>@DisplayValue(entry.Role)</dd></div>
+                                    <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
+                                    <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
+                                </dl>
                             </div>
-                            <div class="inventory-card-actions">
-                                <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">Edit</button>
-                                <button class="admin-danger" type="button" @onclick="() => BeginDelete(entry)">Delete</button>
-                            </div>
-                        </div>
-                        <dl class="admin-rule-summary">
-                            <div><dt>Site</dt><dd>@DisplayValue(entry.Site)</dd></div>
-                            <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
-                            <div><dt>Role</dt><dd>@DisplayValue(entry.Role)</dd></div>
-                            <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
-                            <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
-                        </dl>
+                        }
                     </article>
                 }
             </div>
@@ -244,6 +252,7 @@
 @code {
     private IReadOnlyList<ComputerInventoryEntry> entries = [];
     private IReadOnlyList<string> subscriptionIds = [];
+    private readonly HashSet<(string SubscriptionId, string Computer)> expandedEntries = [];
     private ComputerInventoryEntry? editingEntry;
     private ComputerInventoryEntry? entryToDelete;
     private string searchText = string.Empty;
@@ -447,6 +456,18 @@
         editingEntry is not null &&
         entry.SubscriptionId == editingEntry.SubscriptionId &&
         entry.Computer == editingEntry.Computer;
+
+    private bool IsExpanded(ComputerInventoryEntry entry) =>
+        expandedEntries.Contains((entry.SubscriptionId, entry.Computer));
+
+    private void ToggleExpanded(ComputerInventoryEntry entry)
+    {
+        var key = (entry.SubscriptionId, entry.Computer);
+        if (!expandedEntries.Add(key))
+        {
+            expandedEntries.Remove(key);
+        }
+    }
 
     private static ComputerInventoryEntry Clone(ComputerInventoryEntry source) => new()
     {

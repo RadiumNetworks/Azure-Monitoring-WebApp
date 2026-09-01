@@ -48,34 +48,42 @@
             <div class="admin-rule-cards">
                 @foreach (var rule in rules)
                 {
-                    <article class="admin-rule-card @(editingRule?.Id == rule.Id ? "selected" : null)">
-                        <div class="admin-rule-card-heading">
-                            <div>
+                    var isExpanded = IsExpanded(rule);
+                    <article class="admin-rule-card collapsible-rule-card @(editingRule?.Id == rule.Id ? "selected" : null) @(isExpanded ? "expanded" : null)">
+                        <button class="collapsible-card-toggle" type="button" aria-expanded="@isExpanded" @onclick="() => ToggleExpanded(rule)">
+                            <strong title="@rule.Name">@rule.Name</strong>
+                            <span title="@RuleTypeLabel(rule)">@RuleTypeLabel(rule)</span>
+                            <span class="collapsible-card-chevron" aria-hidden="true"></span>
+                        </button>
+                        @if (isExpanded)
+                        {
+                            <div class="collapsible-card-details">
+                                <div class="collapsible-card-toolbar">
                                 <span class="admin-status @(rule.Enabled ? "enabled" : "disabled")">
                                     @(rule.Enabled ? "Enabled" : "Disabled")
                                 </span>
-                                <h3>@rule.Name</h3>
+                                    <div class="admin-card-actions">
+                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
+                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(rule)">Delete</button>
+                                    </div>
+                                </div>
+                                <dl class="admin-rule-summary">
+                                    <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                                    <div><dt>Type</dt><dd>@RuleTypeLabel(rule)</dd></div>
+                                    <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
+                                    @if (rule.RuleType == AlertRuleTypes.Categorization)
+                                    {
+                                        <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
+                                        <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
+                                        <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
+                                    }
+                                    else
+                                    {
+                                        <div><dt>Inventory role</dt><dd>@rule.InventoryRole</dd></div>
+                                    }
+                                </dl>
                             </div>
-                            <div class="admin-card-actions">
-                                <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
-                                <button class="admin-danger" type="button" @onclick="() => BeginDelete(rule)">Delete</button>
-                            </div>
-                        </div>
-                        <dl class="admin-rule-summary">
-                            <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
-                            <div><dt>Type</dt><dd>@RuleTypeLabel(rule)</dd></div>
-                            <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
-                            @if (rule.RuleType == AlertRuleTypes.Categorization)
-                            {
-                                <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
-                                <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
-                                <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
-                            }
-                            else
-                            {
-                                <div><dt>Inventory role</dt><dd>@rule.InventoryRole</dd></div>
-                            }
-                        </dl>
+                        }
                     </article>
                 }
             </div>
@@ -242,6 +250,7 @@
 
 @code {
     private IReadOnlyList<AlertRule> rules = [];
+    private readonly HashSet<Guid> expandedRules = [];
     private AlertRule? editingRule;
     private AlertRule? ruleToDelete;
     private bool isCreating;
@@ -293,6 +302,16 @@
         isCreating = false;
         statusMessage = null;
         errorMessage = null;
+    }
+
+    private bool IsExpanded(AlertRule rule) => expandedRules.Contains(rule.Id);
+
+    private void ToggleExpanded(AlertRule rule)
+    {
+        if (!expandedRules.Add(rule.Id))
+        {
+            expandedRules.Remove(rule.Id);
+        }
     }
 
     private void CancelEdit()

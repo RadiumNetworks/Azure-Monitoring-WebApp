@@ -8,19 +8,34 @@
             <span>Alert Console</span>
         </a>
         <div class="header-actions">
-            <nav class="view-navigation" aria-label="Alert views">
-                <NavLink href="/" Match="NavLinkMatch.All">Inbox</NavLink>
-                <NavLink href="/graph">Graph</NavLink>
-                <NavLink href="/queries">Queries</NavLink>
-                <NavLink href="/logbook">Logbook</NavLink>
-                <NavLink href="/prompt">Copilot Prompt</NavLink>
+            <nav class="view-navigation" aria-label="Primary navigation">
+                <div class="navigation-group">
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Analyze</button>
+                    <div class="navigation-submenu">
+                        <NavLink href="/" Match="NavLinkMatch.All">Inbox</NavLink>
+                        <NavLink href="/graph">Graph</NavLink>
+                        <NavLink href="/queries">Queries</NavLink>
+                        <NavLink href="/logbook">Logbook</NavLink>
+                        <NavLink href="/prompt">Copilot Prompt</NavLink>
+                    </div>
+                </div>
                 <AuthorizeView Policy="OperatorAccess">
-                    <NavLink href="/admin/rules">Rules</NavLink>
-                    <NavLink href="/admin/inventory">Inventory</NavLink>
+                    <div class="navigation-group">
+                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">Configuration</button>
+                        <div class="navigation-submenu">
+                            <NavLink href="/admin/rules">Rules</NavLink>
+                            <NavLink href="/admin/inventory">Inventory</NavLink>
+                        </div>
+                    </div>
                 </AuthorizeView>
                 <AuthorizeView Policy="AdminAccess">
-                    <NavLink href="/admin/settings">Settings</NavLink>
-                    <NavLink href="/admin/users">Users</NavLink>
+                    <div class="navigation-group">
+                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">Admin</button>
+                        <div class="navigation-submenu">
+                            <NavLink href="/admin/settings">Settings</NavLink>
+                            <NavLink href="/admin/users">Users</NavLink>
+                        </div>
+                    </div>
                 </AuthorizeView>
             </nav>
             @if (AuthenticationOptions.IsSql)
