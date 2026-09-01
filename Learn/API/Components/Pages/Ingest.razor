@@ -1,0 +1,56 @@
+@page "/ingest"
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>Ingest tester</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">POST /api/ingest</p><h1>Send JSON</h1><p>Use the browser as an API client. The request goes through the real ingestion endpoint.</p></div><span class="method-badge post">POST</span></div>
+
+<div class="workbench-grid">
+    <section class="workbench-panel">
+        <div class="panel-header"><strong>Request body</strong><span>application/json</span></div>
+        <textarea class="code-editor" @bind="json" spellcheck="false"></textarea>
+        <div class="panel-actions"><button class="button primary" @onclick="SendAsync" disabled="@sending">@(sending ? "Sending…" : "Send request")</button><button class="button subtle" @onclick="LoadExample">Reset example</button></div>
+    </section>
+    <section class="workbench-panel response-panel">
+        <div class="panel-header"><strong>Response</strong>@if (status is not null) { <span class="status-code @(status < 300 ? "success" : "failure")">HTTP @status</span> }</div>
+        @if (response is null) { <div class="response-placeholder">Send a request to inspect its status and JSON response.</div> }
+        else { <pre class="response-code"><code>@response</code></pre> }
+    </section>
+</div>
+
+<aside class="learning-note"><strong>What happens?</strong><ol><li>ASP.NET Core parses and validates the JSON object.</li><li>Common fields are extracted for efficient filtering.</li><li>The complete original document is stored in SQLite.</li><li>The API returns <code>201 Created</code> with the new identifier.</li></ol></aside>
+
+@code {
+    private string json = CreateExample();
+    private string? response;
+    private int? status;
+    private bool sending;
+        private void LoadExample() { json = CreateExample(); response = null; status = null; }
+    private async Task SendAsync()
+    {
+        sending = true;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("apiLearning.postJson", "/api/ingest", json);
+            status = result.Status;
+            response = result.Body;
+        }
+        finally { sending = false; }
+    }
+
+    private sealed record ClientResponse(int Status, string Body);
+
+    private static string CreateExample() => System.Text.Json.JsonSerializer.Serialize(
+        new
+        {
+            name = "Memory pressure",
+            category = "Performance",
+            source = "api-server-02",
+            severity = 3,
+            summary = "Working set exceeded the warning threshold",
+            memoryPercent = 87.4,
+            tags = new[] { "production", "api" }
+        },
+        new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+}

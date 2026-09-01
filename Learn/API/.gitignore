@@ -1,0 +1,5 @@
+bin/
+obj/
+api-learning.db
+api-learning.db-shm
+api-learning.db-wal

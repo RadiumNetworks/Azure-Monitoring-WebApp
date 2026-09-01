@@ -1,0 +1,68 @@
+@page "/query"
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>GraphQL query</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">POST /graphql</p><h1>GraphQL workbench</h1><p>Select exactly the fields you need, then compose nested filter and sort expressions.</p></div><span class="method-badge graph">GRAPHQL</span></div>
+
+<div class="workbench-grid query-grid">
+    <section class="workbench-panel">
+        <div class="panel-header"><strong>Query</strong><span>Ctrl/⌘ + Enter in a full IDE</span></div>
+        <textarea class="code-editor query-editor" @bind="query" spellcheck="false"></textarea>
+        <div class="panel-actions"><button class="button primary" @onclick="ExecuteAsync" disabled="@executing">@(executing ? "Executing…" : "Run query ▶")</button><a class="button subtle" href="/graphql" target="_blank">Open schema IDE ↗</a></div>
+    </section>
+    <section class="workbench-panel response-panel">
+        <div class="panel-header"><strong>GraphQL response</strong>@if (status is not null) { <span class="status-code @(status < 300 ? "success" : "failure")">HTTP @status</span> }</div>
+        @if (response is null) { <div class="response-placeholder">Run the query to inspect its data envelope.</div> }
+        else { <pre class="response-code"><code>@response</code></pre> }
+    </section>
+</div>
+
+<section class="query-examples">
+    <h2>Filtering building blocks</h2>
+    <div><code>severity: &#123; gte: 2 &#125;</code><span>Numeric comparison</span></div>
+    <div><code>category: &#123; eq: "Security" &#125;</code><span>Exact string match</span></div>
+    <div><code>name: &#123; contains: "CPU" &#125;</code><span>Substring search</span></div>
+    <div><code>or: [&#123; source: … &#125;, &#123; severity: … &#125;]</code><span>Boolean composition</span></div>
+</section>
+
+@code {
+    private string query = @"query FilteredPayloads {
+  payloads(
+    where: {
+      severity: { gte: 2 }
+      or: [
+        { category: { eq: ""Performance"" } }
+        { category: { eq: ""Security"" } }
+      ]
+    }
+    order: [{ receivedAt: DESC }]
+  ) {
+    id
+    name
+    category
+    source
+    severity
+    summary
+    receivedAt
+  }
+}";
+    private string? response;
+    private int? status;
+    private bool executing;
+
+    private async Task ExecuteAsync()
+    {
+        executing = true;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("apiLearning.graphql", query);
+            status = result.Status;
+            response = result.Body;
+        }
+        finally { executing = false; }
+    }
+
+    private sealed record ClientResponse(int Status, string Body);
+}

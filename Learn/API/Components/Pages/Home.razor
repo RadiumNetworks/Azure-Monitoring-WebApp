@@ -1,0 +1,59 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject PayloadStore Store
+
+<PageTitle>Payload stream</PageTitle>
+
+<div class="page-heading">
+	<div><p class="eyebrow">Live database view</p><h1>Payload stream</h1><p>Every card represents a JSON document stored through the ingestion API.</p></div>
+	<button class="button subtle" @onclick="LoadAsync">↻ Refresh</button>
+</div>
+
+<section class="summary-grid">
+	<div><span>Total records</span><strong>@records.Count</strong></div>
+	<div><span>Sources</span><strong>@records.Select(item => item.Source).Distinct().Count()</strong></div>
+	<div><span>Categories</span><strong>@records.Select(item => item.Category).Distinct().Count()</strong></div>
+	<div class="warning"><span>Severity ≥ 3</span><strong>@records.Count(item => item.Severity >= 3)</strong></div>
+</section>
+
+<section class="filter-bar">
+	<label><span>Search JSON</span><input @bind="search" @bind:event="oninput" placeholder="Name, source, or any JSON value" /></label>
+	<label><span>Category</span><select @bind="category"><option value="">All categories</option>@foreach (var value in categories) { <option>@value</option> }</select></label>
+	<label><span>Minimum severity</span><select @bind="minimumSeverity"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option><option value="4">4+</option></select></label>
+</section>
+
+<section class="payload-list">
+	@foreach (var item in FilteredRecords)
+	{
+		<article class="payload-card severity-@Math.Min(item.Severity, 4)">
+			<div class="payload-time"><time datetime="@item.ReceivedAt.ToString("O")">@item.ReceivedAt.ToLocalTime().ToString("HH:mm")</time><small>@item.ReceivedAt.ToLocalTime().ToString("MMM dd")</small></div>
+			<div class="payload-main">
+				<div class="payload-title"><span class="category-chip">@item.Category</span><h2>@item.Name</h2><span class="severity-chip">S@(item.Severity)</span></div>
+				<p>@item.Summary</p>
+				<div class="payload-meta"><span>Source <strong>@item.Source</strong></span><span>ID <code>@item.Id.ToString()[..8]</code></span><span>Occurred <strong>@item.OccurredAt.ToLocalTime().ToString("g")</strong></span></div>
+				<details><summary>Raw JSON</summary><pre><code>@item.RawJson</code></pre></details>
+			</div>
+		</article>
+	}
+	@if (!FilteredRecords.Any()) { <div class="empty-state">No payloads match the current filters.</div> }
+</section>
+
+@code {
+	private List<PayloadRecord> records = [];
+	private List<string> categories = [];
+	private string search = string.Empty;
+	private string category = string.Empty;
+	private int minimumSeverity;
+
+	private IEnumerable<PayloadRecord> FilteredRecords => records.Where(item =>
+		item.Severity >= minimumSeverity &&
+		(string.IsNullOrEmpty(category) || item.Category == category) &&
+		(string.IsNullOrWhiteSpace(search) || item.RawJson.Contains(search, StringComparison.OrdinalIgnoreCase) || item.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || item.Source.Contains(search, StringComparison.OrdinalIgnoreCase)));
+
+	protected override async Task OnInitializedAsync() => await LoadAsync();
+	private async Task LoadAsync()
+	{
+		records = await Store.GetAllAsync();
+		categories = records.Select(item => item.Category).Distinct().Order().ToList();
+	}
+}

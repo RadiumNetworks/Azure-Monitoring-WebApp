@@ -1,0 +1,14 @@
+@page "/docs"
+
+<PageTitle>API guide</PageTitle>
+
+<div class="page-heading"><div><p class="eyebrow">Reference</p><h1>Endpoint guide</h1><p>Three ways to write and retrieve the same database records.</p></div></div>
+
+<section class="endpoint-list">
+    <article><span class="method-badge post">POST</span><div><h2>/api/ingest</h2><p>Accepts an arbitrary JSON object up to 256 KB. Extracts known fields and preserves the complete document.</p></div></article>
+    <article><span class="method-badge get">GET</span><div><h2>/api/records</h2><p>REST filters: <code>name</code>, <code>category</code>, <code>source</code>, <code>minimumSeverity</code>, <code>receivedAfter</code>, <code>contains</code>, and <code>limit</code>.</p><code class="endpoint-example">/api/records?category=Security&amp;minimumSeverity=2&amp;limit=20</code></div></article>
+    <article><span class="method-badge get">GET</span><div><h2>/api/records/{id}</h2><p>Returns one normalized record and its complete raw JSON document.</p></div></article>
+    <article><span class="method-badge graph">POST</span><div><h2>/graphql</h2><p>GraphQL field selection, nested Boolean filters, comparisons, and multi-field sorting. Opening this URL in a browser launches Banana Cake Pop.</p></div></article>
+</section>
+
+<aside class="learning-note"><strong>Production considerations</strong><p>Add authentication and authorization, rate limiting, idempotency keys, schema validation, retention, pagination limits, and reviewed EF Core migrations before exposing an ingestion API publicly.</p></aside>
