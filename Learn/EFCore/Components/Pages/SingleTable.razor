@@ -1,0 +1,46 @@
+@page "/single-table"
+@rendermode InteractiveServer
+@inject LearningRepository Repository
+
+<PageTitle>Single table CRUD</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">Scenario 01</p><h1>Single table CRUD</h1><p>Work with independent <code>InventoryItem</code> rows and observe tracked versus set-based operations.</p></div><button class="button primary" @onclick="NewItem">+ Insert item</button></div>
+
+@if (message is not null) { <div class="message">@message</div> }
+<div class="split-layout">
+    <section class="data-panel">
+        <div class="panel-header"><strong>InventoryItems</strong><label><input type="checkbox" @bind="activeOnly" @bind:after="LoadAsync" /> active only</label></div>
+        <table><thead><tr><th>SKU</th><th>Name</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr></thead><tbody>
+            @foreach (var item in items)
+            {
+                <tr class="@(editor.Id == item.Id ? "selected" : null)"><td><code>@item.Sku</code></td><td>@item.Name</td><td>@item.Price.ToString("C")</td><td>@item.Stock</td><td><span class="pill @(item.IsActive ? "good" : "muted")">@(item.IsActive ? "Active" : "Inactive")</span></td><td><button class="link-button" @onclick="() => Edit(item)">Edit</button></td></tr>
+            }
+        </tbody></table>
+        <div class="bulk-action"><span><strong>Set-based update</strong><small>No entities are materialized.</small></span><button class="button" @onclick="RestockAsync">Restock rows below 10</button></div>
+    </section>
+    <section class="form-panel">
+        <div class="panel-header"><strong>@(editor.Id == 0 ? "INSERT entity" : "UPDATE tracked entity")</strong><code>SaveChangesAsync()</code></div>
+        <EditForm Model="editor" OnValidSubmit="SaveAsync"><DataAnnotationsValidator /><ValidationSummary />
+            <label>SKU<InputText @bind-Value="editor.Sku" /></label><label>Name<InputText @bind-Value="editor.Name" /></label>
+            <div class="form-columns"><label>Price<InputNumber @bind-Value="editor.Price" /></label><label>Stock<InputNumber @bind-Value="editor.Stock" /></label></div>
+            <label class="check"><InputCheckbox @bind-Value="editor.IsActive" /> Active item</label>
+            <div class="actions"><button class="button primary" type="submit">Save changes</button><button class="button" type="button" @onclick="NewItem">Cancel</button>@if (editor.Id != 0) { <button class="button danger" type="button" @onclick="DeleteAsync">Delete</button> }</div>
+        </EditForm>
+        <pre class="code-note"><code>@OperationCode</code></pre>
+    </section>
+</div>
+
+@code {
+    private List<InventoryItem> items = [];
+    private InventoryItem editor = NewModel();
+    private bool activeOnly;
+    private string? message;
+    private string OperationCode => editor.Id == 0 ? "db.InventoryItems.Add(entity);\nawait db.SaveChangesAsync();" : "var entity = await db.InventoryItems.FindAsync(id);\nentity.Price = input.Price;\nawait db.SaveChangesAsync();";
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private async Task LoadAsync() => items = await Repository.GetItemsAsync(activeOnly);
+    private void Edit(InventoryItem item) => editor = new() { Id=item.Id,Sku=item.Sku,Name=item.Name,Price=item.Price,Stock=item.Stock,IsActive=item.IsActive };
+    private void NewItem() { editor = NewModel(); message = null; }
+    private static InventoryItem NewModel() => new() { IsActive=true };
+    private async Task SaveAsync() { var saved=await Repository.SaveItemAsync(editor); message=$"Saved {saved.Name}."; NewItem(); await LoadAsync(); }
+    private async Task DeleteAsync() { var name=editor.Name; await Repository.DeleteItemAsync(editor.Id); NewItem(); message=$"Deleted {name} with ExecuteDeleteAsync()."; await LoadAsync(); }
+    private async Task RestockAsync() { var count=await Repository.RestockAsync(10, 10); message=$"Updated {count} rows with one ExecuteUpdateAsync command."; await LoadAsync(); }
+}

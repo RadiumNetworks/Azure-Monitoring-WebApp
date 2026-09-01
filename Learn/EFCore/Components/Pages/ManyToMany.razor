@@ -1,0 +1,20 @@
+@page "/many-to-many"
+@rendermode InteractiveServer
+@inject LearningRepository Repository
+
+<PageTitle>Many-to-many</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">Scenario 03</p><h1>Students ↔ Courses</h1><p>An explicit <code>Enrollment</code> join entity connects both sides and stores relationship data such as date and grade.</p></div></div>
+<div class="relationship-banner many"><div class="entity-box">Student <b>n</b></div><span>Enrollment</span><div class="connector"></div><div class="entity-box">Course <b>m</b></div></div>
+<section class="inline-form"><InputSelect @bind-Value="studentId"><option value="0">Select student</option>@foreach(var student in students){<option value="@student.Id">@student.Name</option>}</InputSelect><InputSelect @bind-Value="courseId"><option value="0">Select course</option>@foreach(var course in courses){<option value="@course.Id">@course.Title</option>}</InputSelect><button class="button primary" @onclick="EnrollAsync">Add enrollment</button></section>
+@if(message is not null){<div class="message">@message</div>}
+<section class="student-grid">@foreach(var student in students){<article><header><div class="avatar">@student.Name[0]</div><div><h2>@student.Name</h2><p>@student.Enrollments.Count enrolled courses</p></div></header><div class="course-list">@foreach(var enrollment in student.Enrollments){<div><span><strong>@enrollment.Course!.Title</strong><small>@enrollment.Course.Credits credits · enrolled @enrollment.EnrolledAt.ToString("d")</small></span><span class="grade">@(enrollment.Grade ?? "—")</span><button title="Remove relationship" @onclick="()=>RemoveAsync(student.Id,enrollment.CourseId)">×</button></div>}</div></article>}</section>
+<pre class="wide-code"><code>modelBuilder.Entity&lt;Enrollment&gt;().HasKey(x => new { x.StudentId, x.CourseId });
+db.Enrollments.Add(new Enrollment { StudentId = studentId, CourseId = courseId });</code></pre>
+
+@code {
+    private List<Student> students=[];private List<Course> courses=[];private int studentId;private int courseId;private string? message;
+    protected override async Task OnInitializedAsync()=>await LoadAsync();
+    private async Task LoadAsync(){students=await Repository.GetStudentsWithCoursesAsync();courses=await Repository.GetCoursesAsync();}
+    private async Task EnrollAsync(){try{if(studentId==0||courseId==0)throw new InvalidOperationException("Select a student and course.");await Repository.AddEnrollmentAsync(studentId,courseId);message="Enrollment inserted into the join table.";await LoadAsync();}catch(InvalidOperationException ex){message=ex.Message;}}
+    private async Task RemoveAsync(int student,int course){await Repository.RemoveEnrollmentAsync(student,course);message="Enrollment deleted; neither student nor course was deleted.";await LoadAsync();}
+}

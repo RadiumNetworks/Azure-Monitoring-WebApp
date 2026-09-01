@@ -1,0 +1,21 @@
+﻿@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" href="/"><span>EF</span><strong>Core<br />Workshop</strong></a>
+        <NavMenu />
+        <div class="db-status"><i></i> SQLite learning database</div>
+    </aside>
+    <main class="main-area">
+        <header class="topbar"><span>Entity Framework Core 9</span><code>DbContextFactory · LINQ · SQL</code></header>
+        <article class="content-shell">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

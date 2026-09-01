@@ -1,0 +1,5 @@
+bin/
+obj/
+efcore-learning.db
+efcore-learning.db-shm
+efcore-learning.db-wal

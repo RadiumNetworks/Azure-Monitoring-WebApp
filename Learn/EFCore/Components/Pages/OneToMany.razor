@@ -1,0 +1,30 @@
+@page "/one-to-many"
+@rendermode InteractiveServer
+@inject LearningRepository Repository
+
+<PageTitle>One-to-many</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">Scenario 02</p><h1>Customer → Orders</h1><p>One customer owns many orders. Every order row stores one <code>CustomerId</code> foreign key.</p></div></div>
+
+<div class="relationship-banner"><div class="entity-box">Customer <b>1</b></div><span>has many</span><div class="connector"></div><div class="entity-box">Order <b>n</b></div></div>
+<section class="inline-form"><InputSelect @bind-Value="newOrder.CustomerId"><option value="0">Select customer</option>@foreach(var customer in customers){<option value="@customer.Id">@customer.Name</option>}</InputSelect><InputText @bind-Value="newOrder.Reference" placeholder="Reference" /><InputNumber @bind-Value="newOrder.Total" /><label><InputCheckbox @bind-Value="newOrder.IsPaid" /> paid</label><button class="button primary" @onclick="AddAsync">Insert order</button></section>
+@if (message is not null) { <div class="message">@message</div> }
+
+<section class="relationship-list">
+@foreach (var customer in customers)
+{
+    <article><header><div class="avatar">@customer.Name[0]</div><div><h2>@customer.Name</h2><p>@customer.Email</p></div><strong>@customer.Orders.Count orders</strong></header>
+        <table><thead><tr><th>Reference</th><th>Created</th><th>Total</th><th>Paid</th></tr></thead><tbody>@foreach(var order in customer.Orders.OrderByDescending(item=>item.CreatedAt)){<tr><td><code>@order.Reference</code></td><td>@order.CreatedAt.ToString("d")</td><td>@order.Total.ToString("C")</td><td><span class="pill @(order.IsPaid ? "good" : "warning")">@(order.IsPaid ? "Yes" : "Open")</span></td></tr>}</tbody></table>
+    </article>
+}
+</section>
+<pre class="wide-code"><code>db.Customers.AsNoTracking()
+    .Include(customer => customer.Orders)
+    .AsSplitQuery()
+    .ToListAsync();</code></pre>
+
+@code {
+    private List<Customer> customers=[]; private Order newOrder=new(){Reference="ORD-NEW",Total=99.90m}; private string? message;
+    protected override async Task OnInitializedAsync()=>await LoadAsync();
+    private async Task LoadAsync()=>customers=await Repository.GetCustomersWithOrdersAsync();
+    private async Task AddAsync(){try{var saved=await Repository.AddOrderAsync(newOrder.CustomerId,newOrder.Reference,newOrder.Total,newOrder.IsPaid);message=$"Inserted {saved.Reference} with CustomerId {saved.CustomerId}.";newOrder=new(){Reference=$"ORD-{DateTime.UtcNow:HHmmss}",Total=99.90m};await LoadAsync();}catch(InvalidOperationException ex){message=ex.Message;}}
+}

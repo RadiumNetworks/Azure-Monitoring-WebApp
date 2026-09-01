@@ -1,0 +1,11 @@
+@page "/queries"
+@rendermode InteractiveServer
+@inject LearningRepository Repository
+
+<PageTitle>SQL query lab</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">Scenario 04</p><h1>SQL query laboratory</h1><p>Run LINQ and raw SQL with and without filters. <code>ToQueryString()</code> reveals provider-generated SQL before execution.</p></div></div>
+<section class="query-controls"><label>Scenario<select @bind="scenario"><option value="all">Unfiltered LINQ</option><option value="filtered">Filtered LINQ</option><option value="join">Explicit join + filter</option><option value="raw-all">Unfiltered raw SQL</option><option value="raw">Parameterized raw SQL</option></select></label><label>Minimum total<InputNumber @bind-Value="minimumTotal" /></label><label>Customer contains<InputText @bind-Value="customerSearch" /></label><button class="button primary" @onclick="RunAsync">Run query</button></section>
+@if(result is not null){<div class="query-result"><section><div class="panel-header"><strong>@result.Title</strong><span>@result.Rows.Count rows</span></div><pre class="linq-code"><code>@result.Linq</code></pre><table><thead><tr><th>Reference</th><th>Customer</th><th>Total</th><th>Paid</th></tr></thead><tbody>@foreach(var row in result.Rows){<tr><td><code>@row.Reference</code></td><td>@row.Customer</td><td>@row.Total.ToString("C")</td><td>@(row.IsPaid ? "Yes" : "No")</td></tr>}</tbody></table></section><section><div class="panel-header"><strong>Generated SQL</strong><span>SQLite provider</span></div><pre class="sql-code"><code>@result.Sql</code></pre></section></div>}
+<aside class="safety-note"><strong>Why interpolated raw SQL?</strong><p><code>FromSql($"... {value}")</code> converts values to database parameters. Avoid concatenating user input into <code>FromSqlRaw</code>, which can create SQL injection vulnerabilities.</p></aside>
+
+@code { private string scenario="all";private decimal minimumTotal=300;private string customerSearch="Contoso";private QueryExampleResult? result;protected override async Task OnInitializedAsync()=>await RunAsync();private async Task RunAsync()=>result=await Repository.RunExampleAsync(scenario,minimumTotal,customerSearch); }

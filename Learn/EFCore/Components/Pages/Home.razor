@@ -1,0 +1,18 @@
+﻿@page "/"
+
+<PageTitle>EF Core Workshop</PageTitle>
+
+<div class="hero">
+	<p class="eyebrow">Practical learning project</p>
+	<h1>Understand what EF Core<br />does to your data.</h1>
+	<p>Follow entities from C# objects through change tracking and LINQ translation into relational tables and SQL commands.</p>
+</div>
+
+<section class="lesson-grid">
+	<a href="single-table"><span>01</span><div class="relation-icon single"><i></i></div><h2>Single table</h2><p>Insert, read, update, bulk update, and delete inventory rows.</p><strong>Open CRUD lab →</strong></a>
+	<a href="one-to-many"><span>02</span><div class="relation-icon one-many"><i></i><i></i><i></i><i></i></div><h2>One-to-many</h2><p>Load customers and their orders using foreign keys and navigation properties.</p><strong>Explore relationship →</strong></a>
+	<a href="many-to-many"><span>03</span><div class="relation-icon many-many"><i></i><i></i><i></i><i></i></div><h2>Many-to-many</h2><p>Manage students, courses, and an explicit join entity with payload data.</p><strong>Explore join table →</strong></a>
+	<a href="queries"><span>04</span><div class="relation-icon sql">SELECT</div><h2>Query laboratory</h2><p>Compare filtered, unfiltered, joined, LINQ, and parameterized raw SQL queries.</p><strong>Inspect generated SQL →</strong></a>
+</section>
+
+<aside class="concept-strip"><div><b>1</b><span>Write a LINQ expression</span></div><i>→</i><div><b>2</b><span>EF builds an expression tree</span></div><i>→</i><div><b>3</b><span>Provider generates SQL</span></div><i>→</i><div><b>4</b><span>Rows become entities</span></div></aside>
