@@ -8,8 +8,7 @@
 
 <PageTitle>Dashboard Designer · Dynamic UI Lab</PageTitle>
 
-<div class="designer-page" @ref="_designerRoot"
-	 style="--palette-width: @(Store.Document.PaletteWidth)px; --inspector-width: @(Store.Document.InspectorWidth)px;">
+<div class="designer-page" @ref="_designerRoot">
 	<section class="designer-intro">
 		<div>
 			<span class="eyebrow">Learning workspace / 01</span>
@@ -40,7 +39,14 @@
 		<button class="button primary" @onclick="SaveAsync" title="Save this browser's layout to SQLite">Save layout</button>
 	</section>
 
-	<div class="designer-workspace">
+	<details class="designer-panel">
+		<summary>
+			<span class="designer-panel-icon" aria-hidden="true">◇</span>
+			<span><strong>Designer</strong><small>Add elements and edit dashboard content</small></span>
+			<span class="designer-panel-action"><span class="when-closed">Open</span><span class="when-open">Close</span><i aria-hidden="true">⌄</i></span>
+		</summary>
+
+		<div class="designer-tools">
 		<aside class="toolbox panel-section" aria-label="Widget toolbox">
 			<div class="panel-heading">
 				<span class="step-number">01</span>
@@ -66,12 +72,74 @@
 			</div>
 		</aside>
 
-		<div class="panel-splitter" data-splitter="palette" title="Drag to resize the element panel" aria-hidden="true"></div>
+		<aside class="inspector panel-section" aria-label="Properties inspector">
+			<div class="panel-heading">
+				<span class="step-number">02</span>
+				<div><strong>Properties</strong><small>@(SelectedWidget is null ? "Select an element" : SelectedWidget.Title)</small></div>
+			</div>
 
-		<section class="canvas-section panel-section" aria-label="Dashboard canvas">
+			@if (SelectedWidget is { } selected)
+			{
+				<div class="property-form" @key="selected.Id">
+					<label><span>Title</span><input value="@selected.Title" @onchange='e => ChangeTextAsync(selected.Id, "title", e.Value?.ToString())' /></label>
+					<label><span>Data source</span><input value="@selected.DataSourceKey" readonly /></label>
+					@if (selected.Kind == WidgetKind.Notes)
+					{
+						<label><span>Shared database note</span><textarea rows="5" @onchange="e => SaveTeamNoteAsync(selected.DataSourceKey, e.Value?.ToString())">@GetTeamNote(selected.DataSourceKey)?.Content</textarea></label>
+						<p class="panel-hint">This content is stored in the TeamNotes table, independently of the layout.</p>
+					}
+					else
+					{
+						<p class="panel-hint">Displayed values are read from a dedicated database table and are not part of the saved layout JSON.</p>
+					}
+
+					<fieldset>
+						<legend>Accent</legend>
+						<div class="swatches">
+							@foreach (var accent in Accents)
+							{
+								<button class="swatch @accent @(selected.Accent == accent ? "active" : null)" title="Use @accent" aria-label="Use @accent accent" @onclick="() => ChangeAccentAsync(selected.Id, accent)"></button>
+							}
+						</div>
+					</fieldset>
+
+					<fieldset>
+						<legend>Grid size</legend>
+						<div class="size-steppers">
+							<label><span>Width</span><button @onclick="() => NudgeSizeAsync(selected.Id, -1, 0)">−</button><output>@selected.ColumnSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 1, 0)">+</button></label>
+							<label><span>Height</span><button @onclick="() => NudgeSizeAsync(selected.Id, 0, -1)">−</button><output>@selected.RowSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 0, 1)">+</button></label>
+						</div>
+					</fieldset>
+
+					<fieldset>
+						<legend>Keyboard position</legend>
+						<div class="direction-pad">
+							<button class="up" @onclick="() => NudgePositionAsync(selected.Id, 0, -1)" aria-label="Move up">↑</button>
+							<button class="left" @onclick="() => NudgePositionAsync(selected.Id, -1, 0)" aria-label="Move left">←</button>
+							<span>@selected.Column / @selected.Row</span>
+							<button class="right" @onclick="() => NudgePositionAsync(selected.Id, 1, 0)" aria-label="Move right">→</button>
+							<button class="down" @onclick="() => NudgePositionAsync(selected.Id, 0, 1)" aria-label="Move down">↓</button>
+						</div>
+					</fieldset>
+
+					<button class="button remove-button" @onclick="() => RemoveWidgetAsync(selected.Id)">Remove element</button>
+				</div>
+			}
+			else
+			{
+				<div class="empty-inspector">
+					<span>◇</span><strong>Nothing selected</strong>
+					<p>Choose a widget on the canvas to edit content, color, size, and position.</p>
+				</div>
+			}
+		</aside>
+		</div>
+	</details>
+
+	<section class="canvas-section dashboard-canvas" aria-label="Dashboard canvas">
 			<div class="canvas-toolbar">
 				<div class="panel-heading compact">
-					<span class="step-number">02</span>
+					<span class="step-number">01</span>
 					<div><strong>@Store.Document.Name</strong><small>@CurrentLayout.Description</small></div>
 				</div>
 				<label class="range-field">
@@ -175,72 +243,7 @@
 					</article>
 				}
 			</div>
-		</section>
-
-		<div class="panel-splitter" data-splitter="inspector" title="Drag to resize the properties panel" aria-hidden="true"></div>
-
-		<aside class="inspector panel-section" aria-label="Properties inspector">
-			<div class="panel-heading">
-				<span class="step-number">03</span>
-				<div><strong>Properties</strong><small>@(SelectedWidget is null ? "Select an element" : SelectedWidget.Title)</small></div>
-			</div>
-
-			@if (SelectedWidget is { } selected)
-			{
-				<div class="property-form" @key="selected.Id">
-					<label><span>Title</span><input value="@selected.Title" @onchange='e => ChangeTextAsync(selected.Id, "title", e.Value?.ToString())' /></label>
-					<label><span>Data source</span><input value="@selected.DataSourceKey" readonly /></label>
-					@if (selected.Kind == WidgetKind.Notes)
-					{
-						<label><span>Shared database note</span><textarea rows="5" @onchange="e => SaveTeamNoteAsync(selected.DataSourceKey, e.Value?.ToString())">@GetTeamNote(selected.DataSourceKey)?.Content</textarea></label>
-						<p class="panel-hint">This content is stored in the TeamNotes table, independently of the layout.</p>
-					}
-					else
-					{
-						<p class="panel-hint">Displayed values are read from a dedicated database table and are not part of the saved layout JSON.</p>
-					}
-
-					<fieldset>
-						<legend>Accent</legend>
-						<div class="swatches">
-							@foreach (var accent in Accents)
-							{
-								<button class="swatch @accent @(selected.Accent == accent ? "active" : null)" title="Use @accent" aria-label="Use @accent accent" @onclick="() => ChangeAccentAsync(selected.Id, accent)"></button>
-							}
-						</div>
-					</fieldset>
-
-					<fieldset>
-						<legend>Grid size</legend>
-						<div class="size-steppers">
-							<label><span>Width</span><button @onclick="() => NudgeSizeAsync(selected.Id, -1, 0)">−</button><output>@selected.ColumnSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 1, 0)">+</button></label>
-							<label><span>Height</span><button @onclick="() => NudgeSizeAsync(selected.Id, 0, -1)">−</button><output>@selected.RowSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 0, 1)">+</button></label>
-						</div>
-					</fieldset>
-
-					<fieldset>
-						<legend>Keyboard position</legend>
-						<div class="direction-pad">
-							<button class="up" @onclick="() => NudgePositionAsync(selected.Id, 0, -1)" aria-label="Move up">↑</button>
-							<button class="left" @onclick="() => NudgePositionAsync(selected.Id, -1, 0)" aria-label="Move left">←</button>
-							<span>@selected.Column / @selected.Row</span>
-							<button class="right" @onclick="() => NudgePositionAsync(selected.Id, 1, 0)" aria-label="Move right">→</button>
-							<button class="down" @onclick="() => NudgePositionAsync(selected.Id, 0, 1)" aria-label="Move down">↓</button>
-						</div>
-					</fieldset>
-
-					<button class="button remove-button" @onclick="() => RemoveWidgetAsync(selected.Id)">Remove element</button>
-				</div>
-			}
-			else
-			{
-				<div class="empty-inspector">
-					<span>◇</span><strong>Nothing selected</strong>
-					<p>Choose a widget on the canvas to edit content, color, size, and position.</p>
-				</div>
-			}
-		</aside>
-	</div>
+	</section>
 </div>
 
 @code {
