@@ -1,11 +1,14 @@
 @page "/"
 @rendermode InteractiveServer
-@implements IDisposable
+@implements IAsyncDisposable
 @inject AlertStore AlertStore
 @inject AlertHistoryOptions AlertHistory
 @inject AlertSeverityDisplayOptions AlertSeverityDisplay
 @inject AlertRuleEvaluator AlertRuleEvaluator
 @inject QueryResultPresenter QueryResultPresenter
+@inject InboxDashboardState Dashboard
+@inject InboxLayoutRepository InboxLayoutRepository
+@inject IJSRuntime JS
 
 <PageTitle>Alert Console</PageTitle>
 
@@ -20,6 +23,93 @@
             <small>@SelectedTimeZone.Label (@FormatUtcOffset())</small>
         </div>
     </div>
+    <div class="alert-count" aria-label="@RecentAlertCount alerts received in the last @HistoryWindowLabel">
+        <strong>@RecentAlertCount</strong>
+        <span>received / @HistoryWindowLabel</span>
+    </div>
+</section>
+
+<details class="inbox-designer-panel">
+    <summary>
+        <span class="inbox-designer-icon" aria-hidden="true">◇</span>
+        <span><strong>Designer</strong><small>Workspace controls and elements</small></span>
+        <span class="inbox-designer-action">Open workspace controls <i aria-hidden="true">⌄</i></span>
+    </summary>
+    <section class="inbox-command-bar inbox-designer-commands" aria-label="Inbox workspace commands">
+        <label class="inbox-edit-toggle">
+            <input type="checkbox" @bind="isDashboardEditEnabled" @bind:after="DashboardEditModeChanged" />
+            <span>Edit</span>
+        </label>
+        <button type="button" @onclick="UndoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanUndo)">↶ Undo</button>
+        <button type="button" @onclick="RedoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanRedo)">↷ Redo</button>
+        <button type="button" @onclick="ToggleDashboardGridAsync">@(Dashboard.Document.ShowGrid ? "Hide grid" : "Show grid")</button>
+        <button class="danger" type="button" @onclick="ResetDashboardAsync" disabled="@(!isDashboardEditEnabled)">Reset</button>
+        <span class="inbox-command-spacer"></span>
+        <label class="inbox-grid-setting">
+            <span>Rows</span>
+            <input type="number" min="8" max="40" step="1" value="@Dashboard.Document.Rows" @onchange="ChangeDashboardRowsAsync" disabled="@(!isDashboardEditEnabled)" title="The minimum adjusts to the space required by the current sections." />
+        </label>
+        <label class="inbox-grid-setting inbox-row-size-setting">
+            <span>Row size</span>
+            <input type="range" min="64" max="132" step="4" value="@Dashboard.Document.RowHeight" @onchange="ChangeDashboardRowHeightAsync" disabled="@(!isDashboardEditEnabled)" />
+            <output>@Dashboard.Document.RowHeight px</output>
+        </label>
+        <span class="inbox-save-status" role="status"><i></i>@dashboardStatus</span>
+    </section>
+    <div class="inbox-designer-tools">
+        <div class="inbox-elements-only" aria-label="Inbox elements">
+            <div class="inbox-widget-palette">
+                @foreach (var template in InboxDashboardCatalog.Widgets)
+                {
+                    var isPresent = GetWidget(template.Kind) is not null;
+                    <button type="button" class="inbox-element-button @(isPresent ? "present" : null)"
+                            disabled="@(!isDashboardEditEnabled || isPresent)" @onclick="() => AddDashboardWidgetAsync(template.Kind)"
+                            title="@(isPresent ? $"{template.Name} is already visible" : $"Add {template.Name}")">
+                        <span>@template.Icon</span>
+                        <strong>@template.Name</strong>
+                        <b aria-hidden="true">@(isPresent ? "✓" : "+")</b>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</details>
+
+@{
+    var dashboardLayout = InboxDashboardCatalog.GetLayout(Dashboard.Document.Layout);
+}
+<section class="inbox-dashboard-canvas" aria-label="Adjustable alert inbox" @ref="dashboardRoot">
+    <div class="inbox-dashboard-grid @(Dashboard.Document.ShowGrid ? "show-grid" : null)" data-inbox-dashboard-grid
+         data-columns="@dashboardLayout.Columns" data-rows="@Dashboard.Document.Rows" data-row-height="@Dashboard.Document.RowHeight"
+         style="--columns:@dashboardLayout.Columns;--rows:@Dashboard.Document.Rows;--row-height:@(Dashboard.Document.RowHeight)px">
+        @for (var row = 1; row <= Dashboard.Document.Rows; row++)
+        {
+            @for (var column = 1; column <= dashboardLayout.Columns; column++)
+            {
+                var dropRow = row;
+                var dropColumn = column;
+                <div class="inbox-drop-cell @(dashboardDropTarget == (dropColumn, dropRow) ? "drop-target" : null)"
+                     style="grid-column:@dropColumn;grid-row:@dropRow"
+                     @ondragenter="() => dashboardDropTarget = (dropColumn, dropRow)"
+                     @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(dropColumn, dropRow)">
+                    <span>@dropColumn.@dropRow</span>
+                </div>
+            }
+        }
+
+    @if (GetWidget(InboxWidgetKind.Trends) is { } trendsWidget)
+    {
+        <article class="inbox-dashboard-widget accent-@trendsWidget.Accent @(isDashboardEditEnabled ? "edit-enabled" : null) @(selectedDashboardWidgetId == trendsWidget.Id ? "selected" : null)"
+                 data-inbox-widget-id="@trendsWidget.Id" data-column-span="@trendsWidget.ColumnSpan" data-row-span="@trendsWidget.RowSpan"
+                  draggable="false" style="@DashboardWidgetStyle(trendsWidget)" @onclick="() => SelectDashboardWidget(trendsWidget.Id)"
+                 @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(trendsWidget.Column, trendsWidget.Row)"
+                  >
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@trendsWidget.Title</strong><small>Live time series</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(trendsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                        @if (isDashboardEditEnabled && selectedDashboardWidgetId == trendsWidget.Id)
+            {
+                <InboxWidgetActions Widget="trendsWidget" OnAction="action => HandleDashboardWidgetActionAsync(trendsWidget.Id, action)" />
+            }
+            <div class="inbox-widget-body">
     @{
         var hourlyCounts = GetHourlyAlertCounts();
         var maximumHourlyCount = hourlyCounts.Max(bucket => bucket.Count);
@@ -70,12 +160,24 @@
             </div>
         </div>
     </div>
-    <div class="alert-count" aria-label="@RecentAlertCount alerts received in the last @HistoryWindowLabel">
-        <strong>@RecentAlertCount</strong>
-        <span>received / @HistoryWindowLabel</span>
-    </div>
-</section>
+            </div>
+            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @trendsWidget.Title" aria-label="Resize @trendsWidget.Title"></button>
+        </article>
+    }
 
+    @if (GetWidget(InboxWidgetKind.Filters) is { } filtersWidget)
+    {
+        <article class="inbox-dashboard-widget accent-@filtersWidget.Accent @(isDashboardEditEnabled ? "edit-enabled" : null) @(selectedDashboardWidgetId == filtersWidget.Id ? "selected" : null)"
+                 data-inbox-widget-id="@filtersWidget.Id" data-column-span="@filtersWidget.ColumnSpan" data-row-span="@filtersWidget.RowSpan"
+                  draggable="false" style="@DashboardWidgetStyle(filtersWidget)" @onclick="() => SelectDashboardWidget(filtersWidget.Id)"
+                 @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(filtersWidget.Column, filtersWidget.Row)"
+                  >
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@filtersWidget.Title</strong><small>Query controls</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(filtersWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                        @if (isDashboardEditEnabled && selectedDashboardWidgetId == filtersWidget.Id)
+            {
+                <InboxWidgetActions Widget="filtersWidget" OnAction="action => HandleDashboardWidgetActionAsync(filtersWidget.Id, action)" />
+            }
+            <div class="inbox-widget-body inbox-filter-body">
 <section class="controls" aria-label="Alert filters">
     <label>
         <span>View</span>
@@ -107,6 +209,10 @@
     </label>
     <button class="clear-filters" type="button" disabled="@(!HasFilters)" @onclick="ClearFilters">Clear filters</button>
 </section>
+            </div>
+            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @filtersWidget.Title" aria-label="Resize @filtersWidget.Title"></button>
+        </article>
+    }
 
 @{
     var navigationTree = GetNavigationTree();
@@ -118,7 +224,19 @@
     var heatmapCells = GetHeatmapCells(visibleAlerts);
     var maximumHeatmapCount = heatmapCells.Count == 0 ? 0 : heatmapCells.Max(cell => cell.Count);
 }
-<div class="navigation-overview">
+    @if (GetWidget(InboxWidgetKind.Navigation) is { } navigationWidget)
+    {
+        <article class="inbox-dashboard-widget accent-@navigationWidget.Accent @(isDashboardEditEnabled ? "edit-enabled" : null) @(selectedDashboardWidgetId == navigationWidget.Id ? "selected" : null)"
+                 data-inbox-widget-id="@navigationWidget.Id" data-column-span="@navigationWidget.ColumnSpan" data-row-span="@navigationWidget.RowSpan"
+                  draggable="false" style="@DashboardWidgetStyle(navigationWidget)" @onclick="() => SelectDashboardWidget(navigationWidget.Id)"
+                 @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(navigationWidget.Column, navigationWidget.Row)"
+                  >
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@navigationWidget.Title</strong><small>Hierarchy filter</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(navigationWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                        @if (isDashboardEditEnabled && selectedDashboardWidgetId == navigationWidget.Id)
+            {
+                <InboxWidgetActions Widget="navigationWidget" OnAction="action => HandleDashboardWidgetActionAsync(navigationWidget.Id, action)" />
+            }
+            <div class="inbox-widget-body">
 <nav class="alert-navigation" aria-label="Alert history by subscription, resource group, and target">
     <div class="tree-heading">
         <div>
@@ -181,6 +299,23 @@
         }
     </div>
 </nav>
+            </div>
+            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @navigationWidget.Title" aria-label="Resize @navigationWidget.Title"></button>
+        </article>
+    }
+    @if (GetWidget(InboxWidgetKind.Heatmap) is { } heatmapWidget)
+    {
+        <article class="inbox-dashboard-widget accent-@heatmapWidget.Accent @(isDashboardEditEnabled ? "edit-enabled" : null) @(selectedDashboardWidgetId == heatmapWidget.Id ? "selected" : null)"
+                 data-inbox-widget-id="@heatmapWidget.Id" data-column-span="@heatmapWidget.ColumnSpan" data-row-span="@heatmapWidget.RowSpan"
+                  draggable="false" style="@DashboardWidgetStyle(heatmapWidget)" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)"
+                 @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(heatmapWidget.Column, heatmapWidget.Row)"
+                  >
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@heatmapWidget.Title</strong><small>Target density</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                        @if (isDashboardEditEnabled && selectedDashboardWidgetId == heatmapWidget.Id)
+            {
+                <InboxWidgetActions Widget="heatmapWidget" OnAction="action => HandleDashboardWidgetActionAsync(heatmapWidget.Id, action)" />
+            }
+            <div class="inbox-widget-body">
 <section class="alert-heatmap" aria-labelledby="heatmap-title">
     <div class="heatmap-heading">
         <div>
@@ -212,13 +347,29 @@
         </div>
     }
 </section>
-</div>
+            </div>
+            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @heatmapWidget.Title" aria-label="Resize @heatmapWidget.Title"></button>
+        </article>
+    }
 
 @if (!IsTimeRangeValid)
 {
     <p class="filter-error" role="alert">“Received from” must be earlier than “Received to”.</p>
 }
 
+    @if (GetWidget(InboxWidgetKind.Results) is { } resultsWidget)
+    {
+        <article class="inbox-dashboard-widget inbox-results-widget accent-@resultsWidget.Accent @(isDashboardEditEnabled ? "edit-enabled" : null) @(selectedDashboardWidgetId == resultsWidget.Id ? "selected" : null)"
+                 data-inbox-widget-id="@resultsWidget.Id" data-column-span="@resultsWidget.ColumnSpan" data-row-span="@resultsWidget.RowSpan"
+                  draggable="false" style="@DashboardWidgetStyle(resultsWidget)" @onclick="() => SelectDashboardWidget(resultsWidget.Id)"
+                 @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(resultsWidget.Column, resultsWidget.Row)"
+                  >
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@resultsWidget.Title</strong><small>Alert queue</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(resultsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                        @if (isDashboardEditEnabled && selectedDashboardWidgetId == resultsWidget.Id)
+            {
+                <InboxWidgetActions Widget="resultsWidget" OnAction="action => HandleDashboardWidgetActionAsync(resultsWidget.Id, action)" />
+            }
+            <div class="inbox-widget-body">
 <section class="table-region" aria-live="polite">
     <div class="result-summary">Showing @visibleAlerts.Length of @ViewAlerts.Count() alerts in this view</div>
     <div class="table-scroll">
@@ -375,6 +526,12 @@
         </table>
     </div>
 </section>
+            </div>
+            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @resultsWidget.Title" aria-label="Resize @resultsWidget.Title"></button>
+        </article>
+    }
+    </div>
+</section>
 
 @code {
     [CascadingParameter]
@@ -407,6 +564,16 @@
     private readonly CancellationTokenSource clockCancellation = new();
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private Task? clockTask;
+    private bool isDashboardEditEnabled;
+    private string? selectedDashboardWidgetId;
+    private string? draggedDashboardWidgetId;
+    private InboxWidgetKind? draggedDashboardTemplate;
+    private (int Column, int Row)? dashboardDropTarget;
+    private string dashboardOwnerKey = "open-access";
+    private string dashboardStatus = "Loading saved workspace…";
+    private ElementReference dashboardRoot;
+    private IJSObjectReference? dashboardModule;
+    private DotNetObjectReference<Home>? dashboardDotNetReference;
 
     private const double ChartWidth = 640;
     private const double ChartTop = 10;
@@ -643,6 +810,17 @@
     {
         var authenticationState = await AuthenticationStateTask;
         currentUser = authenticationState.User.Identity?.Name?.Trim() ?? string.Empty;
+        dashboardOwnerKey = string.IsNullOrWhiteSpace(currentUser) ? "open-access" : currentUser;
+        var savedDashboard = await InboxLayoutRepository.LoadAsync(dashboardOwnerKey);
+        if (savedDashboard is not null)
+        {
+            Dashboard.Load(savedDashboard);
+            dashboardStatus = "Database workspace restored";
+        }
+        else
+        {
+            dashboardStatus = "Default workspace ready";
+        }
         alerts = await AlertStore.GetAllAsync();
         alertRules = await AlertStore.GetAlertRulesAsync();
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
@@ -651,6 +829,18 @@
         collapsedCategories.UnionWith(alertRules.Where(rule => rule.Collapsed).Select(rule => rule.Id));
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        dashboardModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/inbox-dashboard.js");
+        dashboardDotNetReference = DotNetObjectReference.Create(this);
+        await dashboardModule.InvokeVoidAsync("initialize", dashboardDotNetReference, dashboardRoot);
     }
 
     private async Task RunClockAsync(CancellationToken cancellationToken)
@@ -834,6 +1024,271 @@
         alert.AlertId,
         alert.Comments);
 
+    private InboxDashboardWidget? GetWidget(InboxWidgetKind kind) =>
+        Dashboard.Document.Widgets.FirstOrDefault(widget => widget.Kind == kind);
+
+    private void DashboardEditModeChanged()
+    {
+        if (!isDashboardEditEnabled)
+        {
+            selectedDashboardWidgetId = null;
+            EndDashboardDrag();
+        }
+    }
+
+    private void SelectDashboardWidget(string id)
+    {
+        if (isDashboardEditEnabled)
+        {
+            selectedDashboardWidgetId = id;
+        }
+    }
+
+    private void StartTemplateDrag(InboxWidgetKind kind)
+    {
+        if (!isDashboardEditEnabled || GetWidget(kind) is not null)
+        {
+            return;
+        }
+
+        draggedDashboardTemplate = kind;
+        draggedDashboardWidgetId = null;
+    }
+
+    private void StartDashboardWidgetDrag(string id)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        selectedDashboardWidgetId = id;
+        draggedDashboardWidgetId = id;
+        draggedDashboardTemplate = null;
+    }
+
+    private void EndDashboardDrag()
+    {
+        draggedDashboardWidgetId = null;
+        draggedDashboardTemplate = null;
+        dashboardDropTarget = null;
+    }
+
+    private async Task DropDashboardWidgetAsync(int column, int row)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        if (draggedDashboardTemplate is { } kind && GetWidget(kind) is null)
+        {
+            var widget = Dashboard.AddWidget(kind, column, row);
+            selectedDashboardWidgetId = widget.Id;
+        }
+        else if (draggedDashboardWidgetId is { } id)
+        {
+            Dashboard.MoveWidget(id, column, row);
+        }
+        else
+        {
+            return;
+        }
+
+        EndDashboardDrag();
+        await SaveDashboardAsync("Position saved");
+    }
+
+    private async Task AddDashboardWidgetAsync(InboxWidgetKind kind)
+    {
+        if (!isDashboardEditEnabled || GetWidget(kind) is not null)
+        {
+            return;
+        }
+
+        var widget = Dashboard.AddWidget(kind);
+        selectedDashboardWidgetId = widget.Id;
+        await SaveDashboardAsync("Section added");
+    }
+
+    private async Task ChangeDashboardRowsAsync(ChangeEventArgs eventArgs)
+    {
+        if (isDashboardEditEnabled && int.TryParse(eventArgs.Value?.ToString(), out var rows))
+        {
+            Dashboard.UpdateWorkspace(document => document.Rows = rows);
+            await SaveDashboardAsync("Row count saved");
+        }
+    }
+
+    private async Task ChangeDashboardRowHeightAsync(ChangeEventArgs eventArgs)
+    {
+        if (isDashboardEditEnabled && int.TryParse(eventArgs.Value?.ToString(), out var rowHeight))
+        {
+            Dashboard.UpdateWorkspace(document => document.RowHeight = rowHeight);
+            await SaveDashboardAsync("Row size saved");
+        }
+    }
+
+    private async Task NudgeDashboardSizeAsync(string id, int columns, int rows)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        var widget = Dashboard.Document.Widgets.First(item => item.Id == id);
+        Dashboard.ResizeWidget(id, widget.ColumnSpan + columns, widget.RowSpan + rows);
+        await SaveDashboardAsync("Size saved");
+    }
+
+    private async Task NudgeDashboardPositionAsync(string id, int columns, int rows)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        var widget = Dashboard.Document.Widgets.First(item => item.Id == id);
+        Dashboard.MoveWidget(id, widget.Column + columns, widget.Row + rows);
+        await SaveDashboardAsync("Position saved");
+    }
+
+    private async Task RemoveDashboardWidgetAsync(string id)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        Dashboard.RemoveWidget(id);
+        selectedDashboardWidgetId = null;
+        await SaveDashboardAsync("Section removed");
+    }
+
+    private async Task HandleDashboardWidgetActionAsync(string id, string action)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        switch (action)
+        {
+            case "left":
+                await NudgeDashboardPositionAsync(id, -1, 0);
+                break;
+            case "right":
+                await NudgeDashboardPositionAsync(id, 1, 0);
+                break;
+            case "up":
+                await NudgeDashboardPositionAsync(id, 0, -1);
+                break;
+            case "down":
+                await NudgeDashboardPositionAsync(id, 0, 1);
+                break;
+            case "narrower":
+                await NudgeDashboardSizeAsync(id, -1, 0);
+                break;
+            case "wider":
+                await NudgeDashboardSizeAsync(id, 1, 0);
+                break;
+            case "shorter":
+                await NudgeDashboardSizeAsync(id, 0, -1);
+                break;
+            case "taller":
+                await NudgeDashboardSizeAsync(id, 0, 1);
+                break;
+            case "remove":
+                await RemoveDashboardWidgetAsync(id);
+                break;
+        }
+    }
+
+    [JSInvokable]
+    public async Task CommitDashboardResize(string id, int columnSpan, int rowSpan)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        Dashboard.ResizeWidget(id, columnSpan, rowSpan);
+        await SaveDashboardAsync("Size saved");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task CommitDashboardMove(string id, int column, int row)
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        selectedDashboardWidgetId = id;
+        Dashboard.MoveWidget(id, column, row);
+        await SaveDashboardAsync("Position saved");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleDashboardGridAsync()
+    {
+        Dashboard.UpdateWorkspace(document => document.ShowGrid = !document.ShowGrid);
+        await SaveDashboardAsync("Grid preference saved");
+    }
+
+    private async Task UndoDashboardAsync()
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        Dashboard.Undo();
+        selectedDashboardWidgetId = null;
+        await SaveDashboardAsync("Change undone");
+    }
+
+    private async Task RedoDashboardAsync()
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        Dashboard.Redo();
+        selectedDashboardWidgetId = null;
+        await SaveDashboardAsync("Change restored");
+    }
+
+    private async Task ResetDashboardAsync()
+    {
+        if (!isDashboardEditEnabled)
+        {
+            return;
+        }
+
+        Dashboard.Reset();
+        selectedDashboardWidgetId = null;
+        await SaveDashboardAsync("Default workspace restored");
+    }
+
+    private async Task SaveDashboardAsync(string status)
+    {
+        try
+        {
+            var result = await InboxLayoutRepository.SaveAsync(dashboardOwnerKey, Dashboard.Document);
+            dashboardStatus = $"{status} · revision {result.Revision}";
+        }
+        catch
+        {
+            dashboardStatus = "Workspace could not be saved";
+        }
+    }
+
+    private static string DashboardWidgetStyle(InboxDashboardWidget widget) =>
+        $"grid-column:{widget.Column} / span {widget.ColumnSpan};grid-row:{widget.Row} / span {widget.RowSpan};";
+
     private sealed record HourlyAlertCount(DateTimeOffset Hour, int Count);
     private sealed record HeatmapCell(string Target, string Site, int Count);
     private sealed record AlertDisplayItem(
@@ -841,10 +1296,24 @@
         AlertRecord? Alert,
         bool IsUncategorizedHeader);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         AlertStore.Changed -= HandleStoreChanged;
         clockCancellation.Cancel();
         clockCancellation.Dispose();
+
+        if (dashboardModule is not null)
+        {
+            try
+            {
+                await dashboardModule.InvokeVoidAsync("dispose", dashboardRoot);
+                await dashboardModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        dashboardDotNetReference?.Dispose();
     }
 }

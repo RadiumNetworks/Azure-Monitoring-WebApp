@@ -209,6 +209,8 @@ builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
 builder.Services.AddSingleton<AlertRuleEvaluator>();
+builder.Services.AddScoped<InboxDashboardState>();
+builder.Services.AddScoped<InboxLayoutRepository>();
 builder.Services.AddHostedService<DatabaseStartupCheck>();
 
 var app = builder.Build();

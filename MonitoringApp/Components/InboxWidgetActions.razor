@@ -1,0 +1,33 @@
+<div class="inbox-widget-quick-actions" aria-label="Actions for @Widget.Title" @onclick:stopPropagation="true">
+    <div class="inbox-widget-action-group" aria-label="Move section">
+        <button type="button" title="Move left" aria-label="Move @Widget.Title left" @onclick="MoveLeftAsync">←</button>
+        <button type="button" title="Move up" aria-label="Move @Widget.Title up" @onclick="MoveUpAsync">↑</button>
+        <button type="button" title="Move down" aria-label="Move @Widget.Title down" @onclick="MoveDownAsync">↓</button>
+        <button type="button" title="Move right" aria-label="Move @Widget.Title right" @onclick="MoveRightAsync">→</button>
+    </div>
+    <div class="inbox-widget-action-group" aria-label="Resize section">
+        <button type="button" title="Reduce width" aria-label="Reduce @Widget.Title width" @onclick="MakeNarrowerAsync">W−</button>
+        <button type="button" title="Increase width" aria-label="Increase @Widget.Title width" @onclick="MakeWiderAsync">W+</button>
+        <button type="button" title="Reduce height" aria-label="Reduce @Widget.Title height" @onclick="MakeShorterAsync">H−</button>
+        <button type="button" title="Increase height" aria-label="Increase @Widget.Title height" @onclick="MakeTallerAsync">H+</button>
+    </div>
+    <button class="inbox-widget-delete" type="button" title="Remove section" aria-label="Remove @Widget.Title" @onclick="RemoveAsync">Remove</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public InboxDashboardWidget Widget { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public EventCallback<string> OnAction { get; set; }
+
+    private Task MoveLeftAsync() => OnAction.InvokeAsync("left");
+    private Task MoveUpAsync() => OnAction.InvokeAsync("up");
+    private Task MoveDownAsync() => OnAction.InvokeAsync("down");
+    private Task MoveRightAsync() => OnAction.InvokeAsync("right");
+    private Task MakeNarrowerAsync() => OnAction.InvokeAsync("narrower");
+    private Task MakeWiderAsync() => OnAction.InvokeAsync("wider");
+    private Task MakeShorterAsync() => OnAction.InvokeAsync("shorter");
+    private Task MakeTallerAsync() => OnAction.InvokeAsync("taller");
+    private Task RemoveAsync() => OnAction.InvokeAsync("remove");
+}

@@ -14,6 +14,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<DatabaseSetting> Settings => Set<DatabaseSetting>();
     public DbSet<ParsedAlertRecord> ParsedAlerts => Set<ParsedAlertRecord>();
     public DbSet<LogbookEntry> LogbookEntries => Set<LogbookEntry>();
+    public DbSet<InboxLayout> InboxLayouts => Set<InboxLayout>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -120,5 +121,16 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         logbookEntry.Property(entry => entry.User).HasMaxLength(256);
         logbookEntry.Property(entry => entry.Comment).HasColumnType("nvarchar(max)");
         logbookEntry.HasIndex(entry => entry.CreatedAt);
+
+        var inboxLayout = modelBuilder.Entity<InboxLayout>();
+        inboxLayout.ToTable("InboxLayouts");
+        inboxLayout.HasKey(layout => layout.Id);
+        inboxLayout.Property(layout => layout.Id).UseIdentityColumn();
+        inboxLayout.Property(layout => layout.OwnerKey).HasMaxLength(256);
+        inboxLayout.Property(layout => layout.Name).HasMaxLength(256);
+        inboxLayout.Property(layout => layout.DocumentJson).HasColumnType("nvarchar(max)");
+        inboxLayout.Property(layout => layout.CreatedAt).HasColumnType("datetimeoffset");
+        inboxLayout.Property(layout => layout.UpdatedAt).HasColumnType("datetimeoffset");
+        inboxLayout.HasIndex(layout => layout.OwnerKey).IsUnique();
     }
 }

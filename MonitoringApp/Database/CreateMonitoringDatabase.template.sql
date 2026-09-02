@@ -300,6 +300,35 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[InboxLayouts]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[InboxLayouts]
+    (
+        [Id]              int IDENTITY(1,1) NOT NULL,
+        [OwnerKey]        nvarchar(256)     NOT NULL,
+        [Name]            nvarchar(256)     NOT NULL,
+        [DocumentJson]    nvarchar(max)     NOT NULL,
+        [DocumentVersion] int               NOT NULL,
+        [Revision]        int               NOT NULL,
+        [CreatedAt]       datetimeoffset    NOT NULL,
+        [UpdatedAt]       datetimeoffset    NOT NULL,
+        CONSTRAINT [PK_InboxLayouts] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_InboxLayouts_OwnerKey'
+      AND [object_id] = OBJECT_ID(N'[dbo].[InboxLayouts]')
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_InboxLayouts_OwnerKey]
+        ON [dbo].[InboxLayouts] ([OwnerKey]);
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'Authentication')
 BEGIN
     INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
@@ -860,6 +889,18 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260902090000_AddDynamicInboxLayouts'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260902090000_AddDynamicInboxLayouts', N'9.0.19');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -878,6 +919,7 @@ SELECT
     OBJECT_ID(N'[dbo].[AuthenticationUsers]', N'U') AS [AuthenticationUsersTableObjectId],
     OBJECT_ID(N'[dbo].[Settings]', N'U') AS [SettingsTableObjectId],
     OBJECT_ID(N'[dbo].[ParsedAlerts]', N'U') AS [ParsedAlertsTableObjectId],
+    OBJECT_ID(N'[dbo].[InboxLayouts]', N'U') AS [InboxLayoutsTableObjectId],
     (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
     (SELECT COUNT(*) FROM [dbo].[ComputerInventory]) AS [ComputerInventoryCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];
