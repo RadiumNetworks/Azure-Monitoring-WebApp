@@ -1,0 +1,492 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject DashboardDesignerState Store
+@inject LayoutRepository LayoutRepository
+@inject DashboardContentService ContentService
+
+<PageTitle>Dashboard Designer · Dynamic UI Lab</PageTitle>
+
+<div class="designer-page" @ref="_designerRoot"
+	 style="--palette-width: @(Store.Document.PaletteWidth)px; --inspector-width: @(Store.Document.InspectorWidth)px;">
+	<section class="designer-intro">
+		<div>
+			<span class="eyebrow">Learning workspace / 01</span>
+			<h1>Compose an interface,<br /><em>not just a page.</em></h1>
+		</div>
+		<div class="intro-copy">
+			<p>Drag native Blazor widgets onto a CSS Grid, resize them with pointer input, and save the result to SQLite.</p>
+			<span class="save-status" role="status" aria-live="polite"><i></i>@_status</span>
+		</div>
+	</section>
+
+	<section class="command-bar" aria-label="Dashboard commands">
+		<label class="field-inline">
+			<span>Layout</span>
+			<select value="@Store.Document.Layout" @onchange="ChangeLayoutAsync">
+				@foreach (var layoutOption in DashboardCatalog.Layouts)
+				{
+					<option value="@layoutOption.Value">@layoutOption.Name · @layoutOption.Columns columns</option>
+				}
+			</select>
+		</label>
+		<div class="command-separator"></div>
+		<button class="button subtle" @onclick="UndoAsync" disabled="@(!Store.CanUndo)" title="Undo last design change">↶ Undo</button>
+		<button class="button subtle" @onclick="RedoAsync" disabled="@(!Store.CanRedo)" title="Redo last design change">↷ Redo</button>
+		<div class="command-spacer"></div>
+		<button class="button subtle" @onclick="ToggleGridAsync">@(Store.Document.ShowGrid ? "Hide grid" : "Show grid")</button>
+		<button class="button subtle danger" @onclick="ResetAsync">Reset example</button>
+		<button class="button primary" @onclick="SaveAsync" title="Save this browser's layout to SQLite">Save layout</button>
+	</section>
+
+	<div class="designer-workspace">
+		<aside class="toolbox panel-section" aria-label="Widget toolbox">
+			<div class="panel-heading">
+				<span class="step-number">01</span>
+				<div><strong>Elements</strong><small>Drag or add</small></div>
+			</div>
+			<p class="panel-hint">Drop an element on a numbered grid point. Click <strong>+</strong> for automatic placement.</p>
+
+			<div class="widget-palette">
+				@foreach (var template in DashboardCatalog.Widgets)
+				{
+					<article class="palette-item" draggable="true"
+							 @ondragstart="() => StartTemplateDrag(template.Kind)" @ondragend="EndDrag">
+						<span class="palette-icon">@template.Icon</span>
+						<div><strong>@template.Name</strong><small>@template.Description</small></div>
+						<button @onclick="() => AddWidgetAsync(template.Kind)" title="Add @template.Name automatically" aria-label="Add @template.Name">+</button>
+					</article>
+				}
+			</div>
+
+			<div class="toolbox-tip">
+				<strong>Native building blocks</strong>
+				<span>HTML drag events · Pointer Events · CSS Grid · JS interop</span>
+			</div>
+		</aside>
+
+		<div class="panel-splitter" data-splitter="palette" title="Drag to resize the element panel" aria-hidden="true"></div>
+
+		<section class="canvas-section panel-section" aria-label="Dashboard canvas">
+			<div class="canvas-toolbar">
+				<div class="panel-heading compact">
+					<span class="step-number">02</span>
+					<div><strong>@Store.Document.Name</strong><small>@CurrentLayout.Description</small></div>
+				</div>
+				<label class="range-field">
+					<span>Row size</span>
+					<input type="range" min="72" max="132" step="4" value="@Store.Document.RowHeight" @onchange="ChangeRowHeightAsync" />
+					<output>@Store.Document.RowHeight px</output>
+				</label>
+			</div>
+
+			<div class="dashboard-grid @(Store.Document.ShowGrid ? "show-grid" : null)"
+				 data-dashboard-grid data-columns="@CurrentLayout.Columns" data-row-height="@Store.Document.RowHeight"
+				 style="--columns: @CurrentLayout.Columns; --rows: @CurrentLayout.Rows; --row-height: @(Store.Document.RowHeight)px;">
+				@for (var row = 1; row <= CurrentLayout.Rows; row++)
+				{
+					@for (var column = 1; column <= CurrentLayout.Columns; column++)
+					{
+						var cellRow = row;
+						var cellColumn = column;
+						<div class="drop-cell @DropCellClass(cellColumn, cellRow)"
+							 style="grid-column: @cellColumn; grid-row: @cellRow;"
+							 @ondragenter="() => SetDropTarget(cellColumn, cellRow)"
+							 @ondragleave="ClearDropTarget" @ondragover:preventDefault="true"
+							 @ondrop="() => DropAsync(cellColumn, cellRow)">
+							<span>@cellColumn.@cellRow</span>
+						</div>
+					}
+				}
+
+				@foreach (var widget in Store.Document.Widgets)
+				{
+					<article class="dashboard-widget accent-@widget.Accent @(widget.Id == _selectedId ? "selected" : null) @(widget.Id == _draggedWidgetId ? "dragging" : null)"
+							 data-widget-id="@widget.Id" data-column-span="@widget.ColumnSpan" data-row-span="@widget.RowSpan"
+							 draggable="true" style="@WidgetStyle(widget)"
+							 @onclick="() => SelectWidget(widget.Id)"
+							 @ondragstart="() => StartWidgetDrag(widget.Id)" @ondragend="EndDrag">
+						<header class="widget-header">
+							<span class="drag-grip" title="Drag widget" aria-hidden="true">⠿</span>
+							<div><strong>@widget.Title</strong><small>@WidgetKindLabel(widget.Kind)</small></div>
+							<button @onclick="() => SelectWidget(widget.Id)" @onclick:stopPropagation="true" title="Edit widget" aria-label="Edit @widget.Title">•••</button>
+						</header>
+						<div class="widget-body">
+							@switch (widget.Kind)
+							{
+								case WidgetKind.Metric:
+									@if (_content.Metrics.TryGetValue(widget.DataSourceKey, out var metric))
+									{
+										<div class="metric-value">@FormatNumber(metric.Value)@metric.Unit</div>
+										<div class="metric-caption">@metric.Label <span>@FormatChange(metric.Change)</span></div>
+									}
+									else
+									{
+										<p class="note-content">No metric row for @widget.DataSourceKey</p>
+									}
+									break;
+								case WidgetKind.Trend:
+									@if (_content.Trends.TryGetValue(widget.DataSourceKey, out var trend) && trend.Count > 0)
+									{
+										<div class="trend-summary"><strong>@FormatNumber(trend[^1].Value)</strong><span>@trend[^1].SeriesLabel</span></div>
+										<svg class="trend-chart" viewBox="0 0 420 100" role="img" aria-label="@trend[^1].SeriesLabel" preserveAspectRatio="none">
+											<polygon points="@TrendAreaPoints(trend)" fill="currentColor" opacity=".12" />
+											<polyline points="@TrendPoints(trend)" fill="none" stroke="currentColor" stroke-width="3" vector-effect="non-scaling-stroke" />
+										</svg>
+									}
+									else
+									{
+										<p class="note-content">No trend rows for @widget.DataSourceKey</p>
+									}
+									break;
+								case WidgetKind.Alerts:
+									@if (_content.Alerts.TryGetValue(widget.DataSourceKey, out var alerts))
+									{
+										<div class="alert-list">
+											@foreach (var alert in alerts.Take(3))
+											{
+												<div><i class="@AlertClass(alert.Priority)"></i><span><strong>@alert.Title</strong><small>@alert.Location · @RelativeTime(alert.RaisedAt)</small></span><b>@alert.Priority</b></div>
+											}
+										</div>
+									}
+									break;
+								case WidgetKind.Notes:
+									@if (_content.Notes.TryGetValue(widget.DataSourceKey, out var note))
+									{
+										<p class="note-content">@note.Content</p>
+										<span class="note-author">@note.Author · @RelativeTime(note.UpdatedAt)</span>
+									}
+									break;
+								case WidgetKind.Health:
+									@if (_content.Health.TryGetValue(widget.DataSourceKey, out var health))
+									{
+										<div class="health-list">
+											@foreach (var entry in health)
+											{
+												<div><span>@entry.ComponentName</span><b class="@HealthClass(entry.Status)">@entry.Status</b></div>
+											}
+										</div>
+									}
+									break;
+							}
+						</div>
+						<button class="resize-handle" data-resize-handle title="Drag to resize" aria-label="Resize @widget.Title"></button>
+					</article>
+				}
+			</div>
+		</section>
+
+		<div class="panel-splitter" data-splitter="inspector" title="Drag to resize the properties panel" aria-hidden="true"></div>
+
+		<aside class="inspector panel-section" aria-label="Properties inspector">
+			<div class="panel-heading">
+				<span class="step-number">03</span>
+				<div><strong>Properties</strong><small>@(SelectedWidget is null ? "Select an element" : SelectedWidget.Title)</small></div>
+			</div>
+
+			@if (SelectedWidget is { } selected)
+			{
+				<div class="property-form" @key="selected.Id">
+					<label><span>Title</span><input value="@selected.Title" @onchange='e => ChangeTextAsync(selected.Id, "title", e.Value?.ToString())' /></label>
+					<label><span>Data source</span><input value="@selected.DataSourceKey" readonly /></label>
+					@if (selected.Kind == WidgetKind.Notes)
+					{
+						<label><span>Shared database note</span><textarea rows="5" @onchange="e => SaveTeamNoteAsync(selected.DataSourceKey, e.Value?.ToString())">@GetTeamNote(selected.DataSourceKey)?.Content</textarea></label>
+						<p class="panel-hint">This content is stored in the TeamNotes table, independently of the layout.</p>
+					}
+					else
+					{
+						<p class="panel-hint">Displayed values are read from a dedicated database table and are not part of the saved layout JSON.</p>
+					}
+
+					<fieldset>
+						<legend>Accent</legend>
+						<div class="swatches">
+							@foreach (var accent in Accents)
+							{
+								<button class="swatch @accent @(selected.Accent == accent ? "active" : null)" title="Use @accent" aria-label="Use @accent accent" @onclick="() => ChangeAccentAsync(selected.Id, accent)"></button>
+							}
+						</div>
+					</fieldset>
+
+					<fieldset>
+						<legend>Grid size</legend>
+						<div class="size-steppers">
+							<label><span>Width</span><button @onclick="() => NudgeSizeAsync(selected.Id, -1, 0)">−</button><output>@selected.ColumnSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 1, 0)">+</button></label>
+							<label><span>Height</span><button @onclick="() => NudgeSizeAsync(selected.Id, 0, -1)">−</button><output>@selected.RowSpan</output><button @onclick="() => NudgeSizeAsync(selected.Id, 0, 1)">+</button></label>
+						</div>
+					</fieldset>
+
+					<fieldset>
+						<legend>Keyboard position</legend>
+						<div class="direction-pad">
+							<button class="up" @onclick="() => NudgePositionAsync(selected.Id, 0, -1)" aria-label="Move up">↑</button>
+							<button class="left" @onclick="() => NudgePositionAsync(selected.Id, -1, 0)" aria-label="Move left">←</button>
+							<span>@selected.Column / @selected.Row</span>
+							<button class="right" @onclick="() => NudgePositionAsync(selected.Id, 1, 0)" aria-label="Move right">→</button>
+							<button class="down" @onclick="() => NudgePositionAsync(selected.Id, 0, 1)" aria-label="Move down">↓</button>
+						</div>
+					</fieldset>
+
+					<button class="button remove-button" @onclick="() => RemoveWidgetAsync(selected.Id)">Remove element</button>
+				</div>
+			}
+			else
+			{
+				<div class="empty-inspector">
+					<span>◇</span><strong>Nothing selected</strong>
+					<p>Choose a widget on the canvas to edit content, color, size, and position.</p>
+				</div>
+			}
+		</aside>
+	</div>
+</div>
+
+@code {
+	private static readonly string[] Accents = ["teal", "blue", "violet", "coral"];
+	private ElementReference _designerRoot;
+	private IJSObjectReference? _module;
+	private DotNetObjectReference<Home>? _dotNetReference;
+	private string? _selectedId;
+	private string? _draggedWidgetId;
+	private WidgetKind? _draggedTemplate;
+	private (int Column, int Row)? _dropTarget;
+	private string? _ownerKey;
+	private string _status = "Loading saved design…";
+	private DashboardContent _content = DashboardContent.Empty;
+
+	private LayoutOption CurrentLayout => DashboardCatalog.GetLayout(Store.Document.Layout);
+	private DashboardWidget? SelectedWidget => Store.Document.Widgets.FirstOrDefault(widget => widget.Id == _selectedId);
+
+	protected override async Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (!firstRender) return;
+
+		_module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/dashboard.js");
+		_ownerKey = await _module.InvokeAsync<string>("getOwnerKey");
+		var browserDraft = await _module.InvokeAsync<DashboardDocument?>("load");
+		var databaseLayout = await LayoutRepository.LoadAsync(_ownerKey);
+		if (browserDraft is not null)
+		{
+			Store.Load(browserDraft);
+			_status = "Browser draft restored";
+		}
+		else if (databaseLayout is not null)
+		{
+			Store.Load(databaseLayout);
+			await _module.InvokeVoidAsync("save", Store.Document);
+			_status = "Database layout restored";
+		}
+		else
+		{
+			_status = "Example design ready";
+		}
+
+		_content = await ContentService.LoadAsync();
+
+		_dotNetReference = DotNetObjectReference.Create(this);
+		await _module.InvokeVoidAsync("initialize", _dotNetReference, _designerRoot);
+		StateHasChanged();
+	}
+
+	private void StartTemplateDrag(WidgetKind kind) { _draggedTemplate = kind; _draggedWidgetId = null; }
+	private void StartWidgetDrag(string id) { _draggedWidgetId = id; _draggedTemplate = null; _selectedId = id; }
+	private void EndDrag() { _draggedTemplate = null; _draggedWidgetId = null; _dropTarget = null; }
+	private void SetDropTarget(int column, int row) => _dropTarget = (column, row);
+	private void ClearDropTarget() => _dropTarget = null;
+	private string? DropCellClass(int column, int row) => _dropTarget == (column, row) ? "drop-target" : null;
+
+	private async Task DropAsync(int column, int row)
+	{
+		if (_draggedTemplate is { } kind)
+		{
+			var widget = Store.AddWidget(kind, column, row);
+			_selectedId = widget.Id;
+		}
+		else if (_draggedWidgetId is { } id)
+		{
+			Store.MoveWidget(id, column, row);
+		}
+
+		EndDrag();
+		await PersistAsync("Position saved");
+	}
+
+	private async Task AddWidgetAsync(WidgetKind kind)
+	{
+		var widget = Store.AddWidget(kind, 1, 1);
+		_selectedId = widget.Id;
+		await PersistAsync("Element added");
+	}
+
+	private async Task ChangeLayoutAsync(ChangeEventArgs args)
+	{
+		if (Enum.TryParse<DashboardLayout>(args.Value?.ToString(), out var layout))
+		{
+			Store.ChangeLayout(layout);
+			await PersistAsync("Layout changed");
+		}
+	}
+
+	private async Task ChangeRowHeightAsync(ChangeEventArgs args)
+	{
+		if (int.TryParse(args.Value?.ToString(), out var height))
+		{
+			Store.UpdateWorkspace(document => document.RowHeight = height);
+			await PersistAsync("Canvas scale saved");
+		}
+	}
+
+	private async Task ChangeTextAsync(string id, string property, string? value)
+	{
+		Store.UpdateWidget(id, widget =>
+		{
+			var text = string.IsNullOrWhiteSpace(value) ? "Untitled" : value.Trim();
+			if (property == "title") widget.Title = text;
+		});
+		await PersistAsync("Widget title saved");
+	}
+
+	private async Task SaveTeamNoteAsync(string dataSourceKey, string? content)
+	{
+		await ContentService.SaveTeamNoteAsync(dataSourceKey, content ?? string.Empty, "Dashboard editor");
+		_content = await ContentService.LoadAsync();
+		_status = "Team note saved to database";
+	}
+
+	private async Task ChangeAccentAsync(string id, string accent)
+	{
+		Store.UpdateWidget(id, widget => widget.Accent = accent);
+		await PersistAsync("Accent saved");
+	}
+
+	private async Task NudgeSizeAsync(string id, int width, int height)
+	{
+		var widget = Store.Document.Widgets.First(item => item.Id == id);
+		Store.ResizeWidget(id, widget.ColumnSpan + width, widget.RowSpan + height);
+		await PersistAsync("Size saved");
+	}
+
+	private async Task NudgePositionAsync(string id, int column, int row)
+	{
+		var widget = Store.Document.Widgets.First(item => item.Id == id);
+		Store.MoveWidget(id, widget.Column + column, widget.Row + row);
+		await PersistAsync("Position saved");
+	}
+
+	private async Task RemoveWidgetAsync(string id)
+	{
+		Store.RemoveWidget(id);
+		_selectedId = null;
+		await PersistAsync("Element removed");
+	}
+
+	private async Task ToggleGridAsync() { Store.UpdateWorkspace(document => document.ShowGrid = !document.ShowGrid); await PersistAsync("Grid preference saved"); }
+	private async Task UndoAsync() { Store.Undo(); await PersistAsync("Change undone"); }
+	private async Task RedoAsync() { Store.Redo(); await PersistAsync("Change restored"); }
+
+	private async Task ResetAsync()
+	{
+		Store.Reset();
+		_selectedId = null;
+		if (_module is not null) await _module.InvokeVoidAsync("clear");
+		await PersistAsync("Example design reset");
+	}
+
+	private async Task SaveAsync()
+	{
+		if (_ownerKey is null)
+		{
+			_status = "Database identity is not ready";
+			return;
+		}
+
+		var result = await LayoutRepository.SaveAsync(_ownerKey, Store.Document);
+		await PersistAsync($"Saved to database · revision {result.Revision}");
+	}
+
+	[JSInvokable]
+	public async Task CommitResize(string id, int columnSpan, int rowSpan)
+	{
+		Store.ResizeWidget(id, columnSpan, rowSpan);
+		await PersistAsync("Size saved");
+		await InvokeAsync(StateHasChanged);
+	}
+
+	[JSInvokable]
+	public async Task CommitPanelWidth(string panel, int width)
+	{
+		Store.UpdateWorkspace(document =>
+		{
+			if (panel == "palette") document.PaletteWidth = width;
+			if (panel == "inspector") document.InspectorWidth = width;
+		});
+		await PersistAsync("Panel width saved");
+		await InvokeAsync(StateHasChanged);
+	}
+
+	private async Task PersistAsync(string status)
+	{
+		_status = status;
+		if (_module is not null) await _module.InvokeVoidAsync("save", Store.Document);
+	}
+
+	private void SelectWidget(string id) => _selectedId = id;
+	private Data.TeamNote? GetTeamNote(string dataSourceKey) => _content.Notes.GetValueOrDefault(dataSourceKey);
+	private static string FormatNumber(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+	private static string FormatChange(double value) => $"{(value >= 0 ? "↗" : "↘")} {Math.Abs(value):0.##}";
+	private static string AlertClass(string priority) => priority switch { "P1" => "critical", "P2" => "warning", _ => "info" };
+	private static string HealthClass(string status) => status.Equals("Healthy", StringComparison.OrdinalIgnoreCase) ? "ok" : "watch";
+	private static string RelativeTime(DateTimeOffset timestamp)
+	{
+		var age = DateTimeOffset.UtcNow - timestamp;
+		if (age.TotalMinutes < 1) return "just now";
+		if (age.TotalHours < 1) return $"{Math.Max(1, (int)age.TotalMinutes)} min";
+		if (age.TotalDays < 1) return $"{Math.Max(1, (int)age.TotalHours)} h";
+		return $"{Math.Max(1, (int)age.TotalDays)} d";
+	}
+
+	private static string TrendPoints(IReadOnlyList<Data.TrendSample> samples) =>
+		string.Join(" ", NormalizeTrendPoints(samples).Select(point =>
+			FormattableString.Invariant($"{point.X:0.#},{point.Y:0.#}")));
+
+	private static string TrendAreaPoints(IReadOnlyList<Data.TrendSample> samples) =>
+		$"0,100 {TrendPoints(samples)} 420,100";
+
+	private static IEnumerable<(double X, double Y)> NormalizeTrendPoints(IReadOnlyList<Data.TrendSample> samples)
+	{
+		var minimum = samples.Min(item => item.Value);
+		var range = Math.Max(1, samples.Max(item => item.Value) - minimum);
+		for (var index = 0; index < samples.Count; index++)
+		{
+			var x = samples.Count == 1 ? 210 : index * 420d / (samples.Count - 1);
+			var y = 90 - ((samples[index].Value - minimum) / range * 70);
+			yield return (x, y);
+		}
+	}
+	private static string WidgetStyle(DashboardWidget widget) => $"grid-column: {widget.Column} / span {widget.ColumnSpan}; grid-row: {widget.Row} / span {widget.RowSpan};";
+	private static string WidgetKindLabel(WidgetKind kind) => kind switch
+	{
+		WidgetKind.Metric => "Key metric",
+		WidgetKind.Trend => "Seven-day trend",
+		WidgetKind.Alerts => "Live priority queue",
+		WidgetKind.Notes => "Shared context",
+		WidgetKind.Health => "Component state",
+		_ => kind.ToString()
+	};
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_module is not null)
+		{
+			try
+			{
+				await _module.InvokeVoidAsync("dispose", _designerRoot);
+				await _module.DisposeAsync();
+			}
+			catch (JSDisconnectedException) { }
+		}
+		_dotNetReference?.Dispose();
+	}
+}

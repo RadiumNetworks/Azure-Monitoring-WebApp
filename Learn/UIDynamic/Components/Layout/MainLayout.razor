@@ -1,0 +1,28 @@
+﻿@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="app-header">
+        <a class="brand" href="/" aria-label="Dynamic UI Lab home">
+            <span class="brand-mark" aria-hidden="true">◆</span>
+            <span>
+                <strong>Dynamic UI Lab</strong>
+                <small>Native Blazor layout designer</small>
+            </span>
+        </a>
+        <nav class="main-nav" aria-label="Main navigation">
+            <NavLink href="/" Match="NavLinkMatch.All">Designer</NavLink>
+            <NavLink href="guide">Learning guide</NavLink>
+        </nav>
+        <span class="tech-badge">No UI libraries</span>
+    </header>
+
+    <main class="app-content">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    The connection to the interactive dashboard was interrupted.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

@@ -1,0 +1,63 @@
+{
+  "layouts": [
+    {
+      "ownerKey": "00000000-0000-0000-0000-00000000d001",
+      "name": "Demo · Customized operations",
+      "document": {
+        "version": 1,
+        "name": "Customized operations",
+        "layout": "Balanced",
+        "paletteWidth": 272,
+        "inspectorWidth": 310,
+        "rowHeight": 104,
+        "showGrid": false,
+        "widgets": [
+          {
+            "id": "demo-trend-wide",
+            "kind": "Trend",
+            "title": "Request volume",
+            "dataSourceKey": "trend:requests",
+            "accent": "blue",
+            "column": 1,
+            "row": 1,
+            "columnSpan": 2,
+            "rowSpan": 3
+          },
+          {
+            "id": "demo-availability-tall",
+            "kind": "Metric",
+            "title": "Platform availability",
+            "dataSourceKey": "metric:availability",
+            "accent": "teal",
+            "column": 3,
+            "row": 1,
+            "columnSpan": 1,
+            "rowSpan": 2
+          },
+          {
+            "id": "demo-team-notes",
+            "kind": "Notes",
+            "title": "Shift handover",
+            "dataSourceKey": "notes:operations-team",
+            "accent": "violet",
+            "column": 3,
+            "row": 3,
+            "columnSpan": 1,
+            "rowSpan": 4
+          },
+          {
+            "id": "demo-alert-queue",
+            "kind": "Alerts",
+            "title": "Priority incidents",
+            "dataSourceKey": "alerts:operations",
+            "accent": "coral",
+            "column": 1,
+            "row": 4,
+            "columnSpan": 2,
+            "rowSpan": 3
+          }
+        ]
+      }
+    }
+  ]
+}

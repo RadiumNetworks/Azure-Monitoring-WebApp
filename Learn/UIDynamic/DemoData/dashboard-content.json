@@ -1,0 +1,80 @@
+{
+  "metrics": [
+    {
+      "dataSourceKey": "metric:availability",
+      "label": "Availability · last 24 hours",
+      "value": 99.96,
+      "unit": "%",
+      "change": 0.08,
+      "ageMinutes": 0
+    }
+  ],
+  "trendSamples": [
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 18, "ageMinutes": 660 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 23, "ageMinutes": 600 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 20, "ageMinutes": 540 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 16, "ageMinutes": 480 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 22, "ageMinutes": 420 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 29, "ageMinutes": 360 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 25, "ageMinutes": 300 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 21, "ageMinutes": 240 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 27, "ageMinutes": 180 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 31, "ageMinutes": 120 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 28, "ageMinutes": 60 },
+    { "dataSourceKey": "trend:requests", "seriesLabel": "Requests / minute · last 12 hours", "value": 34, "ageMinutes": 0 }
+  ],
+  "alerts": [
+    {
+      "dataSourceKey": "alerts:operations",
+      "title": "API latency",
+      "location": "West Europe",
+      "priority": "P1",
+      "ageMinutes": 4
+    },
+    {
+      "dataSourceKey": "alerts:operations",
+      "title": "Queue depth",
+      "location": "Worker pool",
+      "priority": "P2",
+      "ageMinutes": 12
+    },
+    {
+      "dataSourceKey": "alerts:operations",
+      "title": "Certificate",
+      "location": "Primary domain",
+      "priority": "P3",
+      "ageMinutes": 180
+    }
+  ],
+  "teamNotes": [
+    {
+      "dataSourceKey": "notes:operations-team",
+      "content": "Review the latency alert before the afternoon handover. The runbook is linked from the incident record.",
+      "author": "Demo operator",
+      "ageMinutes": 0
+    }
+  ],
+  "serviceHealth": [
+    {
+      "dataSourceKey": "health:platform",
+      "componentName": "Gateway",
+      "status": "Healthy",
+      "displayOrder": 1,
+      "ageMinutes": 0
+    },
+    {
+      "dataSourceKey": "health:platform",
+      "componentName": "Database",
+      "status": "Healthy",
+      "displayOrder": 2,
+      "ageMinutes": 0
+    },
+    {
+      "dataSourceKey": "health:platform",
+      "componentName": "Jobs",
+      "status": "Observe",
+      "displayOrder": 3,
+      "ageMinutes": 0
+    }
+  ]
+}

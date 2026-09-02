@@ -1,0 +1,81 @@
+@page "/guide"
+
+<PageTitle>Learning Guide · Dynamic UI Lab</PageTitle>
+
+<article class="guide-page">
+    <header class="guide-hero">
+        <span class="eyebrow">Learning workspace / 02</span>
+        <h1>How the dynamic<br /><em>designer works.</em></h1>
+        <p>The sample deliberately uses browser and framework primitives instead of a dashboard package. That makes every trade-off visible.</p>
+    </header>
+
+    <nav class="guide-index" aria-label="Guide contents">
+        <a href="#architecture"><span>01</span> Architecture</a>
+        <a href="#possible"><span>02</span> What is possible</a>
+        <a href="#limits"><span>03</span> Boundaries</a>
+        <a href="#extend"><span>04</span> Exercises</a>
+    </nav>
+
+    <section id="architecture" class="guide-section">
+        <div class="section-number">01</div>
+        <div>
+            <span class="eyebrow">Architecture</span><h2>Small pieces with clear jobs</h2>
+            <div class="architecture-grid">
+                <article><span>C#</span><h3>Document model</h3><p>A serializable document stores the layout preset, panel widths, canvas scale, and widget instances.</p></article>
+                <article><span>C#</span><h3>State manager</h3><p>All mutations pass through one scoped service. It normalizes bounds, resolves collisions, and keeps undo/redo snapshots.</p></article>
+                <article><span>Razor</span><h3>Designer component</h3><p>Blazor renders the palette, drop cells, widgets, and property editor. Native drag events invoke component methods.</p></article>
+                <article><span>CSS</span><h3>Layout engine</h3><p>CSS Grid maps each widget's column, row, and spans to a rectangle. Custom properties control the workspace.</p></article>
+                <article><span>JS</span><h3>Pointer bridge</h3><p>A small module handles high-frequency pointer movement and commits only the final resize value to .NET.</p></article>
+                <article><span>EF Core</span><h3>Two persistence paths</h3><p>Layout JSON stores presentation choices. Five normalized SQLite tables independently store the data shown inside widgets.</p></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="possible" class="guide-section">
+        <div class="section-number">02</div>
+        <div>
+            <span class="eyebrow">Possible with this approach</span><h2>Dynamic ideas that scale</h2>
+            <div class="capability-table">
+                <div class="table-head"><span>Idea</span><span>Status</span><span>How</span></div>
+                <div><strong>Move and resize widgets</strong><b class="status-ready">Included</b><p>HTML drag/drop for placement; Pointer Events for continuous resizing.</p></div>
+                <div><strong>Switch complete page layouts</strong><b class="status-ready">Included</b><p>Presets change grid columns and rows, followed by collision normalization.</p></div>
+                <div><strong>Edit content and style</strong><b class="status-ready">Included</b><p>A selected widget drives a strongly typed property inspector.</p></div>
+                <div><strong>Browser layout draft</strong><b class="status-ready">Included</b><p>Versioned presentation JSON is stored in localStorage through JS interop.</p></div>
+                <div><strong>Undo and redo</strong><b class="status-ready">Included</b><p>The scoped state service records serialized snapshots.</p></div>
+                <div><strong>Normalized widget content</strong><b class="status-ready">Included</b><p>Metrics, trends, alerts, Team notes, and health entries come from separate SQLite tables.</p></div>
+                <div><strong>Role-specific catalogs</strong><b class="status-next">Straightforward</b><p>Filter catalog metadata before rendering; authorize again when saving.</p></div>
+                <div><strong>Real monitoring feeds</strong><b class="status-next">Straightforward</b><p>Replace seeded rows with ingestion jobs while widgets retain their data-source keys.</p></div>
+                <div><strong>Shareable templates</strong><b class="status-next">Straightforward</b><p>Persist named document versions and clone a template for each user.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="limits" class="guide-section">
+        <div class="section-number">03</div>
+        <div>
+            <span class="eyebrow">Boundaries</span><h2>What is not automatic</h2>
+            <div class="limits-grid">
+                <article><h3>Arbitrary runtime components</h3><p>Blazor cannot safely compile new Razor markup supplied by a user at runtime. Production designers choose from precompiled components and validated settings.</p></article>
+                <article><h3>Perfect touch drag/drop</h3><p>HTML drag/drop is inconsistent on touch devices. Touch placement needs a pointer-driven implementation or accessible move controls.</p></article>
+                <article><h3>Multi-user live editing</h3><p>localStorage belongs to one browser. Collaboration requires server persistence, concurrency, presence, and conflict resolution.</p></article>
+                <article><h3>Unlimited canvas packing</h3><p>The example uses deterministic first-free collision handling. Dense layouts need a more advanced packing algorithm and overflow policy.</p></article>
+                <article><h3>Security from UI metadata</h3><p>Hiding a widget never authorizes its data. Queries and saves still require server-side authorization and validation.</p></article>
+                <article><h3>Pixel-perfect free placement</h3><p>This project snaps to cells. Absolute coordinates are possible, but responsive behavior, overlap, and accessibility become harder.</p></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="extend" class="guide-section exercises">
+        <div class="section-number">04</div>
+        <div>
+            <span class="eyebrow">Practice</span><h2>Suggested next exercises</h2>
+            <ol>
+                <li><span>01</span><div><strong>Add a new widget type</strong><p>Extend the enum and catalog, then add one rendering branch.</p></div></li>
+                <li><span>02</span><div><strong>Persist on the server</strong><p>Create a repository, add concurrency tokens, and migrate only after a successful save.</p></div></li>
+                <li><span>03</span><div><strong>Implement pointer movement</strong><p>Replace HTML drag/drop so mouse, pen, and touch use one input model.</p></div></li>
+                <li><span>04</span><div><strong>Build responsive variants</strong><p>Store a separate narrow-screen placement map rather than merely collapsing desktop coordinates.</p></div></li>
+                <li><span>05</span><div><strong>Add schema migration</strong><p>Increment the document version and migrate an older JSON shape before normalization.</p></div></li>
+            </ol>
+        </div>
+    </section>
+</article>
