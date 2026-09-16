@@ -63,10 +63,49 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
             return false;
         }
 
+        return MatchesQueryResult(rule, alert);
+    }
+
+    public bool MatchesSuppressionRule(AlertRule rule, AlertRecord alert)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        ArgumentNullException.ThrowIfNull(alert);
+
+        if (!rule.Enabled || rule.RuleType != AlertRuleTypes.Suppression)
+        {
+            return false;
+        }
+
+        return MatchesQueryResult(rule, alert);
+    }
+
+    public bool MatchesInventoryStatusRule(AlertRule rule, AlertRecord alert)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        ArgumentNullException.ThrowIfNull(alert);
+
+        if (!rule.Enabled || rule.RuleType != AlertRuleTypes.InventoryStatus)
+        {
+            return false;
+        }
+
+        return MatchesQueryResult(rule, alert);
+    }
+
+    private bool MatchesQueryResult(AlertRule rule, AlertRecord alert)
+    {
+
         if (!string.IsNullOrWhiteSpace(rule.AlertNameContains) &&
             !alert.Name.Contains(rule.AlertNameContains, StringComparison.OrdinalIgnoreCase))
         {
             return false;
+        }
+
+        if (rule.ConditionType == AlertRuleConditionTypes.AnyMatchingAlert)
+        {
+            return string.IsNullOrWhiteSpace(rule.QueryResultType) ||
+                TryReadQueryResult(alert.RawJson, out var anyType, out _) &&
+                anyType.Equals(rule.QueryResultType, StringComparison.OrdinalIgnoreCase);
         }
 
         if (!TryReadQueryResult(alert.RawJson, out var type, out var rowCount) ||

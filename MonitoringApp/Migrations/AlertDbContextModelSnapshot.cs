@@ -17,7 +17,7 @@ namespace MonitoringApp.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.19")
+                .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -108,25 +108,79 @@ namespace MonitoringApp.Migrations
 
             modelBuilder.Entity("MonitoringApp.AlertRule", b =>
                 {
-                    b.Property<Guid>("Id").HasColumnType("uniqueidentifier");
-                    b.Property<string>("AlertNameContains").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
-                    b.Property<bool>("ApplyToTarget").HasColumnType("bit");
-                    b.Property<string>("CategoryName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
-                    b.Property<bool>("Collapsed").HasColumnType("bit");
-                    b.Property<string>("ConditionType").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)");
-                    b.Property<bool>("Enabled").HasColumnType("bit");
-                    b.Property<string>("FailedItemName").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
-                    b.Property<string>("InventoryRole").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
-                    b.Property<bool>("IsCritical").HasColumnType("bit");
-                    b.Property<string>("Name").IsRequired().HasMaxLength(256).HasColumnType("nvarchar(256)");
-                    b.Property<int>("Priority").HasColumnType("int");
-                    b.Property<string>("QueryResultType").IsRequired().HasMaxLength(128).HasColumnType("nvarchar(128)");
-                    b.Property<string>("RuleType").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)");
-                    b.Property<int>("Threshold").HasColumnType("int");
-                    b.Property<string>("Tone").IsRequired().HasMaxLength(32).HasColumnType("nvarchar(32)");
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AlertNameContains")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("ApplyToTarget")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("CategoryName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("Collapsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ConditionType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("FailedItemName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("InventoryRole")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsCritical")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("QueryResultType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("RuleType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Threshold")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.HasKey("Id");
-                    b.HasIndex("Name").IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
                     b.HasIndex("Enabled", "Priority");
+
                     b.ToTable("AlertRules", (string)null);
                 });
 
@@ -141,6 +195,13 @@ namespace MonitoringApp.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("Domain")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("PrivateIP")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
@@ -289,13 +350,13 @@ namespace MonitoringApp.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("ResourceGroup")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
-
-                    b.Property<DateTimeOffset?>("ResolvedAt")
-                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("SearchQuery")
                         .IsRequired()

@@ -7,6 +7,20 @@
         svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.width} ${view.height}`);
     }
 
+    function constrainView(state, view) {
+        const width = Math.min(state.base.width, Math.max(state.base.width * 0.2, view.width));
+        const height = state.base.height * width / state.base.width;
+        const maximumX = state.base.x + state.base.width - width;
+        const maximumY = state.base.y + state.base.height - height;
+
+        return {
+            x: Math.min(maximumX, Math.max(state.base.x, view.x)),
+            y: Math.min(maximumY, Math.max(state.base.y, view.y)),
+            width,
+            height
+        };
+    }
+
     function zoomView(svg, factor, clientX, clientY) {
         const state = svg?._alertGraph;
         if (!state) {
@@ -14,21 +28,23 @@
         }
 
         const bounds = svg.getBoundingClientRect();
-        const anchorX = clientX === undefined ? 0.5 : (clientX - bounds.left) / bounds.width;
-        const anchorY = clientY === undefined ? 0.5 : (clientY - bounds.top) / bounds.height;
-        const minimumWidth = state.base.width * 0.08;
-        const maximumWidth = state.base.width * 2;
-        const width = Math.min(maximumWidth, Math.max(minimumWidth, state.view.width * factor));
-        const height = state.view.height * width / state.view.width;
+        if (bounds.width <= 0 || bounds.height <= 0 || !Number.isFinite(factor) || factor <= 0) {
+            return;
+        }
+
+        const anchorX = Math.min(1, Math.max(0, clientX === undefined ? 0.5 : (clientX - bounds.left) / bounds.width));
+        const anchorY = Math.min(1, Math.max(0, clientY === undefined ? 0.5 : (clientY - bounds.top) / bounds.height));
+        const width = state.view.width * factor;
+        const height = state.base.height * width / state.base.width;
         const graphX = state.view.x + state.view.width * anchorX;
         const graphY = state.view.y + state.view.height * anchorY;
 
-        state.view = {
+        state.view = constrainView(state, {
             x: graphX - width * anchorX,
             y: graphY - height * anchorY,
             width,
             height
-        };
+        });
         applyView(svg, state.view);
     }
 
@@ -68,8 +84,15 @@
                 }
 
                 const bounds = svg.getBoundingClientRect();
-                state.view.x = state.drag.x - (event.clientX - state.drag.clientX) * state.view.width / bounds.width;
-                state.view.y = state.drag.y - (event.clientY - state.drag.clientY) * state.view.height / bounds.height;
+                if (bounds.width <= 0 || bounds.height <= 0) {
+                    return;
+                }
+
+                state.view = constrainView(state, {
+                    ...state.view,
+                    x: state.drag.x - (event.clientX - state.drag.clientX) * state.view.width / bounds.width,
+                    y: state.drag.y - (event.clientY - state.drag.clientY) * state.view.height / bounds.height
+                });
                 applyView(svg, state.view);
             }, { signal: controller.signal });
 

@@ -1,0 +1,104 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "workspaceId": { "type": "String", "defaultValue": "" },
+      "webhookUrl": { "type": "String", "defaultValue": "" },
+      "webhookAudience": { "type": "String", "defaultValue": "" }
+    },
+    "triggers": {
+      "Every_five_minutes": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 5,
+          "timeZone": "UTC"
+        }
+      }
+    },
+    "actions": {
+      "Run_Log_Analytics_Heartbeat_Query": {
+        "type": "Http",
+        "inputs": {
+          "uri": "@concat('https://api.loganalytics.azure.com/v1/workspaces/', parameters('workspaceId'), '/query')",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Prefer": "wait=30"
+          },
+          "body": {
+            "query": "Heartbeat\n| where TimeGenerated > ago(24h)\n| extend SubscriptionId = tostring(_SubscriptionId)\n| summarize arg_max(TimeGenerated, ComputerPrivateIPs, ComputerIP) by SubscriptionId, Computer\n| extend ComputerFqdn = tostring(Computer), DotIndex = indexof(tostring(Computer), \".\")\n| extend NetBiosComputer = iff(DotIndex >= 0, substring(ComputerFqdn, 0, DotIndex), ComputerFqdn)\n| extend Domain = iff(DotIndex >= 0, substring(ComputerFqdn, DotIndex + 1), \"\")\n| extend PrivateIP = iff(coalesce(array_length(ComputerPrivateIPs), 0) > 0, tostring(ComputerPrivateIPs[0]), tostring(ComputerIP))\n| project LastHeartbeat = TimeGenerated, SubscriptionId, Computer = NetBiosComputer, Domain, PrivateIP\n| order by SubscriptionId asc, Computer asc",
+            "timespan": "P1D"
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "identity": "<user-assigned-managed-identity-resource-id>",
+            "audience": "https://api.loganalytics.io"
+          },
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 3,
+            "interval": "PT5S",
+            "minimumInterval": "PT5S",
+            "maximumInterval": "PT30S"
+          }
+        },
+        "runAfter": {}
+      },
+      "Forward_Inventory_Status_To_Webhook": {
+        "type": "Http",
+        "inputs": {
+          "uri": "@parameters('webhookUrl')",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "schemaId": "MonitoringApp.InventoryStatus.v1",
+            "data": {
+              "essentials": {
+                "alertId": "@concat('inventory-heartbeat-', workflow()?['run']?['name'])",
+                "alertRule": "Inventory Heartbeat Status",
+                "severity": "Sev4",
+                "alertState": "Acknowledged",
+                "signalType": "Log",
+                "monitorCondition": "Fired",
+                "firedDateTime": "@utcNow()",
+                "description": "Scheduled inventory heartbeat status batch"
+              },
+              "alertContext": {}
+            },
+            "queryResult": {
+              "type": "InventoryHeartbeat",
+              "columns": "@coalesce(body('Run_Log_Analytics_Heartbeat_Query')?['tables']?[0]?['columns'], json('[]'))",
+              "rows": "@coalesce(body('Run_Log_Analytics_Heartbeat_Query')?['tables']?[0]?['rows'], json('[]'))",
+              "rowCount": "@length(coalesce(body('Run_Log_Analytics_Heartbeat_Query')?['tables']?[0]?['rows'], json('[]')))"
+            }
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "identity": "<user-assigned-managed-identity-resource-id>",
+            "audience": "@parameters('webhookAudience')"
+          },
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 3,
+            "interval": "PT5S",
+            "minimumInterval": "PT5S",
+            "maximumInterval": "PT30S"
+          }
+        },
+        "runAfter": {
+          "Run_Log_Analytics_Heartbeat_Query": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "parameters": {
+    "workspaceId": { "value": "<log-analytics-workspace-guid>" },
+    "webhookUrl": { "value": "https://<app-service-name>.azurewebsites.net/api/alerts" },
+    "webhookAudience": { "value": "api://<monitoring-api-client-id>" }
+  }
+}

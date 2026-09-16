@@ -79,7 +79,11 @@ public static class AlertGraphLayout
             var canonical = targetNodes[0] with
             {
                 Count = targetNodes.Sum(node => node.Count),
-                HistoryCount = targetNodes.Sum(node => node.HistoryCount)
+                HistoryCount = targetNodes.Sum(node => node.HistoryCount),
+                LastHeartbeatAt = targetNodes
+                    .Where(node => node.LastHeartbeatAt.HasValue)
+                    .Select(node => node.LastHeartbeatAt)
+                    .Max()
             };
             mergedTargets.Add(canonical);
 
@@ -120,7 +124,8 @@ public static class AlertGraphLayout
             root.Count,
             root.HistoryCount,
             0,
-            0);
+            0,
+            root.LastHeartbeatAt);
         nodes.Add(rootNode);
 
         var leaves = root.Children
@@ -134,6 +139,10 @@ public static class AlertGraphLayout
                 Level = group.First().Level,
                 Count = group.Sum(leaf => leaf.Count),
                 HistoryCount = group.Sum(leaf => leaf.HistoryCount),
+                LastHeartbeatAt = group
+                    .Where(leaf => leaf.LastHeartbeatAt.HasValue)
+                    .Select(leaf => leaf.LastHeartbeatAt)
+                    .Max(),
                 Index = index
             })
             .ToArray();
@@ -153,7 +162,8 @@ public static class AlertGraphLayout
                 0,
                 0,
                 outerRadius,
-                AngleForSlot(leaf.Index + 0.5, leafCount)),
+                AngleForSlot(leaf.Index + 0.5, leafCount),
+                leaf.LastHeartbeatAt),
             StringComparer.OrdinalIgnoreCase);
 
         for (var middleIndex = 0; middleIndex < middleCount; middleIndex++)
@@ -170,7 +180,8 @@ public static class AlertGraphLayout
                 0,
                 0,
                 innerRadius,
-                middleAngle);
+                middleAngle,
+                middle.LastHeartbeatAt);
             nodes.Add(middleNode);
             edges.Add(AlertGraphEdge.Between(rootNode, middleNode));
 
@@ -199,7 +210,8 @@ public static class AlertGraphLayout
         double centerX,
         double centerY,
         double radius,
-        double angle) => new(
+        double angle,
+        DateTimeOffset? lastHeartbeatAt) => new(
             id,
             label,
             layer,
@@ -207,7 +219,8 @@ public static class AlertGraphLayout
             count,
             historyCount,
             centerX + radius * Math.Cos(angle),
-            centerY + radius * Math.Sin(angle));
+            centerY + radius * Math.Sin(angle),
+            lastHeartbeatAt);
 
     /// <summary>
     /// Calculates the ring radius needed to maintain the preferred arc spacing for a node count. Negative counts are treated as zero.
@@ -266,7 +279,8 @@ public sealed record AlertGraphNode(
     int Count,
     int HistoryCount,
     double X,
-    double Y);
+    double Y,
+    DateTimeOffset? LastHeartbeatAt = null);
 
 /// <summary>
 /// Represents a straight graph edge between two coordinate pairs. Edges connect related hierarchy nodes in the SVG view.

@@ -137,6 +137,8 @@
                                     <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
                                     <div><dt>Role</dt><dd>@DisplayValue(entry.Role)</dd></div>
                                     <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
+                                    <div><dt>Private IP</dt><dd>@DisplayValue(entry.PrivateIP)</dd></div>
+                                    <div><dt>Last heartbeat</dt><dd>@DisplayHeartbeat(entry.LastHeartbeatAt)</dd></div>
                                     <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
                                 </dl>
                             </div>
@@ -218,6 +220,19 @@
                     <input maxlength="256" @bind="entry.Role" />
                     <small>May be assigned automatically by an inventory-role alert rule.</small>
                 </label>
+                @if (!isCreating)
+                {
+                    <label class="admin-field">
+                        <span>Private IP</span>
+                        <input value="@DisplayValue(entry.PrivateIP)" readonly />
+                        <small>Updated automatically from inventory heartbeat events.</small>
+                    </label>
+                    <label class="admin-field">
+                        <span>Last heartbeat</span>
+                        <input value="@DisplayHeartbeat(entry.LastHeartbeatAt)" readonly />
+                        <small>Used to determine the target status in the graph.</small>
+                    </label>
+                }
                 <div class="admin-form-actions">
                     <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
                     <button class="admin-primary" type="submit" disabled="@isSaving">
@@ -340,7 +355,7 @@
             var result = await AlertStore.PrefillComputerInventoryFromLastSevenDaysAsync();
             await LoadInventoryAsync();
             statusMessage = $"Checked {result.AlertsScanned} alerts and found {result.SystemsFound} systems. " +
-                $"Created {result.SystemsCreated}, filled {result.SitesFilled} missing sites, " +
+                $"Created {result.SystemsCreated}, filled {result.DomainsFilled} missing domains and {result.SitesFilled} missing sites, " +
                 $"filled {result.ResourceGroupsFilled} resource groups, assigned {result.RolesAssigned} roles, " +
                 $"and left {result.SystemsUnchanged} unchanged.";
         }
@@ -476,7 +491,9 @@
         Site = source.Site,
         Domain = source.Domain,
         ResourceGroup = source.ResourceGroup,
-        Role = source.Role
+        Role = source.Role,
+        PrivateIP = source.PrivateIP,
+        LastHeartbeatAt = source.LastHeartbeatAt
     };
 
     private void ClearInventoryFilters()
@@ -500,6 +517,9 @@
 
     private static string DisplayValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Not available" : value;
+
+    private static string DisplayHeartbeat(DateTimeOffset? value) =>
+        value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "Not available";
 
     private static string InventoryCountLabel(int count) =>
         count == 1 ? "1 system" : $"{count} systems";

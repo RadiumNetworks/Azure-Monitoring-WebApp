@@ -134,6 +134,8 @@ BEGIN
         [Site]           nvarchar(256) NULL,
         [ResourceGroup]  nvarchar(256) NULL,
         [Role]           nvarchar(256) NULL,
+        [PrivateIP]      nvarchar(256) NULL,
+        [LastHeartbeatAt] datetimeoffset NULL,
         [Computer]       nvarchar(256) NOT NULL,
         CONSTRAINT [PK_ComputerInventory]
             PRIMARY KEY ([SubscriptionId], [Computer])
@@ -170,6 +172,16 @@ END;
 IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'Role') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ComputerInventory] ADD [Role] nvarchar(256) NULL;
+END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'PrivateIP') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [PrivateIP] nvarchar(256) NULL;
+END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'LastHeartbeatAt') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [LastHeartbeatAt] datetimeoffset NULL;
 END;
 GO
 
@@ -524,6 +536,33 @@ BEGIN
         ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical])
     VALUES
         ('d82b566a-ce6e-4201-b7b9-9a366426e7b9', N'Suppress healthy DCDiag results', 1, 30, N'Categorization', N'DCDiag', N'DCDiag', N'NoFailedItems', 0, N'', N'Suppressed alerts', 0, 1, N'info', N'', 0);
+END;
+GO
+
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'Inventory Heartbeat Status',
+    [Enabled] = 1,
+    [Priority] = 1,
+    [RuleType] = N'InventoryStatus',
+    [AlertNameContains] = N'Inventory Heartbeat Status',
+    [QueryResultType] = N'InventoryHeartbeat',
+    [ConditionType] = N'AnyMatchingAlert',
+    [Threshold] = 0,
+    [FailedItemName] = N'',
+    [CategoryName] = N'',
+    [ApplyToTarget] = 0,
+    [Collapsed] = 0,
+    [Tone] = N'info',
+    [InventoryRole] = N'',
+    [IsCritical] = 0
+WHERE [Id] = '7b28f935-087b-4c20-8635-84e2c65484e9';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical])
+    VALUES
+        ('7b28f935-087b-4c20-8635-84e2c65484e9', N'Inventory Heartbeat Status', 1, 1, N'InventoryStatus', N'Inventory Heartbeat Status', N'InventoryHeartbeat', N'AnyMatchingAlert', 0, N'', N'', 0, 0, N'info', N'', 0);
 END;
 GO
 

@@ -40,3 +40,4 @@ MonitoringApp/logic-app-*.codeview.json
 /Learn/EFCore/wwwroot
 /Learn/UIDynamic/wwwroot
 /Learn/Blazor/wwwroot
+*.zip

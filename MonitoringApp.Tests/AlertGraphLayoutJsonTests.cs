@@ -46,6 +46,24 @@ public sealed class AlertGraphLayoutJsonTests
             }
     }
 
+    [Fact]
+    public void SharedTargetKeepsNewestHeartbeat()
+    {
+        var older = new DateTimeOffset(2026, 9, 14, 9, 30, 0, TimeSpan.Zero);
+        var newer = older.AddMinutes(15);
+        AlertGraphHierarchyNode Target(DateTimeOffset heartbeat) =>
+            new("SERVER01", AlertGraphLayer.Target, 3, 0, 0, [], heartbeat);
+        AlertGraphHierarchyNode Root(string name, DateTimeOffset heartbeat) =>
+            new(name, AlertGraphLayer.Subscription, 1, 0, 0,
+                [new("group", AlertGraphLayer.ResourceGroup, 2, 0, 0, [Target(heartbeat)], heartbeat)],
+                heartbeat);
+
+        var layout = AlertGraphLayout.Build([Root("subscription-a", older), Root("subscription-b", newer)]);
+
+        var target = Assert.Single(layout.Nodes, node => node.Layer == AlertGraphLayer.Target);
+        Assert.Equal(newer, target.LastHeartbeatAt);
+    }
+
     private static AlertGraphHierarchyNode Convert(GraphHierarchyNodeCase source, int level = 1) => new(
         source.Name,
         source.Layer,

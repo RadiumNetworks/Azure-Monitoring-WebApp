@@ -85,6 +85,8 @@
         <div class="graph-legend" aria-label="Count legend">
             <span><i class="legend-open" aria-hidden="true"></i>Open alerts</span>
             <span><i class="legend-history" aria-hidden="true"></i>History alerts</span>
+            <span><i class="legend-target-current" aria-hidden="true"></i>Target current</span>
+            <span><i class="legend-target-stale" aria-hidden="true"></i>Target stale</span>
             <span><i class="@LegendClass(selectedLayer1) legend-level-1" aria-hidden="true"></i>Layer 1: @AlertGraph.Label(selectedLayer1)</span>
             <span><i class="@LegendClass(selectedLayer2) legend-level-2" aria-hidden="true"></i>Layer 2: @AlertGraph.Label(selectedLayer2)</span>
             <span><i class="@LegendClass(selectedLayer3) legend-level-3" aria-hidden="true"></i>Layer 3: @AlertGraph.Label(selectedLayer3)</span>
@@ -128,11 +130,11 @@
                 <g class="graph-nodes">
                     @foreach (var node in graphLayout.Nodes)
                     {
-                        <g class="graph-svg-node graph-level-@node.Level @NodeClass(node.Layer) @(node.Count > 0 ? "graph-svg-active" : null)"
+                        <g class="graph-svg-node graph-level-@node.Level @NodeClasses(node)"
                            transform="translate(@Coordinate(node.X) @Coordinate(node.Y))"
                            role="group"
-                           aria-label="Layer @node.Level, @node.Label, @node.Count open, @node.HistoryCount history">
-                            <title>Layer @node.Level · @node.Label: @node.Count open, @node.HistoryCount history</title>
+                           aria-label="Layer @node.Level, @node.Label, @node.Count open, @node.HistoryCount history@(StatusAriaLabel(node))">
+                            <title>Layer @node.Level · @node.Label: @node.Count open, @node.HistoryCount history@(StatusTitle(node))</title>
                             @if (node.Level == 1)
                             {
                                 <polygon points="-95,0 -78,-25 78,-25 95,0 78,25 -78,25" />
@@ -156,6 +158,8 @@
 @code {
     private IReadOnlyList<AlertGraphRecord> alerts = [];
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
+    private readonly CancellationTokenSource refreshCancellation = new();
+    private Task? refreshTask;
     private bool graphNeedsInitialization = true;
     private bool graphInitialized;
     private string filterText = string.Empty;
@@ -177,6 +181,7 @@
         selectedLayer3 = AlertGraph.DefaultLayer3;
         alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
         AlertStore.Changed += HandleStoreChanged;
+        refreshTask = RefreshClockAsync(refreshCancellation.Token);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -224,6 +229,47 @@
         graphNeedsInitialization = true;
     }
 
+    private async Task RefreshClockAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                currentTimeUtc = DateTimeOffset.UtcNow;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private string NodeClasses(AlertGraphNode node)
+    {
+        var statusClass = AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc) switch
+        {
+            AlertGraphTargetStatus.OpenAlert => "graph-svg-active",
+            AlertGraphTargetStatus.Current => "graph-svg-target-current",
+            AlertGraphTargetStatus.Stale => "graph-svg-target-stale",
+            _ => string.Empty
+        };
+        return $"{NodeClass(node.Layer)} {statusClass}";
+    }
+
+    private string StatusAriaLabel(AlertGraphNode node) =>
+        AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc) switch
+        {
+            AlertGraphTargetStatus.OpenAlert => ", status open alert",
+            AlertGraphTargetStatus.Current => ", status current",
+            AlertGraphTargetStatus.Stale => ", status stale",
+            _ => string.Empty
+        };
+
+    private string StatusTitle(AlertGraphNode node) => node.LastHeartbeatAt is null
+        ? string.Empty
+        : $", last heartbeat {node.LastHeartbeatAt.Value:yyyy-MM-dd HH:mm:ss} UTC";
+
     private static string NodeClass(AlertGraphLayer layer) => layer switch
     {
         AlertGraphLayer.Subscription => "graph-svg-subscription",
@@ -256,6 +302,12 @@
     public async ValueTask DisposeAsync()
     {
         AlertStore.Changed -= HandleStoreChanged;
+        refreshCancellation.Cancel();
+        if (refreshTask is not null)
+        {
+            await refreshTask;
+        }
+        refreshCancellation.Dispose();
 
         if (!graphInitialized)
         {

@@ -71,6 +71,8 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         inventoryEntry.Property(entry => entry.Site).HasMaxLength(256);
         inventoryEntry.Property(entry => entry.ResourceGroup).HasMaxLength(256);
         inventoryEntry.Property(entry => entry.Role).HasMaxLength(256);
+        inventoryEntry.Property(entry => entry.PrivateIP).HasMaxLength(256);
+        inventoryEntry.Property(entry => entry.LastHeartbeatAt).HasColumnType("datetimeoffset");
         inventoryEntry.Property(entry => entry.Computer).HasMaxLength(256);
 
         var parsedAlert = modelBuilder.Entity<ParsedAlertRecord>();

@@ -64,6 +64,25 @@ public sealed class AlertGraphHierarchyJsonTests
         Assert.Equal(testCase.ExpectedRootCount, root.Count);
     }
 
+    [Fact]
+    public void IncludesInventoryOnlyTargetWithoutIncreasingAlertCounts()
+    {
+        var heartbeat = new DateTimeOffset(2026, 9, 14, 9, 55, 0, TimeSpan.Zero);
+        var inventory = new AlertGraphRecord(
+            Guid.NewGuid(), heartbeat, string.Empty, string.Empty, string.Empty, string.Empty,
+            "subscription-a", "resource-group-a", "SERVER01", "site-a", "example.test", string.Empty,
+            heartbeat, true);
+
+        var hierarchy = AlertGraphHierarchy.Build(
+            [inventory], AlertGraphLayer.Subscription, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Target);
+
+        var target = Assert.Single(Assert.Single(Assert.Single(hierarchy).Children).Children);
+        Assert.Equal("SERVER01", target.Name);
+        Assert.Equal(0, target.Count);
+        Assert.Equal(0, target.HistoryCount);
+        Assert.Equal(heartbeat, target.LastHeartbeatAt);
+    }
+
     private static void AssertGrouping(GraphGroupingCase testCase, AlertRecord[] alerts)
     {
         var hierarchy = AlertGraphHierarchy.Build(

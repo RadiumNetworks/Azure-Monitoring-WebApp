@@ -74,7 +74,8 @@ public static class AlertGraphHierarchy
                     groupedAlerts.Length,
                     level == layers.Count - 1
                         ? []
-                        : BuildLevel(groupedAlerts, activeAlertIds, layers, level + 1));
+                        : BuildLevel(groupedAlerts, activeAlertIds, layers, level + 1),
+                    null);
             })
             .ToArray();
     }
@@ -98,10 +99,14 @@ public static class AlertGraphHierarchy
                     layer,
                     level + 1,
                     groupedAlerts.Count(alert => activeAlertIds.Contains(alert.Id)),
-                    groupedAlerts.Length,
+                    groupedAlerts.Count(alert => !alert.IsInventoryOnly),
                     level == layers.Count - 1
                         ? []
-                        : BuildGraphLevel(groupedAlerts, activeAlertIds, layers, level + 1));
+                        : BuildGraphLevel(groupedAlerts, activeAlertIds, layers, level + 1),
+                    groupedAlerts
+                        .Where(alert => alert.LastHeartbeatAt.HasValue)
+                        .Select(alert => alert.LastHeartbeatAt)
+                        .Max());
             })
             .ToArray();
     }
@@ -151,7 +156,9 @@ public sealed record AlertGraphRecord(
     string Target,
     string Site,
     string Domain,
-    string Role);
+    string Role,
+    DateTimeOffset? LastHeartbeatAt = null,
+    bool IsInventoryOnly = false);
 
 /// <summary>
 /// Filters graph records by the inventory and Azure scope fields exposed by the graph page.
@@ -191,7 +198,8 @@ public sealed record AlertGraphHierarchyNode(
     int Level,
     int Count,
     int HistoryCount,
-    IReadOnlyList<AlertGraphHierarchyNode> Children);
+    IReadOnlyList<AlertGraphHierarchyNode> Children,
+    DateTimeOffset? LastHeartbeatAt = null);
 
 /// <summary>
 /// Pairs a graph-layer enum value with the label shown in the layer selector. It is used to populate graph configuration controls.

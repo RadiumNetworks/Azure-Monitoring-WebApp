@@ -26,11 +26,14 @@ public sealed class AlertRule
 public static class AlertRuleTypes
 {
     public const string Categorization = "Categorization";
+    public const string Suppression = "Suppression";
     public const string InventoryRoleAssignment = "InventoryRoleAssignment";
+    public const string InventoryStatus = "InventoryStatus";
 }
 
 public static class AlertRuleConditionTypes
 {
+    public const string AnyMatchingAlert = "AnyMatchingAlert";
     public const string RowCountGreaterThan = "RowCountGreaterThan";
     public const string OnlyFailedItems = "OnlyFailedItems";
     public const string NoFailedItems = "NoFailedItems";

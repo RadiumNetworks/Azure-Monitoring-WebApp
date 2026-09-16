@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Administration</p>
         <h1>Alert rules</h1>
-        <p class="subtitle">Manage database rules that categorize inbox alerts or assign roles to discovered computers.</p>
+        <p class="subtitle">Manage database rules that categorize or suppress inbox alerts and assign roles to discovered computers.</p>
     </div>
     <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
 </section>
@@ -77,9 +77,13 @@
                                         <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
                                         <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
                                     }
-                                    else
+                                    else if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
                                     {
                                         <div><dt>Inventory role</dt><dd>@rule.InventoryRole</dd></div>
+                                    }
+                                    else
+                                    {
+                                        <div><dt>Action</dt><dd>Update inventory without storing the alert</dd></div>
                                     }
                                 </dl>
                             </div>
@@ -130,6 +134,8 @@
                     <span>Rule type</span>
                     <select @bind="rule.RuleType">
                         <option value="@AlertRuleTypes.Categorization">Categorize inbox alerts</option>
+                        <option value="@AlertRuleTypes.Suppression">Suppress from inbox after inventory update</option>
+                        <option value="@AlertRuleTypes.InventoryStatus">Update inventory status without storing the alert</option>
                         <option value="@AlertRuleTypes.InventoryRoleAssignment">Assign computer inventory role</option>
                     </select>
                 </label>
@@ -144,13 +150,17 @@
                     <label class="admin-field">
                         <span>Query-result type</span>
                         <input maxlength="128" @bind="rule.QueryResultType" />
-                        <small>For example: DCPort or DCDiag.</small>
+                        <small>For example: DCPort or DCDiag. Leave empty to match only by alert name.</small>
                     </label>
-                    @if (rule.RuleType == AlertRuleTypes.Categorization)
+                    @if (rule.RuleType != AlertRuleTypes.InventoryRoleAssignment)
                     {
                         <label class="admin-field admin-field-wide">
                             <span>Condition</span>
                             <select @bind="rule.ConditionType">
+                                @if (rule.RuleType is AlertRuleTypes.Suppression or AlertRuleTypes.InventoryStatus)
+                                {
+                                    <option value="@AlertRuleConditionTypes.AnyMatchingAlert">Any alert matching the name and optional query type</option>
+                                }
                                 <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
                                 <option value="@AlertRuleConditionTypes.OnlyFailedItems">Only the specified items failed</option>
                                 <option value="@AlertRuleConditionTypes.NoFailedItems">No failed items are shown</option>
@@ -236,7 +246,9 @@
                 Delete <strong>@ruleToDelete.Name</strong>?
                 @(ruleToDelete.RuleType == AlertRuleTypes.InventoryRoleAssignment
                     ? "Matching alerts will no longer assign the inventory role."
-                    : $"Alerts assigned by this rule will no longer be placed in the {ruleToDelete.CategoryName} category.")
+                    : ruleToDelete.RuleType == AlertRuleTypes.Suppression
+                        ? "Future matching alerts will be stored and shown in the inbox again."
+                        : $"Alerts assigned by this rule will no longer be placed in the {ruleToDelete.CategoryName} category.")
             </p>
             <div class="admin-form-actions">
                 <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
@@ -422,14 +434,20 @@
         ? $"{(string.IsNullOrWhiteSpace(rule.QueryResultType) ? "Matching alert" : rule.QueryResultType)} → {rule.InventoryRole}"
         : rule.ConditionType switch
     {
+        AlertRuleConditionTypes.AnyMatchingAlert => "Any matching alert",
         AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
         AlertRuleConditionTypes.OnlyFailedItems => $"Only {rule.FailedItemName} failed",
         AlertRuleConditionTypes.NoFailedItems => "No failed items shown",
         _ => rule.ConditionType
     };
 
-    private static string RuleTypeLabel(AlertRule rule) =>
-        rule.RuleType == AlertRuleTypes.InventoryRoleAssignment ? "Inventory role" : "Categorization";
+    private static string RuleTypeLabel(AlertRule rule) => rule.RuleType switch
+    {
+        AlertRuleTypes.InventoryRoleAssignment => "Inventory role",
+        AlertRuleTypes.InventoryStatus => "Inventory status",
+        AlertRuleTypes.Suppression => "Inbox suppression",
+        _ => "Categorization"
+    };
 
     private static string RuleCountLabel(int count) => count == 1 ? "1 configured rule" : $"{count} configured rules";
 }

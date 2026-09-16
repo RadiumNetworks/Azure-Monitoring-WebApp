@@ -83,7 +83,15 @@ h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.05; letter-s
 .chart-grid-line { stroke: #d8dfdc; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .chart-line-critical { stroke: #c62828; }
-.chart-axis { display: flex; justify-content: space-between; padding: 5px 0 0 24px; font-family: "IBM Plex Mono", monospace; }
+.chart-axis { position: relative; height: 1.2rem; margin-left: 24px; padding-top: 5px; font-family: "IBM Plex Mono", monospace; }
+.chart-axis span { position: absolute; left: var(--chart-tick); white-space: nowrap; transform: translateX(-50%); }
+.chart-axis span:first-child { transform: none; }
+.chart-axis span:last-child { transform: translateX(-100%); }
+.chart-grid-line-time { opacity: .55; }
+
+@media (max-width: 700px) {
+    .chart-axis span:nth-child(even):not(:last-child) { display: none; }
+}
 
 .controls {
     display: grid;
@@ -167,6 +175,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .graph-legend i { width: 9px; height: 9px; border-radius: 50%; }
 .legend-open { background: #e34a33; }
 .legend-history { border: 2px solid #7e8a86; background: transparent; }
+.legend-target-current { background: #17834f; }
+.legend-target-stale { background: #d9a514; }
 .legend-subscription { background: #007a64; }
 .legend-alert-name { background: #b45f06; }
 .legend-resource-group { background: #397d9a; }
@@ -187,6 +197,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .graph-svg-alert-name :is(rect, polygon) { fill: #fff7ed; stroke: #b45f06; stroke-width: 2.25; }
 .graph-svg-resource-group :is(rect, polygon) { fill: #f4f9fb; stroke: #397d9a; stroke-width: 2.25; }
 .graph-svg-target :is(rect, polygon) { fill: #fffaf0; stroke: #9a7514; stroke-width: 2; }
+.graph-svg-target-current :is(rect, polygon) { fill: #e6f6ec; stroke: #17834f; stroke-width: 2.5; }
+.graph-svg-target-stale :is(rect, polygon) { fill: #fff8d9; stroke: #d9a514; stroke-width: 2.5; }
 .graph-svg-active :is(rect, polygon) { fill: #fff0ee; stroke: #d92d20; stroke-width: 3; }
 .graph-svg-active .graph-node-label { fill: #8f1d16; }
 .graph-node-label { fill: #293833; font-family: "Manrope", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0; }

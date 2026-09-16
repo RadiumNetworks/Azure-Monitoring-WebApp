@@ -4,7 +4,7 @@ Willkommen im Grid, Chummer.
 
 Die **Azure Monitoring Console** zieht Azure-Monitor-Alerts aus dem Konzernrauschen, zerlegt ihre Payloads und legt die verwertbaren Signale in einem gehärteten Operations-Node ab. Statt zwischen Portalen, Log-Queries und halbgaren Alarmmeldungen zu springen, bekommt die Crew eine gemeinsame Sicht auf aktive Störungen, historische Ereignisse, betroffene Systeme und kritische Lebenszyklen.
 
-Unter der Chromhaube läuft eine **ASP.NET Core Blazor** WebApp auf **.NET 9**, gespeist von Azure Monitor und Logic Apps und abgesichert durch SQL Server oder Azure SQL. Für Decker mit Vorliebe für die Kommandozeile liegt zusätzlich ein CLI im Repository.
+Unter der Chromhaube läuft eine **ASP.NET Core Blazor** WebApp auf **.NET 10**, gespeist von Azure Monitor und Logic Apps und abgesichert durch SQL Server oder Azure SQL. Für Decker mit Vorliebe für die Kommandozeile liegt zusätzlich ein CLI im Repository.
 
 > **Straßenregel Nr. 1:** Vertraue keinem unvalidierten Payload.
 >

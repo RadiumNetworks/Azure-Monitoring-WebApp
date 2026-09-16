@@ -71,6 +71,9 @@ public sealed class AlertIngestionSource
 /// </summary>
 public static class AlertIngestionAuthorization
 {
+    public static bool IsAuthenticationRequired(AlertIngestionAuthenticationOptions options) =>
+        options.Enabled;
+
     /// <summary>
     /// Checks whether a claims principal represents an allowed tenant and managed-identity pair. The token must also have the expected issuer, app-only type, and application role.
     /// </summary>

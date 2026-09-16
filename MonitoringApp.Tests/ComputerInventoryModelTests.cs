@@ -21,6 +21,8 @@ public sealed class ComputerInventoryModelTests
         var siteProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Site)));
         var resourceGroupProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.ResourceGroup)));
         var roleProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Role)));
+        var privateIpProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.PrivateIP)));
+        var lastHeartbeatProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.LastHeartbeatAt)));
         var subscriptionProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.SubscriptionId)));
         var computerProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Computer)));
 
@@ -32,8 +34,12 @@ public sealed class ComputerInventoryModelTests
         Assert.True(siteProperty.IsNullable);
         Assert.True(resourceGroupProperty.IsNullable);
         Assert.True(roleProperty.IsNullable);
+        Assert.True(privateIpProperty.IsNullable);
+        Assert.True(lastHeartbeatProperty.IsNullable);
         Assert.Equal(256, resourceGroupProperty.GetMaxLength());
         Assert.Equal(256, roleProperty.GetMaxLength());
+        Assert.Equal(256, privateIpProperty.GetMaxLength());
+        Assert.Equal("datetimeoffset", lastHeartbeatProperty.GetColumnType());
         Assert.False(subscriptionProperty.IsNullable);
         Assert.False(computerProperty.IsNullable);
     }

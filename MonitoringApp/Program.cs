@@ -176,7 +176,7 @@ if (applicationAuthentication.IsSql)
 authorization
     .AddPolicy("LogicAppAlertWriter", policy =>
     {
-        if (!applicationAuthentication.IsOpen && ingestionAuthentication.Enabled)
+        if (AlertIngestionAuthorization.IsAuthenticationRequired(ingestionAuthentication))
         {
             policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
             policy.RequireAuthenticatedUser();
@@ -198,9 +198,15 @@ authorization
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
-builder.Services.AddDbContextFactory<AlertDbContext>(options =>
-    options.UseSqlServer(effectiveConnectionString, sqlServerOptions =>
-        sqlServerOptions.EnableRetryOnFailure()));
+builder.Services.AddSingleton<SqlCommandFailureLoggingInterceptor>();
+builder.Services.AddSingleton<SqlConnectionFailureLoggingInterceptor>();
+builder.Services.AddDbContextFactory<AlertDbContext>((services, options) =>
+    options
+        .UseSqlServer(effectiveConnectionString, sqlServerOptions =>
+            sqlServerOptions.EnableRetryOnFailure())
+        .AddInterceptors(
+            services.GetRequiredService<SqlCommandFailureLoggingInterceptor>(),
+            services.GetRequiredService<SqlConnectionFailureLoggingInterceptor>()));
 builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
 builder.Services.AddSingleton<SqlAuthenticationService>();
@@ -301,7 +307,8 @@ app.MapPost("/api/alerts", async (JsonElement payload, AlertStore store, Cancell
         {
             result.Alert.Id,
             result.Alert.ReceivedAt,
-            result.Created
+            result.Created,
+            result.Suppressed
         };
 
         return result.Created

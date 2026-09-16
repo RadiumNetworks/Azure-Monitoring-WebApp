@@ -10,6 +10,8 @@ public sealed class ComputerInventoryEntry
     public string? Site { get; set; }
     public string? ResourceGroup { get; set; }
     public string? Role { get; set; }
+    public string? PrivateIP { get; set; }
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
     public string Computer { get; set; } = string.Empty;
     public ICollection<ParsedAlertRecord> ParsedAlerts { get; set; } = [];
 }

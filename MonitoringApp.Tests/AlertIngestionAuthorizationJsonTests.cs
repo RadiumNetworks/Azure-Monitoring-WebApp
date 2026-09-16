@@ -26,6 +26,16 @@ public sealed class AlertIngestionAuthorizationJsonTests
     }
 
     [Fact]
+    public void EnabledAuthenticationIsRequiredWhenApplicationAuthenticationIsOpen()
+    {
+        var applicationAuthentication = new ApplicationAuthenticationOptions { Type = ApplicationAuthenticationOptions.Open };
+        var ingestionAuthentication = new AlertIngestionAuthenticationOptions { Enabled = true };
+
+        Assert.True(applicationAuthentication.IsOpen);
+        Assert.True(AlertIngestionAuthorization.IsAuthenticationRequired(ingestionAuthentication));
+    }
+
+    [Fact]
     public void EnabledAuthenticationReportsJsonConfiguredMissingFields()
     {
         var errors = new AlertIngestionAuthenticationOptions { Enabled = true }.Validate();

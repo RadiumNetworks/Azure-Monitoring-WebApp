@@ -117,6 +117,7 @@
         var criticalHourlyCounts = GetHourlyCriticalAlertCounts();
         var maximumCriticalHourlyCount = criticalHourlyCounts.Max(bucket => bucket.Count);
         var criticalChartScaleMaximum = Math.Max(1, maximumCriticalHourlyCount);
+        var chartTickIndexes = GetChartTickIndexes(hourlyCounts.Count);
     }
     <div class="trend-stack">
         <div class="alert-trend" role="img" aria-label="@ChartDescription(hourlyCounts)">
@@ -130,13 +131,19 @@
                     <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
                     <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
                     <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
+                    @foreach (var tickIndex in chartTickIndexes)
+                    {
+                        var x = ChartCoordinate(ChartX(tickIndex, hourlyCounts.Count));
+                        <line class="chart-grid-line chart-grid-line-time" x1="@x" y1="10" x2="@x" y2="110" />
+                    }
                     <polyline class="chart-line" points="@ChartPoints(hourlyCounts, chartScaleMaximum)" />
                 </svg>
             </div>
             <div class="chart-axis" aria-hidden="true">
-                <span>@FormatChartTime(hourlyCounts[0].Hour)</span>
-                <span>@FormatChartTime(hourlyCounts[24].Hour)</span>
-                <span>Now</span>
+                @foreach (var tickIndex in chartTickIndexes)
+                {
+                    <span style="@ChartTickStyle(tickIndex, hourlyCounts.Count)">@FormatChartTime(hourlyCounts[tickIndex].Hour)</span>
+                }
             </div>
         </div>
         <div class="alert-trend critical-alert-trend" role="img" aria-label="@CriticalChartDescription(criticalHourlyCounts)">
@@ -150,13 +157,19 @@
                     <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
                     <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
                     <line class="chart-grid-line" x1="0" y1="110" x2="640" y2="110" />
+                    @foreach (var tickIndex in chartTickIndexes)
+                    {
+                        var x = ChartCoordinate(ChartX(tickIndex, criticalHourlyCounts.Count));
+                        <line class="chart-grid-line chart-grid-line-time" x1="@x" y1="10" x2="@x" y2="110" />
+                    }
                     <polyline class="chart-line chart-line-critical" points="@CriticalChartPoints(criticalHourlyCounts, criticalChartScaleMaximum)" />
                 </svg>
             </div>
             <div class="chart-axis" aria-hidden="true">
-                <span>@FormatChartTime(criticalHourlyCounts[0].Hour)</span>
-                <span>@FormatChartTime(criticalHourlyCounts[24].Hour)</span>
-                <span>Now</span>
+                @foreach (var tickIndex in chartTickIndexes)
+                {
+                    <span style="@ChartTickStyle(tickIndex, criticalHourlyCounts.Count)">@FormatChartTime(criticalHourlyCounts[tickIndex].Hour)</span>
+                }
             </div>
         </div>
     </div>
@@ -578,6 +591,7 @@
     private const double ChartWidth = 640;
     private const double ChartTop = 10;
     private const double ChartBottom = 110;
+    private const int ChartTickIntervalHours = 8;
 
     private bool IsTimeRangeValid => receivedFrom is null || receivedTo is null || receivedFrom <= receivedTo;
     private AlertTimeZoneOption SelectedTimeZone => AlertTimeZones.Get(selectedTimeZoneId);
@@ -705,7 +719,7 @@
     private static string ChartPoints(IReadOnlyList<HourlyAlertCount> buckets, int maximumCount) =>
         string.Join(' ', buckets.Select((bucket, index) =>
         {
-            var x = index * ChartWidth / (buckets.Count - 1);
+            var x = ChartX(index, buckets.Count);
             var y = ChartBottom - bucket.Count * (ChartBottom - ChartTop) / maximumCount;
             return FormattableString.Invariant($"{x:0.##},{y:0.##}");
         }));
@@ -715,10 +729,24 @@
         int maximumCount) =>
         string.Join(' ', buckets.Select((bucket, index) =>
         {
-            var x = index * ChartWidth / (buckets.Count - 1);
+            var x = ChartX(index, buckets.Count);
             var y = ChartBottom - bucket.Count * (ChartBottom - ChartTop) / maximumCount;
             return FormattableString.Invariant($"{x:0.##},{y:0.##}");
         }));
+
+    private static IReadOnlyList<int> GetChartTickIndexes(int bucketCount) =>
+        Enumerable.Range(0, bucketCount)
+            .Where(index => index % ChartTickIntervalHours == 0 || index == bucketCount - 1)
+            .ToArray();
+
+    private static double ChartX(int index, int bucketCount) =>
+        index * ChartWidth / Math.Max(1, bucketCount - 1);
+
+    private static string ChartCoordinate(double value) =>
+        value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string ChartTickStyle(int index, int bucketCount) =>
+        FormattableString.Invariant($"--chart-tick:{index * 100d / Math.Max(1, bucketCount - 1):0.##}%");
 
     private static string ChartDescription(IReadOnlyList<HourlyAlertCount> buckets)
     {

@@ -196,9 +196,9 @@ public sealed record AlertRecord(
 }
 
 /// <summary>
-/// Reports the alert returned by ingestion and whether a new database row was created. Duplicate events return the existing record with Created set to false.
+/// Reports the alert returned by ingestion and whether a new database row was created or intentionally suppressed.
 /// </summary>
-public sealed record AddAlertResult(AlertRecord Alert, bool Created);
+public sealed record AddAlertResult(AlertRecord Alert, bool Created, bool Suppressed = false);
 
 /// <summary>
 /// Summarizes an inventory prefill operation based on recently received alerts.
@@ -207,6 +207,7 @@ public sealed record ComputerInventoryPrefillResult(
     int AlertsScanned,
     int SystemsFound,
     int SystemsCreated,
+    int DomainsFilled,
     int SitesFilled,
     int ResourceGroupsFilled,
     int RolesAssigned,
@@ -402,7 +403,7 @@ public sealed class AlertStore
 
     /// <summary>
     /// Scans alerts received during the last seven days and prefills the computer inventory.
-    /// Existing domain and site values are preserved; only a missing site may be filled from an alert.
+    /// Existing domain and site values are preserved; missing values may be learned from an alert.
     /// </summary>
     public async Task<ComputerInventoryPrefillResult> PrefillComputerInventoryFromLastSevenDaysAsync(
         CancellationToken cancellationToken = default)
@@ -435,6 +436,9 @@ public sealed class AlertStore
                 continue;
             }
 
+            var learnedDomains = AlertInventoryLearning.LearnComputerDomains(resolvedAlert.RawJson);
+            var targetDomain = learnedDomains.FirstOrDefault(fact =>
+                fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase))?.Domain;
             var key = InventoryKey(subscriptionId, computer);
             var validSite = site.Length is > 0 and <= 256 ? site : null;
             if (!candidates.TryGetValue(key, out var candidate))
@@ -443,14 +447,23 @@ public sealed class AlertStore
                 {
                     SubscriptionId = subscriptionId,
                     Computer = computer,
+                    Domain = targetDomain,
                     Site = validSite,
                     ResourceGroup = resourceGroup.Length is > 0 and <= 256 ? resourceGroup : null,
                     Role = role
                 });
             }
-            else if (string.IsNullOrWhiteSpace(candidate.Site) && validSite is not null)
+            else
             {
-                candidate.Site = validSite;
+                if (string.IsNullOrWhiteSpace(candidate.Domain) && !string.IsNullOrWhiteSpace(targetDomain))
+                {
+                    candidate.Domain = targetDomain;
+                }
+
+                if (string.IsNullOrWhiteSpace(candidate.Site) && validSite is not null)
+                {
+                    candidate.Site = validSite;
+                }
             }
 
             if (candidates.TryGetValue(key, out candidate))
@@ -465,6 +478,24 @@ public sealed class AlertStore
                     candidate.Role = role;
                 }
             }
+
+            foreach (var learned in learnedDomains)
+            {
+                var learnedKey = InventoryKey(subscriptionId, learned.Computer);
+                if (!candidates.TryGetValue(learnedKey, out var learnedCandidate))
+                {
+                    candidates.Add(learnedKey, new ComputerInventoryEntry
+                    {
+                        SubscriptionId = subscriptionId,
+                        Computer = learned.Computer,
+                        Domain = learned.Domain
+                    });
+                }
+                else if (string.IsNullOrWhiteSpace(learnedCandidate.Domain))
+                {
+                    learnedCandidate.Domain = learned.Domain;
+                }
+            }
         }
 
         var storedEntries = await context.ComputerInventory.ToArrayAsync(cancellationToken);
@@ -472,6 +503,7 @@ public sealed class AlertStore
             entry => InventoryKey(entry.SubscriptionId, entry.Computer),
             StringComparer.Ordinal);
         var systemsCreated = 0;
+        var domainsFilled = 0;
         var sitesFilled = 0;
         var resourceGroupsFilled = 0;
         var rolesAssigned = 0;
@@ -485,11 +517,21 @@ public sealed class AlertStore
                 systemsCreated++;
                 changedSystems.Add(key);
             }
-            else if (string.IsNullOrWhiteSpace(stored.Site) && !string.IsNullOrWhiteSpace(candidate.Site))
+            else
             {
-                stored.Site = candidate.Site;
-                sitesFilled++;
-                changedSystems.Add(key);
+                if (string.IsNullOrWhiteSpace(stored.Domain) && !string.IsNullOrWhiteSpace(candidate.Domain))
+                {
+                    stored.Domain = candidate.Domain;
+                    domainsFilled++;
+                    changedSystems.Add(key);
+                }
+
+                if (string.IsNullOrWhiteSpace(stored.Site) && !string.IsNullOrWhiteSpace(candidate.Site))
+                {
+                    stored.Site = candidate.Site;
+                    sitesFilled++;
+                    changedSystems.Add(key);
+                }
             }
 
             if (storedByKey.TryGetValue(key, out stored))
@@ -510,7 +552,7 @@ public sealed class AlertStore
             }
         }
 
-        if (systemsCreated > 0 || sitesFilled > 0 || resourceGroupsFilled > 0 || rolesAssigned > 0)
+        if (systemsCreated > 0 || domainsFilled > 0 || sitesFilled > 0 || resourceGroupsFilled > 0 || rolesAssigned > 0)
         {
             try
             {
@@ -531,6 +573,7 @@ public sealed class AlertStore
             alerts.Length,
             candidates.Count,
             systemsCreated,
+            domainsFilled,
             sitesFilled,
             resourceGroupsFilled,
             rolesAssigned,
@@ -713,7 +756,7 @@ public sealed class AlertStore
             throw new InvalidOperationException("Rule name is required and may contain at most 256 characters.");
         }
 
-        if (rule.RuleType is not (AlertRuleTypes.Categorization or AlertRuleTypes.InventoryRoleAssignment))
+        if (rule.RuleType is not (AlertRuleTypes.Categorization or AlertRuleTypes.Suppression or AlertRuleTypes.InventoryRoleAssignment or AlertRuleTypes.InventoryStatus))
         {
             throw new InvalidOperationException("Select a supported rule type.");
         }
@@ -742,9 +785,26 @@ public sealed class AlertStore
         }
 
         rule.InventoryRole = string.Empty;
-        if (string.IsNullOrWhiteSpace(rule.CategoryName) || rule.CategoryName.Length > 256)
+        if (rule.RuleType == AlertRuleTypes.Categorization &&
+            (string.IsNullOrWhiteSpace(rule.CategoryName) || rule.CategoryName.Length > 256))
         {
             throw new InvalidOperationException("Category name is required and may contain at most 256 characters.");
+        }
+
+        if (rule.RuleType is AlertRuleTypes.Suppression or AlertRuleTypes.InventoryStatus)
+        {
+            if (string.IsNullOrWhiteSpace(rule.AlertNameContains) &&
+                string.IsNullOrWhiteSpace(rule.QueryResultType))
+            {
+                throw new InvalidOperationException(
+                    "A suppression or inventory-status rule requires an alert name or query-result type.");
+            }
+
+            rule.CategoryName = string.Empty;
+            rule.ApplyToTarget = false;
+            rule.Collapsed = false;
+            rule.Tone = "info";
+            rule.IsCritical = false;
         }
 
         if (rule.Priority < 0)
@@ -757,7 +817,17 @@ public sealed class AlertStore
             throw new InvalidOperationException("One or more matching fields exceed their maximum length.");
         }
 
-        if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+        if (rule.ConditionType == AlertRuleConditionTypes.AnyMatchingAlert)
+        {
+            if (rule.RuleType is not (AlertRuleTypes.Suppression or AlertRuleTypes.InventoryStatus))
+            {
+                throw new InvalidOperationException("AnyMatchingAlert is supported only for suppression and inventory-status rules.");
+            }
+
+            rule.Threshold = 0;
+            rule.FailedItemName = string.Empty;
+        }
+        else if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
         {
             if (rule.Threshold < 0)
             {
@@ -796,7 +866,7 @@ public sealed class AlertStore
             throw new InvalidOperationException("Select a supported condition type.");
         }
 
-        if (rule.Tone is not ("info" or "failure"))
+        if (rule.RuleType == AlertRuleTypes.Categorization && rule.Tone is not ("info" or "failure"))
         {
             throw new InvalidOperationException("Select either the info or failure category tone.");
         }
@@ -882,7 +952,10 @@ public sealed class AlertStore
                 .AsNoTracking()
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
-            return alerts.Select(ResolveDisplayIdentity).ToArray();
+            return alerts
+                .Where(alert => !InventoryHeartbeatBatch.IsInventoryHeartbeat(alert))
+                .Select(ResolveDisplayIdentity)
+                .ToArray();
         }
         catch (Exception exception)
         {
@@ -912,7 +985,10 @@ public sealed class AlertStore
                 .Where(alert => alert.ReceivedAt >= since)
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
-            return alerts.Select(ResolveDisplayIdentity).ToArray();
+            return alerts
+                .Where(alert => !InventoryHeartbeatBatch.IsInventoryHeartbeat(alert))
+                .Select(ResolveDisplayIdentity)
+                .ToArray();
         }
         catch (Exception exception)
         {
@@ -946,7 +1022,13 @@ public sealed class AlertStore
                 .OrderByDescending(record => record.Alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
 
-            return parsedAlerts.Select(record =>
+            var inventoryEntries = await context.ComputerInventory
+                .AsNoTracking()
+                .ToArrayAsync(cancellationToken);
+
+            var alertRecords = parsedAlerts
+                .Where(record => !InventoryHeartbeatBatch.IsInventoryHeartbeat(record.Alert))
+                .Select(record =>
             {
                 var inventory = record.InventoryComputerEntry;
                 return new AlertGraphRecord(
@@ -961,8 +1043,26 @@ public sealed class AlertStore
                     FirstNonEmpty(inventory?.Computer ?? string.Empty, record.InventoryComputer ?? string.Empty),
                     inventory?.Site ?? string.Empty,
                     inventory?.Domain ?? string.Empty,
-                    inventory?.Role ?? string.Empty);
-            }).ToArray();
+                        inventory?.Role ?? string.Empty,
+                        inventory?.LastHeartbeatAt);
+                    });
+                    var inventoryRecords = inventoryEntries.Select(entry => new AlertGraphRecord(
+                    Guid.NewGuid(),
+                    entry.LastHeartbeatAt ?? DateTimeOffset.MinValue,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    entry.SubscriptionId,
+                    entry.ResourceGroup ?? string.Empty,
+                    entry.Computer,
+                    entry.Site ?? string.Empty,
+                    entry.Domain ?? string.Empty,
+                    entry.Role ?? string.Empty,
+                    entry.LastHeartbeatAt,
+                    true));
+
+                    return alertRecords.Concat(inventoryRecords).ToArray();
         }
         catch (Exception exception)
         {
@@ -1188,6 +1288,16 @@ public sealed class AlertStore
             GetHttpUrl(alertContext, "linkToSearchResultsUI"),
             string.Empty,
             JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+
+        if (InventoryHeartbeatBatch.IsInventoryHeartbeat(payload))
+        {
+            var inventoryResult = await TryReconcileInventoryHeartbeatAsync(alert, payload, cancellationToken);
+            if (inventoryResult is not null)
+            {
+                return inventoryResult;
+            }
+        }
+
         var resolvedAlert = ResolveDisplayIdentity(alert);
 
         AddAlertResult result;
@@ -1201,6 +1311,25 @@ public sealed class AlertStore
                 await using var transaction = await dbContext.Database.BeginTransactionAsync(
                     IsolationLevel.Serializable,
                     cancellationToken);
+
+                var suppressionRules = await dbContext.AlertRules
+                    .AsNoTracking()
+                    .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.Suppression)
+                    .OrderBy(rule => rule.Priority)
+                    .ToArrayAsync(cancellationToken);
+                var suppressionRule = suppressionRules.FirstOrDefault(rule =>
+                    alertRuleEvaluator.MatchesSuppressionRule(rule, resolvedAlert));
+                if (suppressionRule is not null)
+                {
+                    await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    logger.LogInformation(
+                        "Suppressed alert {AlertId} during ingestion using rule {RuleName}.",
+                        alert.AlertId,
+                        suppressionRule.Name);
+                    await transaction.CommitAsync(cancellationToken);
+                    return new AddAlertResult(alert, false, true);
+                }
 
                 if (!string.IsNullOrWhiteSpace(alert.AlertId))
                 {
@@ -1256,12 +1385,119 @@ public sealed class AlertStore
             throw;
         }
 
-        if (result.Created)
+        if (result.Created || result.Suppressed)
         {
             Changed?.Invoke();
         }
 
         return result with { Alert = ResolveDisplayIdentity(result.Alert) };
+    }
+
+    private async Task<AddAlertResult?> TryReconcileInventoryHeartbeatAsync(
+        AlertRecord alert,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        var observations = InventoryHeartbeatBatch.Parse(payload);
+        if (observations.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "The InventoryHeartbeat payload does not contain any valid inventory rows.");
+        }
+
+        try
+        {
+            await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var strategy = strategyContext.Database.CreateExecutionStrategy();
+            var changed = await strategy.ExecuteAsync(async () =>
+            {
+                await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                var inventoryRules = await dbContext.AlertRules
+                    .AsNoTracking()
+                    .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryStatus)
+                    .OrderBy(rule => rule.Priority)
+                    .ToArrayAsync(cancellationToken);
+                if (!inventoryRules.Any(rule => alertRuleEvaluator.MatchesInventoryStatusRule(rule, alert)))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return (Matched: false, Changed: false);
+                }
+
+                var hasChanges = false;
+
+                foreach (var observation in observations)
+                {
+                    var stored = await dbContext.ComputerInventory.FindAsync(
+                        [observation.SubscriptionId, observation.Computer],
+                        cancellationToken);
+                    if (stored is null)
+                    {
+                        dbContext.ComputerInventory.Add(new ComputerInventoryEntry
+                        {
+                            SubscriptionId = observation.SubscriptionId,
+                            Computer = observation.Computer,
+                            Domain = observation.Domain,
+                            PrivateIP = observation.PrivateIP,
+                            LastHeartbeatAt = observation.LastHeartbeatAt
+                        });
+                        hasChanges = true;
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(observation.Domain) &&
+                        !string.Equals(stored.Domain, observation.Domain, StringComparison.OrdinalIgnoreCase))
+                    {
+                        stored.Domain = observation.Domain;
+                        hasChanges = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(observation.PrivateIP) &&
+                        !string.Equals(stored.PrivateIP, observation.PrivateIP, StringComparison.OrdinalIgnoreCase))
+                    {
+                        stored.PrivateIP = observation.PrivateIP;
+                        hasChanges = true;
+                    }
+
+                    if (stored.LastHeartbeatAt is null || observation.LastHeartbeatAt > stored.LastHeartbeatAt)
+                    {
+                        stored.LastHeartbeatAt = observation.LastHeartbeatAt;
+                        hasChanges = true;
+                    }
+                }
+
+                if (hasChanges)
+                {
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return (Matched: true, Changed: hasChanges);
+            });
+
+            if (!changed.Matched)
+            {
+                return null;
+            }
+
+            logger.LogInformation(
+                "Reconciled {InventoryCount} inventory heartbeat observations without storing alert {AlertId}.",
+                observations.Count,
+                alert.AlertId);
+            if (changed.Changed)
+            {
+                Changed?.Invoke();
+            }
+
+            return new AddAlertResult(alert, false, true);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to reconcile inventory heartbeat batch {AlertId}.", alert.AlertId);
+            throw;
+        }
     }
 
     /// <summary>
@@ -1293,8 +1529,8 @@ public sealed class AlertStore
     }
 
     /// <summary>
-    /// Creates an inventory entry for a resolved alert or fills its missing site when a later alert provides it.
-    /// Domain is intentionally left unchanged because alert payloads do not provide it yet.
+    /// Creates inventory entries for a resolved alert and any computers explicitly identified in its query results.
+    /// Missing domains are learned from DC Port local and remote system/domain pairs; existing values are preserved.
     /// </summary>
     private async Task UpsertComputerInventoryAsync(
         AlertDbContext context,
@@ -1305,6 +1541,9 @@ public sealed class AlertStore
         var computer = alert.TargetName.Trim();
         var site = alert.SiteName.Trim();
         var resourceGroup = alert.ResourceGroup.Trim();
+        var learnedDomains = AlertInventoryLearning.LearnComputerDomains(alert.RawJson);
+        var targetDomain = learnedDomains.FirstOrDefault(fact =>
+            fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase))?.Domain;
         var roleRules = await context.AlertRules
             .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
             .OrderBy(rule => rule.Priority)
@@ -1327,15 +1566,21 @@ public sealed class AlertStore
             cancellationToken);
         if (stored is null)
         {
-            context.ComputerInventory.Add(new ComputerInventoryEntry
+            stored = new ComputerInventoryEntry
             {
                 SubscriptionId = subscriptionId,
                 Computer = computer,
+                Domain = targetDomain,
                 Site = string.IsNullOrWhiteSpace(site) || site.Length > 256 ? null : site,
                 ResourceGroup = string.IsNullOrWhiteSpace(resourceGroup) || resourceGroup.Length > 256 ? null : resourceGroup,
                 Role = role
-            });
-            return;
+            };
+            context.ComputerInventory.Add(stored);
+        }
+
+        if (string.IsNullOrWhiteSpace(stored.Domain) && !string.IsNullOrWhiteSpace(targetDomain))
+        {
+            stored.Domain = targetDomain;
         }
 
         if (string.IsNullOrWhiteSpace(stored.Site) &&
@@ -1355,6 +1600,27 @@ public sealed class AlertStore
         if (string.IsNullOrWhiteSpace(stored.Role) && !string.IsNullOrWhiteSpace(role))
         {
             stored.Role = role;
+        }
+
+        foreach (var learned in learnedDomains.Where(fact =>
+            !fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase)))
+        {
+            var learnedEntry = await context.ComputerInventory.FindAsync(
+                [subscriptionId, learned.Computer],
+                cancellationToken);
+            if (learnedEntry is null)
+            {
+                context.ComputerInventory.Add(new ComputerInventoryEntry
+                {
+                    SubscriptionId = subscriptionId,
+                    Computer = learned.Computer,
+                    Domain = learned.Domain
+                });
+            }
+            else if (string.IsNullOrWhiteSpace(learnedEntry.Domain))
+            {
+                learnedEntry.Domain = learned.Domain;
+            }
         }
     }
 
@@ -1380,43 +1646,53 @@ public sealed class AlertStore
 
         try
         {
-            await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            var storedAlert = await dbContext.Alerts
-                .AsNoTracking()
-                .FirstOrDefaultAsync(alert => alert.Id == id, cancellationToken);
-            if (storedAlert is null)
+            await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var strategy = strategyContext.Database.CreateExecutionStrategy();
+            var updated = await strategy.ExecuteAsync(async () =>
             {
-                return false;
-            }
+                await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+                var storedAlert = await dbContext.Alerts
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(alert => alert.Id == id, cancellationToken);
+                if (storedAlert is null)
+                {
+                    return false;
+                }
 
-            if (storedAlert.Comments.Equals(normalizedComments, StringComparison.Ordinal))
-            {
+                if (string.Equals(storedAlert.Comments, normalizedComments, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                var logbookEntry = AlertCommentLogbook.CreateEntry(
+                    ResolveDisplayIdentity(storedAlert),
+                    user,
+                    normalizedComments,
+                    DateTimeOffset.UtcNow);
+                if (logbookEntry is not null)
+                {
+                    dbContext.LogbookEntries.Add(logbookEntry);
+                }
+
+                var updatedRows = await dbContext.Alerts
+                    .Where(alert => alert.Id == id)
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(alert => alert.Comments, normalizedComments),
+                        cancellationToken);
+                if (updatedRows == 0)
+                {
+                    return false;
+                }
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
                 return true;
-            }
-
-            var logbookEntry = AlertCommentLogbook.CreateEntry(
-                ResolveDisplayIdentity(storedAlert),
-                user,
-                normalizedComments,
-                DateTimeOffset.UtcNow);
-            if (logbookEntry is not null)
-            {
-                dbContext.LogbookEntries.Add(logbookEntry);
-            }
-
-            var updatedRows = await dbContext.Alerts
-                .Where(alert => alert.Id == id)
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(alert => alert.Comments, normalizedComments),
-                    cancellationToken);
-            if (updatedRows == 0)
+            });
+            if (!updated)
             {
                 return false;
             }
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
         }
         catch (Exception exception)
         {
