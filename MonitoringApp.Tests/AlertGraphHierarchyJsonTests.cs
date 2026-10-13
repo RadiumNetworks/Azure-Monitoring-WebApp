@@ -83,6 +83,33 @@ public sealed class AlertGraphHierarchyJsonTests
         Assert.Equal(heartbeat, target.LastHeartbeatAt);
     }
 
+    [Fact]
+    public void IgnoresRecordsWithoutARealTarget()
+    {
+        var empty = new AlertGraphRecord(
+            Guid.NewGuid(),
+            Cases.BaseTime,
+            "alert-empty",
+            "Fired",
+            string.Empty,
+            "Empty target",
+            "subscription-a",
+            string.Empty,
+            " ",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        var dash = empty with { Id = Guid.NewGuid(), Target = "-" };
+
+        var hierarchy = AlertGraphHierarchy.Build(
+            [empty, dash],
+            AlertGraphLayer.Domain,
+            AlertGraphLayer.Site,
+            AlertGraphLayer.Target);
+
+        Assert.Empty(hierarchy);
+    }
+
     private static void AssertGrouping(GraphGroupingCase testCase, AlertRecord[] alerts)
     {
         var hierarchy = AlertGraphHierarchy.Build(

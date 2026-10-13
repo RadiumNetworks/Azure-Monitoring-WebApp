@@ -30,7 +30,7 @@ public sealed class AlertConsolePage(IPage page)
 
     public async Task OpenGraphAsync()
     {
-        await page.GetByRole(AriaRole.Link, new() { Name = "Graph" }).ClickAsync();
+        await page.GotoAsync(new Uri(new Uri(page.Url), "/graph").ToString());
         await page.GetByRole(AriaRole.Heading, new() { Name = "Alert graph" }).WaitForAsync();
         await page.Locator("#alert-graph-canvas").WaitForAsync();
     }

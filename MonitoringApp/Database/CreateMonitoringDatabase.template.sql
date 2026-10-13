@@ -120,6 +120,7 @@ BEGIN
         [Tone]              nvarchar(32)      NOT NULL,
         [InventoryRole]     nvarchar(256)     NOT NULL CONSTRAINT [DF_AlertRules_InventoryRole] DEFAULT N'',
         [IsCritical]        bit               NOT NULL CONSTRAINT [DF_AlertRules_IsCritical] DEFAULT 0,
+        [AnalysisClassification] nvarchar(64) NOT NULL CONSTRAINT [DF_AlertRules_AnalysisClassification] DEFAULT N'None',
         CONSTRAINT [PK_AlertRules] PRIMARY KEY ([Id])
     );
 END;
@@ -136,6 +137,10 @@ BEGIN
         [Role]           nvarchar(256) NULL,
         [PrivateIP]      nvarchar(256) NULL,
         [LastHeartbeatAt] datetimeoffset NULL,
+        [NtdsFileSizeInGb] float NULL,
+        [CertificatesJson] nvarchar(max) NOT NULL CONSTRAINT [DF_ComputerInventory_CertificatesJson] DEFAULT N'[]',
+        [ServicesJson]    nvarchar(max) NOT NULL CONSTRAINT [DF_ComputerInventory_ServicesJson] DEFAULT N'[]',
+        [Maintenance]    bit NOT NULL CONSTRAINT [DF_ComputerInventory_Maintenance] DEFAULT 0,
         [Computer]       nvarchar(256) NOT NULL,
         CONSTRAINT [PK_ComputerInventory]
             PRIMARY KEY ([SubscriptionId], [Computer])
@@ -164,9 +169,22 @@ BEGIN
             CONSTRAINT [DF_AlertRules_IsCritical] DEFAULT 0;
 END;
 
+IF COL_LENGTH(N'[dbo].[AlertRules]', N'AnalysisClassification') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AlertRules]
+        ADD [AnalysisClassification] nvarchar(64) NOT NULL
+            CONSTRAINT [DF_AlertRules_AnalysisClassification] DEFAULT N'None';
+END;
+
 IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'ResourceGroup') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ComputerInventory] ADD [ResourceGroup] nvarchar(256) NULL;
+END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'Maintenance') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [Maintenance] bit NOT NULL
+        CONSTRAINT [DF_ComputerInventory_Maintenance] DEFAULT 0;
 END;
 
 IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'Role') IS NULL
@@ -183,6 +201,23 @@ IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'LastHeartbeatAt') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ComputerInventory] ADD [LastHeartbeatAt] datetimeoffset NULL;
 END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'NtdsFileSizeInGb') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [NtdsFileSizeInGb] float NULL;
+END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'CertificatesJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [CertificatesJson] nvarchar(max) NOT NULL
+        CONSTRAINT [DF_ComputerInventory_CertificatesJson] DEFAULT N'[]';
+END;
+
+IF COL_LENGTH(N'[dbo].[ComputerInventory]', N'ServicesJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ComputerInventory] ADD [ServicesJson] nvarchar(max) NOT NULL
+        CONSTRAINT [DF_ComputerInventory_ServicesJson] DEFAULT N'[]';
+END;
 GO
 
 IF OBJECT_ID(N'[dbo].[ParsedAlerts]', N'U') IS NULL
@@ -198,6 +233,7 @@ BEGIN
         [Dimensions]              nvarchar(max)     NOT NULL,
         [SearchQuery]             nvarchar(max)     NOT NULL,
         [QueryResults]            nvarchar(max)     NOT NULL,
+        [QueryResultRefreshedAt]  datetimeoffset    NULL,
         [AlertName]               nvarchar(512)     NOT NULL,
         [ResourceGroup]           nvarchar(256)     NOT NULL,
         [IsCritical]              bit               NOT NULL CONSTRAINT [DF_ParsedAlerts_IsCritical] DEFAULT 0,
@@ -224,6 +260,11 @@ END;
 IF COL_LENGTH(N'[dbo].[ParsedAlerts]', N'ResolvedAt') IS NULL
 BEGIN
     ALTER TABLE [dbo].[ParsedAlerts] ADD [ResolvedAt] datetimeoffset NULL;
+END;
+
+IF COL_LENGTH(N'[dbo].[ParsedAlerts]', N'QueryResultRefreshedAt') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ParsedAlerts] ADD [QueryResultRefreshedAt] datetimeoffset NULL;
 END;
 GO
 
@@ -312,6 +353,200 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[AgentAnalysisJobs]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AgentAnalysisJobs]
+    (
+        [Id]                    uniqueidentifier NOT NULL,
+        [AnalysisId]            uniqueidentifier NOT NULL,
+        [IdempotencyKey]        nvarchar(64)     NOT NULL,
+        [ResultVersion]         int              NOT NULL,
+        [Status]                nvarchar(32)     NOT NULL,
+        [StatusReason]          nvarchar(1024)   NOT NULL,
+        [Revision]              int              NOT NULL,
+        [Mode]                  nvarchar(32)     NOT NULL,
+        [ExecutionProfile]      nvarchar(64)     NOT NULL,
+        [PromptVersion]         nvarchar(64)     NOT NULL,
+        [SnapshotVersion]       nvarchar(64)     NOT NULL,
+        [ResultContractVersion] nvarchar(64)     NOT NULL,
+        [ScopeType]             nvarchar(32)     NOT NULL,
+        [ScopeValue]            nvarchar(512)    NOT NULL,
+        [PrimaryEventIdsJson]   nvarchar(max)    NOT NULL,
+        [SnapshotJson]          nvarchar(max)    NOT NULL,
+        [ResultJson]            nvarchar(max)    NOT NULL,
+        [TeamsSummaryJson]      nvarchar(max)    NOT NULL,
+        [DetailedAnalysisJson]  nvarchar(max)    NOT NULL,
+        [SourceIdsJson]         nvarchar(max)    NOT NULL,
+        [ResultStoredAt]        datetimeoffset   NULL,
+        [TeamsDeliveryStatus]   nvarchar(32)     NOT NULL,
+        [TeamsDeliveredResultVersion] int       NULL,
+        [TeamsDeliveredAt]      datetimeoffset   NULL,
+        [SnapshotGeneratedAt]   datetimeoffset   NOT NULL,
+        [DataFrom]              datetimeoffset   NOT NULL,
+        [DataTo]                datetimeoffset   NOT NULL,
+        [CreatedBy]             nvarchar(256)    NOT NULL,
+        [CreatedAt]             datetimeoffset   NOT NULL,
+        [UpdatedAt]             datetimeoffset   NOT NULL,
+        [StartedAt]             datetimeoffset   NULL,
+        [CompletedAt]           datetimeoffset   NULL,
+        [ExpiresAt]             datetimeoffset   NOT NULL,
+        [ErrorCode]             nvarchar(128)    NOT NULL,
+        [ErrorMessage]          nvarchar(4000)   NOT NULL,
+        CONSTRAINT [PK_AgentAnalysisJobs] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AgentAnalysisReviewEvents]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AgentAnalysisReviewEvents]
+    (
+        [Id]                 uniqueidentifier NOT NULL,
+        [AgentAnalysisJobId] uniqueidentifier NOT NULL,
+        [AnalysisId]         uniqueidentifier NOT NULL,
+        [ResultVersion]      int              NOT NULL,
+        [Action]             nvarchar(32)     NOT NULL,
+        [Comment]            nvarchar(4000)   NOT NULL,
+        [Actor]              nvarchar(256)    NOT NULL,
+        [CreatedAt]          datetimeoffset   NOT NULL,
+        CONSTRAINT [PK_AgentAnalysisReviewEvents] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_AgentAnalysisReviewEvents_AgentAnalysisJobs_AgentAnalysisJobId]
+            FOREIGN KEY ([AgentAnalysisJobId]) REFERENCES [dbo].[AgentAnalysisJobs] ([Id]) ON DELETE CASCADE
+    );
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AgentAnalysisReviewEvents_AgentAnalysisJobId_CreatedAt'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AgentAnalysisReviewEvents]')
+)
+BEGIN
+    CREATE INDEX [IX_AgentAnalysisReviewEvents_AgentAnalysisJobId_CreatedAt]
+        ON [dbo].[AgentAnalysisReviewEvents] ([AgentAnalysisJobId], [CreatedAt]);
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'IdempotencyKey') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [IdempotencyKey] nvarchar(64) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_IdempotencyKey] DEFAULT N'';
+
+    UPDATE [dbo].[AgentAnalysisJobs]
+    SET [IdempotencyKey] = CONCAT(N'LEGACY-', CONVERT(nvarchar(36), [Id]))
+    WHERE [IdempotencyKey] = N'';
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AgentAnalysisJobs_IdempotencyKey'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AgentAnalysisJobs]')
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_AgentAnalysisJobs_IdempotencyKey]
+        ON [dbo].[AgentAnalysisJobs] ([IdempotencyKey])
+        WHERE [Status] IN (N'Queued', N'Running', N'Completed');
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'ResultJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [ResultJson] nvarchar(max) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_ResultJson] DEFAULT N'';
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'TeamsSummaryJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [TeamsSummaryJson] nvarchar(max) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_TeamsSummaryJson] DEFAULT N'';
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'DetailedAnalysisJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [DetailedAnalysisJson] nvarchar(max) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_DetailedAnalysisJson] DEFAULT N'';
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'SourceIdsJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [SourceIdsJson] nvarchar(max) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_SourceIdsJson] DEFAULT N'[]';
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'ResultStoredAt') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs] ADD [ResultStoredAt] datetimeoffset NULL;
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'TeamsDeliveryStatus') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs]
+        ADD [TeamsDeliveryStatus] nvarchar(32) NOT NULL
+            CONSTRAINT [DF_AgentAnalysisJobs_TeamsDeliveryStatus] DEFAULT N'NotRequested';
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'TeamsDeliveredResultVersion') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs] ADD [TeamsDeliveredResultVersion] int NULL;
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[AgentAnalysisJobs]', N'TeamsDeliveredAt') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AgentAnalysisJobs] ADD [TeamsDeliveredAt] datetimeoffset NULL;
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AgentAnalysisJobs_AnalysisId'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AgentAnalysisJobs]')
+)
+BEGIN
+    CREATE INDEX [IX_AgentAnalysisJobs_AnalysisId]
+        ON [dbo].[AgentAnalysisJobs] ([AnalysisId]);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AgentAnalysisJobs_CreatedBy_CreatedAt'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AgentAnalysisJobs]')
+)
+BEGIN
+    CREATE INDEX [IX_AgentAnalysisJobs_CreatedBy_CreatedAt]
+        ON [dbo].[AgentAnalysisJobs] ([CreatedBy], [CreatedAt]);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AgentAnalysisJobs_Status_CreatedAt'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AgentAnalysisJobs]')
+)
+BEGIN
+    CREATE INDEX [IX_AgentAnalysisJobs_Status_CreatedAt]
+        ON [dbo].[AgentAnalysisJobs] ([Status], [CreatedAt]);
+END;
+GO
+
 IF OBJECT_ID(N'[dbo].[InboxLayouts]', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[InboxLayouts]
@@ -370,6 +605,36 @@ BEGIN
     (
         N'AlertSeverityDisplay',
         N'{"Severities":[{"Severity":"Sev0","Color":"red","FontStyle":"bold"},{"Severity":"Sev1","Color":"red","FontStyle":"bold"},{"Severity":"Sev2","Color":"yellow","FontStyle":"bold"},{"Severity":"Sev3","Color":"gray","FontStyle":"normal"},{"Severity":"Sev4","Color":"green","FontStyle":"normal"}],"Default":{"Color":"black","FontStyle":"normal"}}'
+    );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'InboxTargetOutputDisplay')
+BEGIN
+    INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
+    VALUES
+    (
+        N'InboxTargetOutputDisplay',
+        N'{"CountColors":[{"MinimumCount":1,"Color":"yellow"},{"MinimumCount":2,"Color":"orange"},{"MinimumCount":3,"Color":"red"}],"SuppressedColor":"green","CriticalOutageAlwaysRed":true,"BoldOutageNames":true,"ShowDomain":true}'
+    );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'AgentAnalysisExecution')
+BEGIN
+    INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
+    VALUES
+    (
+        N'AgentAnalysisExecution',
+        N'{"Version":1,"Mode":"CopilotPrompt","TeamsWorkflowProfile":null,"ApiProfile":null}'
+    );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'AgentAnalysisContext')
+BEGIN
+    INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
+    VALUES
+    (
+        N'AgentAnalysisContext',
+        N'{"InventoryCorrelationLayers":["Domain","Role"]}'
     );
 END;
 GO
@@ -454,6 +719,36 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_AlertRules_RuleType'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AlertRules]')
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_AlertRules_RuleType]
+        ON [dbo].[AlertRules] ([RuleType])
+        WHERE [RuleType] = N'InventoryHeartbeatFreshness';
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[AlertRules]
+    WHERE [RuleType] = N'InventoryHeartbeatFreshness'
+)
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains],
+         [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName],
+         [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical], [AnalysisClassification])
+    VALUES
+        ('d7ab8e49-2cfa-4a2e-a635-964bee230001', N'Inventory heartbeat freshness', 1, 0,
+         N'InventoryHeartbeatFreshness', N'', N'', N'', 5, N'', N'',
+         0, 0, N'info', N'', 0, N'None');
+END;
+GO
+
 /*
     Seed and synchronize the built-in categorization rules. Re-running this
     script restores their required values while leaving additional rules intact.
@@ -461,7 +756,7 @@ GO
 UPDATE [dbo].[AlertRules]
 SET [Name] = N'Port failures indicate system outage',
     [Enabled] = 1,
-    [Priority] = 10,
+    [Priority] = 30,
     [RuleType] = N'Categorization',
     [InventoryRole] = N'',
     [AlertNameContains] = N'Port',
@@ -473,15 +768,72 @@ SET [Name] = N'Port failures indicate system outage',
     [ApplyToTarget] = 1,
     [Collapsed] = 0,
     [Tone] = N'failure',
-    [IsCritical] = 1
+    [IsCritical] = 1,
+    [AnalysisClassification] = N'SystemOutage'
 WHERE [Id] = '47a96c56-ccf5-4f4e-97ce-6a72bb462f91';
 
 IF @@ROWCOUNT = 0
 BEGIN
     INSERT INTO [dbo].[AlertRules]
-        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [IsCritical])
+        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [IsCritical], [AnalysisClassification])
     VALUES
-        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 10, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 0, N'failure', 1);
+        ('47a96c56-ccf5-4f4e-97ce-6a72bb462f91', N'Port failures indicate system outage', 1, 30, N'Port', N'DCPort', N'RowCountGreaterThan', 10, N'', N'System Outage', 1, 0, N'failure', 1, N'SystemOutage');
+END;
+GO
+
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'Domain controller majority indicates domain service outage',
+    [Enabled] = 1,
+    [Priority] = 10,
+    [RuleType] = N'Categorization',
+    [InventoryRole] = N'',
+    [AlertNameContains] = N'',
+    [QueryResultType] = N'',
+    [ConditionType] = N'DomainControllerPercentageInDomain',
+    [Threshold] = 50,
+    [FailedItemName] = N'',
+    [CategoryName] = N'Domain Service Outage',
+    [ApplyToTarget] = 0,
+    [Collapsed] = 0,
+    [Tone] = N'failure',
+    [IsCritical] = 1,
+    [AnalysisClassification] = N'SystemOutage'
+WHERE [Id] = 'c4c346f4-2f67-465e-94b0-c018a6de0001';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical], [AnalysisClassification])
+    VALUES
+        ('c4c346f4-2f67-465e-94b0-c018a6de0001', N'Domain controller majority indicates domain service outage', 1, 10, N'Categorization', N'', N'', N'DomainControllerPercentageInDomain', 50, N'', N'Domain Service Outage', 0, 0, N'failure', N'', 1, N'SystemOutage');
+END;
+GO
+
+UPDATE [dbo].[AlertRules]
+SET [Name] = N'All site domain controllers indicate site outage',
+    [Enabled] = 1,
+    [Priority] = 20,
+    [RuleType] = N'Categorization',
+    [InventoryRole] = N'',
+    [AlertNameContains] = N'',
+    [QueryResultType] = N'',
+    [ConditionType] = N'AllDomainControllersInSite',
+    [Threshold] = 0,
+    [FailedItemName] = N'',
+    [CategoryName] = N'Domain Service Site Outage',
+    [ApplyToTarget] = 0,
+    [Collapsed] = 0,
+    [Tone] = N'failure',
+    [IsCritical] = 1,
+    [AnalysisClassification] = N'SystemOutage'
+WHERE [Id] = 'c4c346f4-2f67-465e-94b0-c018a6de0002';
+
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical], [AnalysisClassification])
+    VALUES
+        ('c4c346f4-2f67-465e-94b0-c018a6de0002', N'All site domain controllers indicate site outage', 1, 20, N'Categorization', N'', N'', N'AllDomainControllersInSite', 0, N'', N'Domain Service Site Outage', 0, 0, N'failure', N'', 1, N'SystemOutage');
 END;
 GO
 
@@ -500,15 +852,16 @@ SET [Name] = N'Suppress isolated DFSREvent failure',
     [ApplyToTarget] = 0,
     [Collapsed] = 1,
     [Tone] = N'info',
-    [IsCritical] = 0
+    [IsCritical] = 0,
+    [AnalysisClassification] = N'Suppressed'
 WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7b8';
 
 IF @@ROWCOUNT = 0
 BEGIN
     INSERT INTO [dbo].[AlertRules]
-        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone])
+        ([Id], [Name], [Enabled], [Priority], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [AnalysisClassification])
     VALUES
-        ('d82b566a-ce6e-4201-b7b9-9a366426e7b8', N'Suppress isolated DFSREvent failure', 1, 20, N'DCDiag', N'DCDiag', N'OnlyFailedItems', 0, N'DFSREvent', N'Suppressed alerts', 0, 1, N'info');
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7b8', N'Suppress isolated DFSREvent failure', 1, 20, N'DCDiag', N'DCDiag', N'OnlyFailedItems', 0, N'DFSREvent', N'Suppressed alerts', 0, 1, N'info', N'Suppressed');
 END;
 GO
 
@@ -527,15 +880,33 @@ SET [Name] = N'Suppress healthy DCDiag results',
     [ApplyToTarget] = 0,
     [Collapsed] = 1,
     [Tone] = N'info',
-    [IsCritical] = 0
+    [IsCritical] = 0,
+    [AnalysisClassification] = N'Suppressed'
 WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7b9';
 
 IF @@ROWCOUNT = 0
 BEGIN
     INSERT INTO [dbo].[AlertRules]
-        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical])
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical], [AnalysisClassification])
     VALUES
-        ('d82b566a-ce6e-4201-b7b9-9a366426e7b9', N'Suppress healthy DCDiag results', 1, 30, N'Categorization', N'DCDiag', N'DCDiag', N'NoFailedItems', 0, N'', N'Suppressed alerts', 0, 1, N'info', N'', 0);
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7b9', N'Suppress healthy DCDiag results', 1, 30, N'Categorization', N'DCDiag', N'DCDiag', N'NoFailedItems', 0, N'', N'Suppressed alerts', 0, 1, N'info', N'', 0, N'Suppressed');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[AlertRules]
+    WHERE [Id] = 'd82b566a-ce6e-4201-b7b9-9a366426e7ba'
+)
+BEGIN
+    INSERT INTO [dbo].[AlertRules]
+        ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains],
+         [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName],
+         [ApplyToTarget], [Collapsed], [Tone], [InventoryRole], [IsCritical], [AnalysisClassification])
+    VALUES
+        ('d82b566a-ce6e-4201-b7b9-9a366426e7ba', N'Suppress healthy DCPort results', 1, 5,
+         N'Categorization', N'', N'DCPort', N'RowCountEquals', 0, N'', N'Suppressed alerts',
+         0, 1, N'info', N'', 0, N'Suppressed');
 END;
 GO
 
@@ -940,6 +1311,193 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260914101229_AddInventoryHeartbeatStatus'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260914101229_AddInventoryHeartbeatStatus', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916050733_AddAlertRuleAnalysisClassification'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916050733_AddAlertRuleAnalysisClassification', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916140000_AddAgentAnalysisExecutionSetting'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916140000_AddAgentAnalysisExecutionSetting', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916150000_AddAgentAnalysisJobs'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916150000_AddAgentAnalysisJobs', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916160000_PersistAgentAnalysisResults'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916160000_PersistAgentAnalysisResults', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916170000_AddAgentAnalysisJobIdempotency'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916170000_AddAgentAnalysisJobIdempotency', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916180000_AddAgentAnalysisReviewEvents'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916180000_AddAgentAnalysisReviewEvents', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260916190000_AddAgentAnalysisContextSetting'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260916190000_AddAgentAnalysisContextSetting', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261002100000_AddDomainServiceOutageRules'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261002100000_AddDomainServiceOutageRules', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261002104500_MarkDomainServiceOutagesCritical'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261002104500_MarkDomainServiceOutagesCritical', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261006095251_AddDCPortQueryRefresh'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261006095251_AddDCPortQueryRefresh', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261009083929_AddInventoryHeartbeatFreshnessRule'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261009083929_AddInventoryHeartbeatFreshnessRule', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261009085717_AddInventoryMaintenance'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261009085717_AddInventoryMaintenance', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261009102400_AddHealthyDCPortSuppressionRule'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261009102400_AddHealthyDCPortSuppressionRule', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261009114000_AddInboxTargetOutputDisplaySetting'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261009114000_AddInboxTargetOutputDisplaySetting', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261012123712_AddInventoryHeartbeatDetails'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261012123712_AddInventoryHeartbeatDetails', N'10.0.11');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -980,7 +1538,8 @@ SELECT
     [Collapsed],
     [Tone],
     [InventoryRole],
-    [IsCritical]
+    [IsCritical],
+    [AnalysisClassification]
 FROM [dbo].[AlertRules]
 ORDER BY [Priority], [Name];
 GO

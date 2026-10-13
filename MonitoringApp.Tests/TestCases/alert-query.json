@@ -3,9 +3,9 @@
     "name": "Test alert",
     "severity": "Sev2",
     "signalType": "Metric",
-    "target": "/subscriptions/demo-subscription/resourceGroups/rg-demo/providers/Microsoft.Compute/virtualMachines/fallback",
-    "resourceGroup": "rg-demo",
-    "subscriptionId": "demo-subscription",
+    "target": "/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.Compute/virtualMachines/DC-ORION-07",
+    "resourceGroup": "rg-demo-directory",
+    "subscriptionId": "demo-subscription-a",
     "description": "Test description"
   },
   "activeQuery": {

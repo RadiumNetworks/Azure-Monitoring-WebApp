@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,7 @@ public sealed record AlertRecord(
     string RawJson)
 {
     public AlertDisplayIdentity? DisplayIdentity { get; init; }
+    public DateTimeOffset? QueryResultRefreshedAt { get; init; }
     public string TargetName => DisplayIdentity?.TargetName ?? GetTargetName(GetConfigurationItem() ?? Target);
     public string SiteName => DisplayIdentity?.SiteName ?? string.Empty;
     public string TargetDisplayName => string.IsNullOrWhiteSpace(SiteName)
@@ -201,6 +203,37 @@ public sealed record AlertRecord(
 public sealed record AddAlertResult(AlertRecord Alert, bool Created, bool Suppressed = false);
 
 /// <summary>
+/// Identifies one active alert that can receive a scheduled query-result refresh.
+/// </summary>
+public sealed record AlertQueryRefreshTarget(
+    Guid Id,
+    string AlertId,
+    string Type,
+    string DimensionName,
+    string DimensionValue);
+
+/// <summary>
+/// Describes the persistence outcome of an alert query-result refresh.
+/// </summary>
+public enum AlertQueryRefreshUpdateStatus
+{
+    Updated,
+    Unchanged,
+    NotFound,
+    NotActive,
+    TypeMismatch,
+    DimensionMismatch,
+    Stale
+}
+
+/// <summary>
+/// Reports the outcome and current refresh time for an alert query-result update.
+/// </summary>
+public sealed record AlertQueryRefreshUpdateResult(
+    AlertQueryRefreshUpdateStatus Status,
+    DateTimeOffset? QueryResultRefreshedAt);
+
+/// <summary>
 /// Summarizes an inventory prefill operation based on recently received alerts.
 /// </summary>
 public sealed record ComputerInventoryPrefillResult(
@@ -289,6 +322,15 @@ public sealed class AlertStore
         var normalized = NormalizeAndValidateRule(rule);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        if (normalized.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness &&
+            await context.AlertRules.AnyAsync(
+                candidate => candidate.Id != normalized.Id &&
+                    candidate.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness,
+                cancellationToken))
+        {
+            throw new InvalidOperationException("Only one global inventory heartbeat freshness rule is allowed. Edit the existing rule.");
+        }
+
         var duplicateName = await context.AlertRules.AnyAsync(
             candidate => candidate.Id != normalized.Id && candidate.Name == normalized.Name,
             cancellationToken);
@@ -318,7 +360,7 @@ public sealed class AlertStore
         {
             logger.LogError(exception, "Failed to save alert rule {AlertRuleId}.", normalized.Id);
             throw new InvalidOperationException(
-                "The alert rule could not be saved. Verify that its name is unique and try again.",
+                "The alert rule could not be saved. Verify that its name is unique, that there is only one inventory heartbeat freshness rule, and try again.",
                 exception);
         }
 
@@ -656,6 +698,7 @@ public sealed class AlertStore
         stored.Site = normalized.Site;
         stored.ResourceGroup = normalized.ResourceGroup;
         stored.Role = normalized.Role;
+        stored.Maintenance = normalized.Maintenance;
 
         try
         {
@@ -748,7 +791,8 @@ public sealed class AlertStore
             Collapsed = source.Collapsed,
             Tone = source.Tone.Trim().ToLowerInvariant(),
             InventoryRole = source.InventoryRole.Trim(),
-            IsCritical = source.IsCritical
+            IsCritical = source.IsCritical,
+            AnalysisClassification = source.AnalysisClassification.Trim()
         };
 
         if (string.IsNullOrWhiteSpace(rule.Name) || rule.Name.Length > 256)
@@ -756,9 +800,31 @@ public sealed class AlertStore
             throw new InvalidOperationException("Rule name is required and may contain at most 256 characters.");
         }
 
-        if (rule.RuleType is not (AlertRuleTypes.Categorization or AlertRuleTypes.Suppression or AlertRuleTypes.InventoryRoleAssignment or AlertRuleTypes.InventoryStatus))
+        if (rule.RuleType is not (AlertRuleTypes.Categorization or AlertRuleTypes.Suppression or AlertRuleTypes.InventoryRoleAssignment or AlertRuleTypes.InventoryStatus or AlertRuleTypes.InventoryHeartbeatFreshness))
         {
             throw new InvalidOperationException("Select a supported rule type.");
+        }
+
+        if (rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
+        {
+            if (rule.Threshold < 1)
+            {
+                throw new InvalidOperationException("The inventory heartbeat freshness limit must be at least 1 minute.");
+            }
+
+            rule.Priority = 0;
+            rule.AlertNameContains = string.Empty;
+            rule.QueryResultType = string.Empty;
+            rule.ConditionType = string.Empty;
+            rule.FailedItemName = string.Empty;
+            rule.CategoryName = string.Empty;
+            rule.InventoryRole = string.Empty;
+            rule.ApplyToTarget = false;
+            rule.Collapsed = false;
+            rule.Tone = "info";
+            rule.IsCritical = false;
+            rule.AnalysisClassification = AlertRuleAnalysisClassifications.None;
+            return rule;
         }
 
         if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
@@ -781,10 +847,20 @@ public sealed class AlertStore
             rule.Collapsed = false;
             rule.Tone = "info";
             rule.IsCritical = false;
+            rule.AnalysisClassification = AlertRuleAnalysisClassifications.None;
             return rule;
         }
 
         rule.InventoryRole = string.Empty;
+        if (rule.RuleType == AlertRuleTypes.Categorization &&
+            rule.AnalysisClassification is not (
+                AlertRuleAnalysisClassifications.None or
+                AlertRuleAnalysisClassifications.SystemOutage or
+                AlertRuleAnalysisClassifications.Suppressed))
+        {
+            throw new InvalidOperationException("Select a supported analysis classification.");
+        }
+
         if (rule.RuleType == AlertRuleTypes.Categorization &&
             (string.IsNullOrWhiteSpace(rule.CategoryName) || rule.CategoryName.Length > 256))
         {
@@ -805,6 +881,7 @@ public sealed class AlertStore
             rule.Collapsed = false;
             rule.Tone = "info";
             rule.IsCritical = false;
+            rule.AnalysisClassification = AlertRuleAnalysisClassifications.None;
         }
 
         if (rule.Priority < 0)
@@ -827,7 +904,7 @@ public sealed class AlertStore
             rule.Threshold = 0;
             rule.FailedItemName = string.Empty;
         }
-        else if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+        else if (rule.ConditionType is AlertRuleConditionTypes.RowCountGreaterThan or AlertRuleConditionTypes.RowCountEquals)
         {
             if (rule.Threshold < 0)
             {
@@ -861,6 +938,36 @@ public sealed class AlertStore
             rule.Threshold = 0;
             rule.FailedItemName = string.Empty;
         }
+        else if (rule.ConditionType == AlertRuleConditionTypes.DomainControllerPercentageInDomain)
+        {
+            if (rule.RuleType != AlertRuleTypes.Categorization)
+            {
+                throw new InvalidOperationException("The domain outage condition is supported only for categorization rules.");
+            }
+
+            if (rule.Threshold is < 0 or > 100)
+            {
+                throw new InvalidOperationException("The domain-controller percentage must be between 0 and 100.");
+            }
+
+            rule.AlertNameContains = string.Empty;
+            rule.QueryResultType = string.Empty;
+            rule.FailedItemName = string.Empty;
+            rule.ApplyToTarget = false;
+        }
+        else if (rule.ConditionType == AlertRuleConditionTypes.AllDomainControllersInSite)
+        {
+            if (rule.RuleType != AlertRuleTypes.Categorization)
+            {
+                throw new InvalidOperationException("The site outage condition is supported only for categorization rules.");
+            }
+
+            rule.AlertNameContains = string.Empty;
+            rule.QueryResultType = string.Empty;
+            rule.Threshold = 0;
+            rule.FailedItemName = string.Empty;
+            rule.ApplyToTarget = false;
+        }
         else
         {
             throw new InvalidOperationException("Select a supported condition type.");
@@ -891,6 +998,7 @@ public sealed class AlertStore
         destination.Tone = source.Tone;
         destination.InventoryRole = source.InventoryRole;
         destination.IsCritical = source.IsCritical;
+        destination.AnalysisClassification = source.AnalysisClassification;
     }
 
     private static string? NormalizeOptionalInventoryValue(string? value, int maximumLength, string fieldName)
@@ -918,7 +1026,8 @@ public sealed class AlertStore
             Domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain"),
             Site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site"),
             ResourceGroup = NormalizeOptionalInventoryValue(entry.ResourceGroup, 256, "Resource group"),
-            Role = NormalizeOptionalInventoryValue(entry.Role, 256, "Role")
+            Role = NormalizeOptionalInventoryValue(entry.Role, 256, "Role"),
+            Maintenance = entry.Maintenance
         };
 
         if (string.IsNullOrWhiteSpace(normalized.SubscriptionId) || normalized.SubscriptionId.Length > 64)
@@ -952,9 +1061,18 @@ public sealed class AlertStore
                 .AsNoTracking()
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
+            var refreshTimes = await context.ParsedAlerts
+                .AsNoTracking()
+                .Where(record => record.QueryResultRefreshedAt != null)
+                .ToDictionaryAsync(
+                    record => record.Id,
+                    record => record.QueryResultRefreshedAt,
+                    cancellationToken);
             return alerts
                 .Where(alert => !InventoryHeartbeatBatch.IsInventoryHeartbeat(alert))
-                .Select(ResolveDisplayIdentity)
+                .Select(alert => ResolveDisplayIdentity(
+                    alert,
+                    refreshTimes.GetValueOrDefault(alert.Id)))
                 .ToArray();
         }
         catch (Exception exception)
@@ -985,9 +1103,19 @@ public sealed class AlertStore
                 .Where(alert => alert.ReceivedAt >= since)
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
+            var alertIds = alerts.Select(alert => alert.Id).ToArray();
+            var refreshTimes = await context.ParsedAlerts
+                .AsNoTracking()
+                .Where(record => alertIds.Contains(record.Id) && record.QueryResultRefreshedAt != null)
+                .ToDictionaryAsync(
+                    record => record.Id,
+                    record => record.QueryResultRefreshedAt,
+                    cancellationToken);
             return alerts
                 .Where(alert => !InventoryHeartbeatBatch.IsInventoryHeartbeat(alert))
-                .Select(ResolveDisplayIdentity)
+                .Select(alert => ResolveDisplayIdentity(
+                    alert,
+                    refreshTimes.GetValueOrDefault(alert.Id)))
                 .ToArray();
         }
         catch (Exception exception)
@@ -995,6 +1123,243 @@ public sealed class AlertStore
             logger.LogError(exception, "Failed to load recent alerts from the database.");
             return [];
         }
+    }
+
+    /// <summary>
+    /// Returns active fired alerts of one supported type and the validated dimension required by the scheduled query.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertQueryRefreshTarget>> GetActiveAlertQueryRefreshTargetsAsync(
+        string type,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDatabaseIsConfigured();
+        if (!AlertQueryRefresh.TryGetDefinition(type, out var requestedDefinition))
+        {
+            throw new ArgumentException("The query-result type is not supported.", nameof(type));
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var lifecycleAlerts = await context.Alerts
+                .AsNoTracking()
+                .Where(alert => !string.IsNullOrWhiteSpace(alert.AlertId))
+                .ToArrayAsync(cancellationToken);
+            var activeAlerts = AlertLifecycle.GetActiveAlerts(lifecycleAlerts);
+            var activeIds = activeAlerts.Select(alert => alert.Id).ToArray();
+            if (activeIds.Length == 0)
+            {
+                return [];
+            }
+
+            var parsedAlerts = await context.ParsedAlerts
+                .AsNoTracking()
+                .Where(record => activeIds.Contains(record.Id))
+                .ToDictionaryAsync(record => record.Id, cancellationToken);
+
+            return activeAlerts
+                .Select(alert =>
+                {
+                    if (!parsedAlerts.TryGetValue(alert.Id, out var parsed) ||
+                            !AlertQueryRefresh.TryReadContext(
+                                parsed.QueryResults,
+                                out var storedDefinition,
+                                out var storedDimensionValue) ||
+                            !storedDefinition.Type.Equals(
+                                requestedDefinition.Type,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            return null;
+                        }
+
+                        var dimensionValue = string.IsNullOrWhiteSpace(storedDimensionValue)
+                            ? alert.GetDimensionValue(requestedDefinition.DimensionName) ?? string.Empty
+                            : storedDimensionValue;
+                        return AlertQueryRefresh.IsSafeDimensionValue(dimensionValue)
+                            ? new AlertQueryRefreshTarget(
+                                alert.Id,
+                                alert.AlertId,
+                                requestedDefinition.Type,
+                                requestedDefinition.DimensionName,
+                                dimensionValue.Trim())
+                            : null;
+                    })
+                    .Where(target => target is not null)
+                    .Cast<AlertQueryRefreshTarget>()
+                    .OrderBy(target => target.DimensionValue, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(target => target.Id)
+                    .ToArray();
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Failed to load active {QueryResultType} query-refresh targets.",
+                    requestedDefinition.Type);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Atomically replaces a supported query result for an existing active alert without creating a new alert event.
+        /// </summary>
+            public async Task<AlertQueryRefreshUpdateResult> UpdateAlertQueryResultAsync(
+                Guid id,
+                UpdateAlertQueryResultRequest request,
+                CancellationToken cancellationToken = default)
+            {
+                EnsureDatabaseIsConfigured();
+                if (!AlertQueryRefresh.TryGetDefinition(request.Type, out var requestedDefinition))
+                {
+                    return new AlertQueryRefreshUpdateResult(
+                        AlertQueryRefreshUpdateStatus.TypeMismatch,
+                        null);
+                }
+
+                try
+            {
+                await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+                var strategy = strategyContext.Database.CreateExecutionStrategy();
+                var result = await strategy.ExecuteAsync(async () =>
+                {
+                    await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+                    await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                        IsolationLevel.Serializable,
+                        cancellationToken);
+
+                    var parsedAlert = await dbContext.ParsedAlerts
+                        .Include(record => record.Alert)
+                        .FirstOrDefaultAsync(record => record.Id == id, cancellationToken);
+                    if (parsedAlert is null)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(AlertQueryRefreshUpdateStatus.NotFound, null);
+                    }
+
+                    if (!AlertQueryRefresh.TryReadContext(
+                            parsedAlert.QueryResults,
+                            out var storedDefinition,
+                            out var storedDimensionValue) ||
+                        !storedDefinition.Type.Equals(
+                            requestedDefinition.Type,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.TypeMismatch,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    var expectedDimensionValue = string.IsNullOrWhiteSpace(storedDimensionValue)
+                        ? parsedAlert.Alert.GetDimensionValue(requestedDefinition.DimensionName) ?? string.Empty
+                        : storedDimensionValue;
+                    if (!requestedDefinition.DimensionName.Equals(
+                            request.DimensionName,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        !expectedDimensionValue.Equals(
+                            request.DimensionValue.Trim(),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.DimensionMismatch,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    var lifecycleAlerts = await dbContext.Alerts
+                        .AsNoTracking()
+                        .Where(alert => alert.AlertId == parsedAlert.AlertId)
+                        .ToArrayAsync(cancellationToken);
+                    var isActive = AlertLifecycle.GetActiveAlerts(lifecycleAlerts)
+                        .Any(alert => alert.Id == id);
+                    if (!isActive)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.NotActive,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    if (parsedAlert.QueryResultRefreshedAt > request.QueryExecutedAt)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.Stale,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    var queryResultJson = AlertQueryRefresh.CreateQueryResultJson(request);
+                    if (parsedAlert.QueryResultRefreshedAt == request.QueryExecutedAt &&
+                        JsonNode.DeepEquals(
+                            JsonNode.Parse(parsedAlert.QueryResults),
+                            JsonNode.Parse(queryResultJson)))
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.Unchanged,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    if (parsedAlert.QueryResultRefreshedAt == request.QueryExecutedAt)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.Stale,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    string updatedRawJson;
+                    try
+                    {
+                        updatedRawJson = AlertQueryRefresh.ReplaceQueryResult(
+                            parsedAlert.Alert.RawJson,
+                            queryResultJson);
+                    }
+                    catch (JsonException)
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return new AlertQueryRefreshUpdateResult(
+                            AlertQueryRefreshUpdateStatus.TypeMismatch,
+                            parsedAlert.QueryResultRefreshedAt);
+                    }
+
+                    parsedAlert.QueryResults = queryResultJson;
+                    parsedAlert.QueryResultRefreshedAt = request.QueryExecutedAt;
+                    await dbContext.Alerts
+                        .Where(alert => alert.Id == id)
+                        .ExecuteUpdateAsync(
+                            setters => setters.SetProperty(alert => alert.RawJson, updatedRawJson),
+                            cancellationToken);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+
+                    logger.LogInformation(
+                        "Updated {QueryResultType} query result for alert {AlertId} with {RowCount} rows from query time {QueryExecutedAt}.",
+                        requestedDefinition.Type,
+                        parsedAlert.AlertId,
+                        request.RowCount,
+                        request.QueryExecutedAt);
+                    return new AlertQueryRefreshUpdateResult(
+                        AlertQueryRefreshUpdateStatus.Updated,
+                        request.QueryExecutedAt);
+                });
+
+                if (result.Status == AlertQueryRefreshUpdateStatus.Updated)
+                {
+                    Changed?.Invoke();
+                }
+
+                return result;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Failed to update {QueryResultType} query result for alert record {AlertRecordId}.",
+                    requestedDefinition.Type,
+                    id);
+                throw;
+            }
     }
 
     /// <summary>
@@ -1044,7 +1409,9 @@ public sealed class AlertStore
                     inventory?.Site ?? string.Empty,
                     inventory?.Domain ?? string.Empty,
                         inventory?.Role ?? string.Empty,
-                        inventory?.LastHeartbeatAt);
+                        inventory?.LastHeartbeatAt,
+                        Maintenance: inventory?.Maintenance ?? false,
+                        HasServiceHealthAlert: inventory?.HasServiceHealthAlert ?? false);
                     });
                     var inventoryRecords = inventoryEntries.Select(entry => new AlertGraphRecord(
                     Guid.NewGuid(),
@@ -1060,7 +1427,9 @@ public sealed class AlertStore
                     entry.Domain ?? string.Empty,
                     entry.Role ?? string.Empty,
                     entry.LastHeartbeatAt,
-                    true));
+                    true,
+                    entry.Maintenance,
+                    entry.HasServiceHealthAlert));
 
                     return alertRecords.Concat(inventoryRecords).ToArray();
         }
@@ -1089,6 +1458,8 @@ public sealed class AlertStore
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
             await BackfillMissingParsedAlertsAsync(context, cancellationToken);
+            await SynchronizeParsedAlertLifecyclesAsync(context, null, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
             var records = await context.ParsedAlerts
                 .AsNoTracking()
                 .Include(record => record.Alert)
@@ -1238,7 +1609,7 @@ public sealed class AlertStore
                 .Where(alert => alert.ReceivedAt >= since)
                 .OrderByDescending(alert => alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
-            return alerts.Select(ResolveDisplayIdentity).ToArray();
+            return alerts.Select(alert => ResolveDisplayIdentity(alert)).ToArray();
         }
         catch (Exception exception)
         {
@@ -1440,8 +1811,13 @@ public sealed class AlertStore
                             SubscriptionId = observation.SubscriptionId,
                             Computer = observation.Computer,
                             Domain = observation.Domain,
+                            Site = observation.Site,
                             PrivateIP = observation.PrivateIP,
-                            LastHeartbeatAt = observation.LastHeartbeatAt
+                            LastHeartbeatAt = observation.LastHeartbeatAt,
+                            NtdsFileSizeInGb = observation.NtdsFileSizeInGb,
+                            CertificatesJson = observation.CertificatesJson ?? "[]",
+                            ServicesJson = observation.ServicesJson ?? "[]",
+                            Role = observation.IsDomainController ? "Domain Controller" : null
                         });
                         hasChanges = true;
                         continue;
@@ -1458,6 +1834,44 @@ public sealed class AlertStore
                         !string.Equals(stored.PrivateIP, observation.PrivateIP, StringComparison.OrdinalIgnoreCase))
                     {
                         stored.PrivateIP = observation.PrivateIP;
+                        hasChanges = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(observation.Site) &&
+                        !string.Equals(stored.Site, observation.Site, StringComparison.OrdinalIgnoreCase))
+                    {
+                        stored.Site = observation.Site;
+                        hasChanges = true;
+                    }
+
+                    if (observation.HasNtdsFileSizeData &&
+                        stored.NtdsFileSizeInGb != observation.NtdsFileSizeInGb)
+                    {
+                        stored.NtdsFileSizeInGb = observation.NtdsFileSizeInGb;
+                        hasChanges = true;
+                    }
+
+                    if (observation.CertificatesJson is not null &&
+                        !string.Equals(
+                        stored.CertificatesJson,
+                        observation.CertificatesJson,
+                        StringComparison.Ordinal))
+                    {
+                        stored.CertificatesJson = observation.CertificatesJson;
+                        hasChanges = true;
+                    }
+
+                    if (observation.ServicesJson is not null &&
+                        !string.Equals(stored.ServicesJson, observation.ServicesJson, StringComparison.Ordinal))
+                    {
+                        stored.ServicesJson = observation.ServicesJson;
+                        hasChanges = true;
+                    }
+
+                    if (observation.IsDomainController &&
+                        !string.Equals(stored.Role, "Domain Controller", StringComparison.OrdinalIgnoreCase))
+                    {
+                        stored.Role = "Domain Controller";
                         hasChanges = true;
                     }
 
@@ -1515,17 +1929,23 @@ public sealed class AlertStore
                 rule.IsCritical)
             .OrderBy(rule => rule.Priority)
             .ToArrayAsync(cancellationToken);
+        var hasAggregateRules = criticalRules.Any(rule => rule.ConditionType is
+            AlertRuleConditionTypes.DomainControllerPercentageInDomain or
+            AlertRuleConditionTypes.AllDomainControllersInSite);
 
         var query = context.ParsedAlerts
             .Include(record => record.Alert)
             .AsQueryable();
-        if (!string.IsNullOrWhiteSpace(alertId))
+        if (!hasAggregateRules && !string.IsNullOrWhiteSpace(alertId))
         {
             query = query.Where(record => record.AlertId == alertId);
         }
 
         var parsedAlerts = await query.ToArrayAsync(cancellationToken);
-        ParsedAlertLifecycle.Synchronize(parsedAlerts, criticalRules, alertRuleEvaluator);
+        var inventory = hasAggregateRules
+            ? await context.ComputerInventory.AsNoTracking().ToArrayAsync(cancellationToken)
+            : [];
+        ParsedAlertLifecycle.Synchronize(parsedAlerts, criticalRules, alertRuleEvaluator, inventory);
     }
 
     /// <summary>
@@ -1624,8 +2044,14 @@ public sealed class AlertStore
         }
     }
 
-    private AlertRecord ResolveDisplayIdentity(AlertRecord alert) =>
-        alert with { DisplayIdentity = queryResultPresenter.ResolveIdentity(alert) };
+    private AlertRecord ResolveDisplayIdentity(
+        AlertRecord alert,
+        DateTimeOffset? queryResultRefreshedAt = null) =>
+        alert with
+        {
+            DisplayIdentity = queryResultPresenter.ResolveIdentity(alert),
+            QueryResultRefreshedAt = queryResultRefreshedAt
+        };
 
     /// <summary>
     /// Trims and updates operator comments for one alert record. It returns false when the record no longer exists and rejects comments longer than 4,000 characters.

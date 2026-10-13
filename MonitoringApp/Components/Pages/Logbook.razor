@@ -1,6 +1,8 @@
 @page "/logbook"
 @rendermode InteractiveServer
 @inject LogbookStore LogbookStore
+@inject ApplicationAuthenticationOptions ApplicationAuthentication
+@inject CurrentUserIdentity CurrentUserIdentity
 
 <PageTitle>Logbook</PageTitle>
 
@@ -103,7 +105,9 @@
     protected override async Task OnInitializedAsync()
     {
         var authenticationState = await AuthenticationStateTask;
-        currentUser = authenticationState.User.Identity?.Name?.Trim() ?? string.Empty;
+        currentUser = CurrentUserIdentity.GetActor(
+            authenticationState.User,
+            ApplicationAuthentication.IsOpen);
         await LoadEntriesAsync();
     }
 

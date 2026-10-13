@@ -20,34 +20,34 @@
   ],
   "correlatedAlerts": [
     {
-      "alertId": "demo-heartbeat-orion-07",
+      "alertId": "agent-demo-primary-heartbeat",
       "alertName": "Directory Server Heartbeat",
       "targetName": "DC-ORION-07 (Northbridge)",
       "resultContains": ["1 heartbeat record", "DC-ORION-07", "Northbridge"]
     },
     {
-      "alertId": "demo-dcdiag-orion-07",
-      "alertName": "Northwind Directory Health",
+      "alertId": "agent-demo-primary-dcdiag",
+      "alertName": "Directory Health",
       "targetName": "DC-ORION-07 (Northbridge)",
-      "resultContains": ["3 failed", "Connectivity Failed", "DNS Failed", "Replications Failed"]
+      "resultContains": ["5 passed", "1 failed", "DNS Failed"]
     },
     {
-      "alertId": "demo-replication-atlas-to-orion",
+      "alertId": "agent-demo-primary-replication",
       "alertName": "Directory Replication Delay",
       "targetName": "DC-ATLAS-12 (Cedarfield)",
       "resultContains": ["4 failures", "DC-ATLAS-12 to DC-ORION-07", "Northbridge", "Error status 1722"]
     },
     {
-      "alertId": "demo-dcport-atlas-to-orion",
+      "alertId": "agent-demo-primary-dcport",
       "alertName": "Domain Controller Port Monitoring",
       "targetName": "DC-ORION-07 (Northbridge)",
-      "resultContains": ["4 failed checks", "Source DC-ATLAS-12", "Port 135", "Port 389", "Port 445"]
+      "resultContains": ["11 failed checks", "Source DC-ATLAS-12", "Port 135", "Port 389", "Port 445"]
     }
   ],
   "graph": {
-    "layer1Options": ["Subscription"],
-    "layer2Options": ["AlertName", "Resourcegroup", "Site"],
-    "layer3Options": ["Target"],
+    "layer1Options": ["Subscription", "Resourcegroup", "Domain", "Role"],
+    "layer2Options": ["AlertName", "Resourcegroup", "Site", "Domain", "Role"],
+    "layer3Options": ["Target", "Site", "Domain", "Role"],
     "selectedLayer2": "AlertName"
   },
   "graphTopology": {

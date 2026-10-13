@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Administration</p>
         <h1>Alert rules</h1>
-        <p class="subtitle">Manage database rules that categorize or suppress inbox alerts and assign roles to discovered computers.</p>
+        <p class="subtitle">Manage database rules that categorize or suppress inbox alerts, assign inventory roles, and configure global heartbeat freshness.</p>
     </div>
     <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
 </section>
@@ -68,7 +68,10 @@
                                     </div>
                                 </div>
                                 <dl class="admin-rule-summary">
-                                    <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                                    @if (rule.RuleType != AlertRuleTypes.InventoryHeartbeatFreshness)
+                                    {
+                                        <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                                    }
                                     <div><dt>Type</dt><dd>@RuleTypeLabel(rule)</dd></div>
                                     <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
                                     @if (rule.RuleType == AlertRuleTypes.Categorization)
@@ -76,6 +79,13 @@
                                         <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
                                         <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
                                         <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
+                                        <div><dt>Analysis classification</dt><dd>@AnalysisClassificationLabel(rule.AnalysisClassification)</dd></div>
+                                    }
+                                    else if (rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
+                                    {
+                                        <div><dt>Scope</dt><dd>All inventory targets</dd></div>
+                                        <div><dt>Heartbeat freshness</dt><dd>@rule.Threshold minutes</dd></div>
+                                        <div><dt>Default when disabled or deleted</dt><dd>@InventoryHeartbeatFreshnessRule.DefaultMinutes minutes</dd></div>
                                     }
                                     else if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
                                     {
@@ -119,11 +129,14 @@
                     <small>A unique name used to identify this rule.</small>
                 </label>
 
+                @if (rule.RuleType != AlertRuleTypes.InventoryHeartbeatFreshness)
+                {
                 <label class="admin-field">
                     <span>Priority</span>
                     <input type="number" min="0" required @bind="rule.Priority" />
                     <small>Lower values are evaluated first.</small>
                 </label>
+                }
 
                 <label class="admin-check">
                     <input type="checkbox" @bind="rule.Enabled" />
@@ -132,14 +145,29 @@
 
                 <label class="admin-field admin-field-wide">
                     <span>Rule type</span>
-                    <select @bind="rule.RuleType">
+                    <select @bind="rule.RuleType" @bind:after="RuleTypeChanged">
                         <option value="@AlertRuleTypes.Categorization">Categorize inbox alerts</option>
                         <option value="@AlertRuleTypes.Suppression">Suppress from inbox after inventory update</option>
                         <option value="@AlertRuleTypes.InventoryStatus">Update inventory status without storing the alert</option>
                         <option value="@AlertRuleTypes.InventoryRoleAssignment">Assign computer inventory role</option>
+                        <option value="@AlertRuleTypes.InventoryHeartbeatFreshness" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness && existing.Id != rule.Id)">Inventory heartbeat freshness (global)</option>
                     </select>
                 </label>
 
+                @if (rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
+                {
+                    <fieldset class="admin-fieldset">
+                        <legend>Global inventory heartbeat freshness</legend>
+                        <label class="admin-field admin-field-wide">
+                            <span>Heartbeat freshness limit (minutes)</span>
+                            <input type="number" min="1" required @bind="rule.Threshold" />
+                            <small>Applies to all targets without open alerts. Heartbeats up to this age are current (green); older or missing heartbeats are stale (yellow). Changes take effect immediately without a restart.</small>
+                            <small>Only one global rule is allowed. Disabling or deleting it restores the default of @InventoryHeartbeatFreshnessRule.DefaultMinutes minutes.</small>
+                        </label>
+                    </fieldset>
+                }
+                else
+                {
                 <fieldset class="admin-fieldset">
                     <legend>Alert matching</legend>
                     <label class="admin-field">
@@ -162,16 +190,32 @@
                                     <option value="@AlertRuleConditionTypes.AnyMatchingAlert">Any alert matching the name and optional query type</option>
                                 }
                                 <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
+                                <option value="@AlertRuleConditionTypes.RowCountEquals">Row count equals threshold</option>
                                 <option value="@AlertRuleConditionTypes.OnlyFailedItems">Only the specified items failed</option>
                                 <option value="@AlertRuleConditionTypes.NoFailedItems">No failed items are shown</option>
+                                @if (rule.RuleType == AlertRuleTypes.Categorization)
+                                {
+                                    <option value="@AlertRuleConditionTypes.DomainControllerPercentageInDomain">More than a percentage of DCs in a domain have alerts</option>
+                                    <option value="@AlertRuleConditionTypes.AllDomainControllersInSite">All DCs in a site have alerts</option>
+                                }
                             </select>
                         </label>
-                        @if (rule.ConditionType == AlertRuleConditionTypes.RowCountGreaterThan)
+                        @if (rule.ConditionType is AlertRuleConditionTypes.RowCountGreaterThan or AlertRuleConditionTypes.RowCountEquals)
                         {
                             <label class="admin-field admin-field-wide">
                                 <span>Row-count threshold</span>
                                 <input type="number" min="0" required @bind="rule.Threshold" />
-                                <small>The rule matches only when the result contains more rows than this value.</small>
+                                <small>@(rule.ConditionType == AlertRuleConditionTypes.RowCountEquals
+                                    ? "The rule matches only when the result contains exactly this many rows. Use 0 for no failed DCPort checks."
+                                    : "The rule matches only when the result contains more rows than this value.")</small>
+                            </label>
+                        }
+                        else if (rule.ConditionType == AlertRuleConditionTypes.DomainControllerPercentageInDomain)
+                        {
+                            <label class="admin-field admin-field-wide">
+                                <span>Domain-controller percentage</span>
+                                <input type="number" min="0" max="100" required @bind="rule.Threshold" />
+                                <small>The rule matches when the percentage of DCs with active alerts is strictly greater than this value.</small>
                             </label>
                         }
                         else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItems)
@@ -192,6 +236,7 @@
                         </label>
                     }
                 </fieldset>
+                }
 
                 @if (rule.RuleType == AlertRuleTypes.Categorization)
                 {
@@ -207,6 +252,15 @@
                             <option value="info">Information</option>
                             <option value="failure">Failure</option>
                         </select>
+                    </label>
+                    <label class="admin-field">
+                        <span>Analysis classification</span>
+                        <select @bind="rule.AnalysisClassification">
+                            <option value="@AlertRuleAnalysisClassifications.None">Standard categorization</option>
+                            <option value="@AlertRuleAnalysisClassifications.SystemOutage">System outage</option>
+                            <option value="@AlertRuleAnalysisClassifications.Suppressed">Stored suppressed evidence</option>
+                        </select>
+                        <small>Stable meaning used by analysis independently of the editable category name.</small>
                     </label>
                     <div class="admin-check-group">
                         <label class="admin-check">
@@ -244,7 +298,9 @@
             <h2 id="delete-rule-heading">Delete alert rule?</h2>
             <p>
                 Delete <strong>@ruleToDelete.Name</strong>?
-                @(ruleToDelete.RuleType == AlertRuleTypes.InventoryRoleAssignment
+                @(ruleToDelete.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness
+                    ? $"All targets will use the default heartbeat freshness limit of {InventoryHeartbeatFreshnessRule.DefaultMinutes} minutes."
+                    : ruleToDelete.RuleType == AlertRuleTypes.InventoryRoleAssignment
                     ? "Matching alerts will no longer assign the inventory role."
                     : ruleToDelete.RuleType == AlertRuleTypes.Suppression
                         ? "Future matching alerts will be stored and shown in the inbox again."
@@ -314,6 +370,14 @@
         isCreating = false;
         statusMessage = null;
         errorMessage = null;
+    }
+
+    private void RuleTypeChanged()
+    {
+        if (editingRule?.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
+        {
+            editingRule.Threshold = InventoryHeartbeatFreshnessRule.DefaultMinutes;
+        }
     }
 
     private bool IsExpanded(AlertRule rule) => expandedRules.Contains(rule.Id);
@@ -427,26 +491,40 @@
         Collapsed = source.Collapsed,
         Tone = source.Tone,
         InventoryRole = source.InventoryRole,
-        IsCritical = source.IsCritical
+        IsCritical = source.IsCritical,
+        AnalysisClassification = source.AnalysisClassification
     };
 
-    private static string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryRoleAssignment
+    private static string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness
+        ? $"Heartbeat older than {rule.Threshold} minutes or missing"
+        : rule.RuleType == AlertRuleTypes.InventoryRoleAssignment
         ? $"{(string.IsNullOrWhiteSpace(rule.QueryResultType) ? "Matching alert" : rule.QueryResultType)} → {rule.InventoryRole}"
         : rule.ConditionType switch
     {
         AlertRuleConditionTypes.AnyMatchingAlert => "Any matching alert",
         AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
+        AlertRuleConditionTypes.RowCountEquals => $"Exactly {rule.Threshold} rows",
         AlertRuleConditionTypes.OnlyFailedItems => $"Only {rule.FailedItemName} failed",
         AlertRuleConditionTypes.NoFailedItems => "No failed items shown",
+        AlertRuleConditionTypes.DomainControllerPercentageInDomain => $"More than {rule.Threshold}% of DCs in domain have alerts",
+        AlertRuleConditionTypes.AllDomainControllersInSite => "All DCs in site have alerts",
         _ => rule.ConditionType
     };
 
     private static string RuleTypeLabel(AlertRule rule) => rule.RuleType switch
     {
+        AlertRuleTypes.InventoryHeartbeatFreshness => "Inventory heartbeat freshness",
         AlertRuleTypes.InventoryRoleAssignment => "Inventory role",
         AlertRuleTypes.InventoryStatus => "Inventory status",
         AlertRuleTypes.Suppression => "Inbox suppression",
         _ => "Categorization"
+    };
+
+    private static string AnalysisClassificationLabel(string value) => value switch
+    {
+        AlertRuleAnalysisClassifications.SystemOutage => "System outage",
+        AlertRuleAnalysisClassifications.Suppressed => "Stored suppressed evidence",
+        _ => "Standard categorization"
     };
 
     private static string RuleCountLabel(int count) => count == 1 ? "1 configured rule" : $"{count} configured rules";

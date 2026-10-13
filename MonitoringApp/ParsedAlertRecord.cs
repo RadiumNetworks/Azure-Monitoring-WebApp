@@ -14,6 +14,7 @@ public sealed class ParsedAlertRecord
     public string Dimensions { get; set; } = "[]";
     public string SearchQuery { get; set; } = string.Empty;
     public string QueryResults { get; set; } = "{}";
+    public DateTimeOffset? QueryResultRefreshedAt { get; set; }
     public string AlertName { get; set; } = string.Empty;
     public string ResourceGroup { get; set; } = string.Empty;
     public bool IsCritical { get; set; }

@@ -74,6 +74,15 @@ var applicationAuthentication = databaseSettings.Authentication;
 var alertHistory = databaseSettings.AlertHistory;
 var alertGraph = databaseSettings.AlertGraph;
 var alertSeverityDisplay = databaseSettings.AlertSeverityDisplay;
+var inboxTargetOutputDisplay = databaseSettings.InboxTargetOutputDisplay;
+var agentAnalysisContext = databaseSettings.AgentAnalysisContext;
+var agentAnalysisExecution = databaseSettings.AgentAnalysisExecution;
+var agentAnalysisProfiles = builder.Configuration
+    .GetSection(AgentAnalysisProfilesOptions.SectionName)
+    .Get<AgentAnalysisProfilesOptions>() ?? new AgentAnalysisProfilesOptions();
+var agentAnalysisAccess = builder.Configuration
+    .GetSection(AgentAnalysisAccessOptions.SectionName)
+    .Get<AgentAnalysisAccessOptions>() ?? new AgentAnalysisAccessOptions();
 
 var applicationAuthenticationErrors = applicationAuthentication.Validate();
 if (applicationAuthenticationErrors.Count > 0)
@@ -96,12 +105,37 @@ if (alertGraphErrors.Count > 0)
         $"Invalid database setting '{DatabaseSettingsLoader.AlertGraph}': {string.Join(" ", alertGraphErrors)}");
 }
 
+var agentAnalysisContextErrors = agentAnalysisContext.Validate();
+if (agentAnalysisContextErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.AgentAnalysisContext}': {string.Join(" ", agentAnalysisContextErrors)}");
+}
+
     var alertSeverityDisplayErrors = alertSeverityDisplay.Validate();
     if (alertSeverityDisplayErrors.Count > 0)
     {
         throw new InvalidOperationException(
         $"Invalid database setting '{DatabaseSettingsLoader.AlertSeverityDisplay}': {string.Join(" ", alertSeverityDisplayErrors)}");
     }
+
+var inboxTargetOutputDisplayErrors = inboxTargetOutputDisplay.Validate();
+if (inboxTargetOutputDisplayErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.InboxTargetOutputDisplay}': {string.Join(" ", inboxTargetOutputDisplayErrors)}");
+}
+
+var agentAnalysisExecutionState = AgentAnalysisExecutionState.Create(
+    agentAnalysisExecution,
+    agentAnalysisProfiles,
+    key => !string.IsNullOrWhiteSpace(builder.Configuration[key]));
+var agentAnalysisAccessErrors = agentAnalysisAccess.Validate();
+if (agentAnalysisAccessErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid agent analysis access configuration: {string.Join(" ", agentAnalysisAccessErrors)}");
+}
 
 builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>
@@ -120,7 +154,13 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddSingleton(applicationAuthentication);
 builder.Services.AddSingleton(alertHistory);
 builder.Services.AddSingleton(alertSeverityDisplay);
+builder.Services.AddSingleton(inboxTargetOutputDisplay);
 builder.Services.AddSingleton(alertGraph);
+builder.Services.AddSingleton(agentAnalysisContext);
+builder.Services.AddSingleton(agentAnalysisProfiles);
+builder.Services.AddSingleton(agentAnalysisExecutionState);
+builder.Services.AddSingleton(agentAnalysisAccess);
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddAuthentication(options =>
     {
@@ -198,6 +238,8 @@ authorization
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<CurrentUserIdentity>();
 builder.Services.AddSingleton<SqlCommandFailureLoggingInterceptor>();
 builder.Services.AddSingleton<SqlConnectionFailureLoggingInterceptor>();
 builder.Services.AddDbContextFactory<AlertDbContext>((services, options) =>
@@ -215,9 +257,27 @@ builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
 builder.Services.AddSingleton<AlertRuleEvaluator>();
+builder.Services.AddSingleton<IncidentAnalysisSnapshotBuilder>();
+builder.Services.AddSingleton<IncidentAnalysisSnapshotService>();
+builder.Services.AddSingleton(_ => MicrosoftSourceCatalog.CreateDefault());
+builder.Services.AddSingleton<AgentAnalysisOrchestrator>();
+builder.Services.AddSingleton<AgentAnalysisJobStore>();
+builder.Services.AddSingleton<AgentAnalysisReviewStore>();
+builder.Services.AddSingleton<AgentAnalysisScopePolicy>();
+builder.Services.AddSingleton<AgentAnalysisJobService>();
+builder.Services.AddSingleton<IAgentAnalysisExecutionAdapter, DisabledTeamsWorkflowAdapter>();
+builder.Services.AddSingleton<IAgentAnalysisExecutionAdapter, DisabledApiAnalysisAdapter>();
+builder.Services.AddHttpClient<MicrosoftSourceLinkChecker>(client =>
+    client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
+    });
+builder.Services.AddHostedService<MicrosoftSourceCatalogVerificationService>();
 builder.Services.AddScoped<InboxDashboardState>();
 builder.Services.AddScoped<InboxLayoutRepository>();
 builder.Services.AddHostedService<DatabaseStartupCheck>();
+builder.Services.AddHostedService<AgentAnalysisRetentionService>();
 
 var app = builder.Build();
 
@@ -244,8 +304,19 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler("/error", createScopeForErrors: true);
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true &&
+        CurrentUserIdentity.CreateAppServicePrincipal(context.Request.Headers) is { } entraPrincipal)
+    {
+        context.User = entraPrincipal;
+    }
+
+    await next();
+});
 app.UseAuthorization();
 app.UseAntiforgery();
 app.MapStaticAssets().AllowAnonymous();
@@ -332,6 +403,313 @@ app.MapPost("/api/alerts", async (JsonElement payload, AlertStore store, Cancell
 .Produces(StatusCodes.Status403Forbidden)
 .ProducesProblem(StatusCodes.Status400BadRequest)
 .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet("/api/alert-query-refresh-targets", async (
+    string? type,
+    AlertStore store,
+    CancellationToken cancellationToken) =>
+{
+    if (!AlertQueryRefresh.TryGetDefinition(type, out var definition))
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            [nameof(type)] =
+                [$"Type must be one of: {string.Join(", ", AlertQueryRefresh.SupportedTypes)}."]
+        });
+    }
+
+    try
+    {
+        var targets = await store.GetActiveAlertQueryRefreshTargetsAsync(
+            definition.Type,
+            cancellationToken);
+        return Results.Ok(targets.Select(target => new AlertQueryRefreshTargetResponse(
+            target.Id,
+            target.AlertId,
+            target.Type,
+            target.DimensionName,
+            target.DimensionValue)));
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or SqlException)
+    {
+        app.Logger.LogError(exception, "DCPort query-refresh targets are unavailable.");
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Alert query refresh is unavailable.");
+    }
+})
+.WithName("GetAlertQueryRefreshTargets")
+.WithSummary("Returns active alerts that require a scheduled query refresh")
+.WithDescription("Returns supported stateful alerts whose current monitor condition is Fired.")
+.RequireAuthorization("LogicAppAlertWriter")
+.Produces<IReadOnlyList<AlertQueryRefreshTargetResponse>>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status403Forbidden)
+.ProducesValidationProblem()
+.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPut("/api/alerts/{id:guid}/query-result", async (
+    Guid id,
+    UpdateAlertQueryResultRequest request,
+    AlertStore store,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
+{
+    var validationErrors = AlertQueryRefresh.Validate(request, timeProvider.GetUtcNow());
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    try
+    {
+        var result = await store.UpdateAlertQueryResultAsync(id, request, cancellationToken);
+        return result.Status switch
+        {
+            AlertQueryRefreshUpdateStatus.Updated => Results.Ok(new UpdateAlertQueryResultResponse(
+                id,
+                true,
+                result.QueryResultRefreshedAt!.Value)),
+            AlertQueryRefreshUpdateStatus.Unchanged => Results.Ok(new UpdateAlertQueryResultResponse(
+                id,
+                false,
+                result.QueryResultRefreshedAt!.Value)),
+            AlertQueryRefreshUpdateStatus.NotFound => Results.NotFound(),
+            AlertQueryRefreshUpdateStatus.NotActive => Results.Conflict(new
+            {
+                error = "The alert is no longer active and cannot be refreshed."
+            }),
+            AlertQueryRefreshUpdateStatus.TypeMismatch => Results.Conflict(new
+            {
+                error = "The stored alert query-result type does not match the refresh request."
+            }),
+            AlertQueryRefreshUpdateStatus.DimensionMismatch => Results.Conflict(new
+            {
+                error = "The dimension name or value does not match the stored alert."
+            }),
+            AlertQueryRefreshUpdateStatus.Stale => Results.Conflict(new
+            {
+                error = "A newer or different query result already exists for this query timestamp.",
+                result.QueryResultRefreshedAt
+            }),
+            _ => throw new InvalidOperationException("Unsupported DCPort refresh result.")
+        };
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or SqlException)
+    {
+        app.Logger.LogError(exception, "DCPort query-result update is unavailable for alert record {AlertRecordId}.", id);
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Alert query refresh is unavailable.");
+    }
+})
+.WithName("UpdateAlertQueryResult")
+.WithSummary("Updates the query result of an active supported alert")
+.WithDescription("Idempotently replaces only the query snapshot while preserving the stateful Azure alert identity and lifecycle.")
+.RequireAuthorization("LogicAppAlertWriter")
+.Produces<UpdateAlertQueryResultResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status403Forbidden)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict)
+.ProducesValidationProblem()
+.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost("/api/agent-analysis/jobs", async (
+    AgentAnalysisJobStartRequest request,
+    HttpContext httpContext,
+    AgentAnalysisJobService jobService,
+    CancellationToken cancellationToken) =>
+{
+    var validationErrors = AgentAnalysisJobApi.Validate(request);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    try
+    {
+        var response = await jobService.StartAsync(
+            request,
+            httpContext.User,
+            cancellationToken);
+
+        return Results.Accepted(
+            $"/api/agent-analysis/jobs/{response.Job.Id}",
+            response);
+    }
+    catch (AgentAnalysisRequestValidationException exception)
+    {
+        return Results.ValidationProblem(exception.Errors);
+    }
+    catch (AgentAnalysisScopeDeniedException exception)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "The requested analysis scope is not allowed.",
+            detail: exception.Message);
+    }
+    catch (AgentAnalysisUnavailableException exception)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Agent analysis is unavailable.",
+            detail: exception.Message);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+    catch (SqlException exception)
+    {
+        app.Logger.LogError(exception, "Agent analysis job creation failed because storage is unavailable.");
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Agent analysis storage is unavailable.");
+    }
+})
+.WithName("StartAgentAnalysisJob")
+.WithSummary("Creates an internal agent analysis job and manual Copilot handoff")
+.RequireAuthorization(OperatorPolicy)
+.Produces<AgentAnalysisJobStartResponse>(StatusCodes.Status202Accepted)
+.ProducesValidationProblem()
+.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet("/api/agent-analysis/jobs", async (
+    HttpContext httpContext,
+    AgentAnalysisJobService jobService,
+    CancellationToken cancellationToken) =>
+{
+    var jobs = await jobService.ListAccessibleAsync(
+        httpContext.User,
+        cancellationToken: cancellationToken);
+    return Results.Ok(jobs);
+})
+.WithName("ListAgentAnalysisJobs")
+.WithSummary("Returns recent agent analysis jobs visible to the current operator")
+.RequireAuthorization(OperatorPolicy)
+.Produces<IReadOnlyList<AgentAnalysisJobResponse>>(StatusCodes.Status200OK);
+
+app.MapGet("/api/agent-analysis/jobs/{id:guid}", async (
+    Guid id,
+    HttpContext httpContext,
+    AgentAnalysisJobStore jobStore,
+    CancellationToken cancellationToken) =>
+{
+    var job = await jobStore.GetAsync(id, cancellationToken);
+    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(AgentAnalysisJobResponse.FromJob(job));
+})
+.WithName("GetAgentAnalysisJob")
+.WithSummary("Returns an internal agent analysis job status")
+.RequireAuthorization(OperatorPolicy)
+.Produces<AgentAnalysisJobResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapGet("/api/agent-analysis/jobs/{id:guid}/result", async (
+    Guid id,
+    HttpContext httpContext,
+    AgentAnalysisJobStore jobStore,
+    CancellationToken cancellationToken) =>
+{
+    var job = await jobStore.GetAsync(id, cancellationToken);
+    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    {
+        return Results.NotFound();
+    }
+
+    if (job.Status != AgentAnalysisJobStatuses.Completed || string.IsNullOrWhiteSpace(job.ResultJson))
+    {
+        return Results.Conflict(new { error = "The analysis result is not available." });
+    }
+
+    return Results.Content(job.ResultJson, "application/json", System.Text.Encoding.UTF8);
+})
+.WithName("GetAgentAnalysisResult")
+.WithSummary("Returns the complete stored analysis result")
+.RequireAuthorization(OperatorPolicy)
+.Produces(StatusCodes.Status200OK, contentType: "application/json")
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapGet("/api/agent-analysis/jobs/{id:guid}/attachment", async (
+    Guid id,
+    HttpContext httpContext,
+    AgentAnalysisJobStore jobStore,
+    CancellationToken cancellationToken) =>
+{
+    var job = await jobStore.GetAsync(id, cancellationToken);
+    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    {
+        return Results.NotFound();
+    }
+
+    if (job.Status != AgentAnalysisJobStatuses.Completed || string.IsNullOrWhiteSpace(job.ResultJson))
+    {
+        return Results.Conflict(new { error = "The analysis attachment is not available." });
+    }
+
+    var result = AgentAnalysisResultParser.ParseStored(job.ResultJson);
+    var markdown = AgentAnalysisMarkdownRenderer.Render(job, result);
+    return Results.File(
+        System.Text.Encoding.UTF8.GetBytes(markdown),
+        "text/markdown; charset=utf-8",
+        AgentAnalysisMarkdownRenderer.CreateFileName(job));
+})
+.WithName("DownloadAgentAnalysisAttachment")
+.WithSummary("Downloads the complete stored analysis result as Markdown")
+.RequireAuthorization(OperatorPolicy)
+.Produces(StatusCodes.Status200OK, contentType: "text/markdown")
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapPost("/api/agent-analysis/jobs/{id:guid}/cancel", async (
+    Guid id,
+    AgentAnalysisJobCancelRequest request,
+    HttpContext httpContext,
+    AgentAnalysisJobStore jobStore,
+    CancellationToken cancellationToken) =>
+{
+    if (request.ExpectedRevision < 1)
+    {
+        return Results.BadRequest(new { error = "ExpectedRevision must be positive." });
+    }
+
+    var job = await jobStore.GetAsync(id, cancellationToken);
+    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    {
+        return Results.NotFound();
+    }
+
+    try
+    {
+        var cancelled = await jobStore.TransitionAsync(
+            id,
+            request.ExpectedRevision,
+            AgentAnalysisJobStatuses.Cancelled,
+            request.Reason ?? "Cancelled by operator.",
+            cancellationToken: cancellationToken);
+        return Results.Ok(AgentAnalysisJobResponse.FromJob(cancelled));
+    }
+    catch (Exception exception) when (exception is AgentAnalysisJobConcurrencyException or InvalidOperationException)
+    {
+        return Results.Conflict(new { error = exception.Message });
+    }
+})
+.WithName("CancelAgentAnalysisJob")
+.WithSummary("Cancels a queued or running internal agent analysis job")
+.RequireAuthorization(OperatorPolicy)
+.Produces<AgentAnalysisJobResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
 
 app.MapGet("/api/query", async (
     int? activeMinutes,

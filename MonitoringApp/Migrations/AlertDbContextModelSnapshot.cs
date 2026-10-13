@@ -22,6 +22,202 @@ namespace MonitoringApp.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("MonitoringApp.AgentAnalysisJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("DataFrom")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("DataTo")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DetailedAnalysisJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ErrorCode")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ExecutionProfile")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("PrimaryEventIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResultContractVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("ResultStoredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("ResultVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("ScopeValue")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<DateTimeOffset>("SnapshotGeneratedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SnapshotVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SourceIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("StatusReason")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<DateTimeOffset?>("TeamsDeliveredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("TeamsDeliveredResultVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TeamsDeliveryStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("TeamsSummaryJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisId");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[Status] IN (N'Queued', N'Running', N'Completed')");
+
+                    b.HasIndex("CreatedBy", "CreatedAt");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("AgentAnalysisJobs", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AgentAnalysisReviewEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("AgentAnalysisJobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("ResultVersion")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentAnalysisJobId", "CreatedAt");
+
+                    b.ToTable("AgentAnalysisReviewEvents", (string)null);
+                });
+
             modelBuilder.Entity("MonitoringApp.AlertRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -116,6 +312,11 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("AnalysisClassification")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<bool>("ApplyToTarget")
                         .HasColumnType("bit");
 
@@ -179,6 +380,10 @@ namespace MonitoringApp.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
+                    b.HasIndex("RuleType")
+                        .IsUnique()
+                        .HasFilter("[RuleType] = 'InventoryHeartbeatFreshness'");
+
                     b.HasIndex("Enabled", "Priority");
 
                     b.ToTable("AlertRules", (string)null);
@@ -194,12 +399,26 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("CertificatesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("Domain")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
                     b.Property<DateTimeOffset?>("LastHeartbeatAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("Maintenance")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<double?>("NtdsFileSizeInGb")
+                        .HasColumnType("float");
 
                     b.Property<string>("PrivateIP")
                         .HasMaxLength(256)
@@ -212,6 +431,12 @@ namespace MonitoringApp.Migrations
                     b.Property<string>("Role")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("ServicesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
 
                     b.Property<string>("Site")
                         .HasMaxLength(256)
@@ -346,6 +571,9 @@ namespace MonitoringApp.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
 
+                    b.Property<DateTimeOffset?>("QueryResultRefreshedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("QueryResults")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -395,6 +623,15 @@ namespace MonitoringApp.Migrations
                     b.HasKey("Username");
 
                     b.ToTable("AuthenticationUsers", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AgentAnalysisReviewEvent", b =>
+                {
+                    b.HasOne("MonitoringApp.AgentAnalysisJob", null)
+                        .WithMany()
+                        .HasForeignKey("AgentAnalysisJobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>

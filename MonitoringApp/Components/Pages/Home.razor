@@ -4,7 +4,10 @@
 @inject AlertStore AlertStore
 @inject AlertHistoryOptions AlertHistory
 @inject AlertSeverityDisplayOptions AlertSeverityDisplay
+@inject InboxTargetOutputDisplayOptions TargetOutputDisplay
 @inject AlertRuleEvaluator AlertRuleEvaluator
+@inject ApplicationAuthenticationOptions ApplicationAuthentication
+@inject CurrentUserIdentity CurrentUserIdentity
 @inject QueryResultPresenter QueryResultPresenter
 @inject InboxDashboardState Dashboard
 @inject InboxLayoutRepository InboxLayoutRepository
@@ -194,14 +197,14 @@
 <section class="controls" aria-label="Alert filters">
     <label>
         <span>View</span>
-        <select @bind="viewMode">
+        <select @bind="viewMode" @bind:after="ResetPagination">
             <option value="active">Active alerts</option>
             <option value="history">Full history</option>
         </select>
     </label>
     <label class="search-field">
         <span>Search alerts</span>
-        <input type="search" @bind="searchText" @bind:event="oninput" placeholder="Rule, target, search query..." />
+        <input type="search" @bind="searchText" @bind:event="oninput" @bind:after="ResetPagination" placeholder="Rule, target, search query..." />
     </label>
     <label>
         <span>Time zone</span>
@@ -229,13 +232,19 @@
 
 @{
     var navigationTree = GetNavigationTree();
-    var visibleAlerts = FilteredAlerts.ToArray();
+    var knownSystemCount = navigationTree.Sum(domain => domain.Roles.Sum(role => role.Targets.Count));
+    var filteredAlerts = FilteredAlerts.ToArray();
+    var pageCount = Math.Max(1, (int)Math.Ceiling(filteredAlerts.Length / (double)PageSize));
+    currentPage = Math.Clamp(currentPage, 1, pageCount);
+    var visibleAlerts = filteredAlerts
+        .Skip((currentPage - 1) * PageSize)
+        .Take(PageSize)
+        .ToArray();
     var categorizedAlerts = viewMode == "active"
-        ? AlertRuleEvaluator.Categorize(visibleAlerts, alertRules)
+        ? AlertRuleEvaluator.Categorize(visibleAlerts, alertRules, InboxInventory, ActiveAlerts)
         : new AlertCategorizationResult([], visibleAlerts);
-    var displayItems = GetDisplayItems(categorizedAlerts);
-    var heatmapCells = GetHeatmapCells(visibleAlerts);
-    var maximumHeatmapCount = heatmapCells.Count == 0 ? 0 : heatmapCells.Max(cell => cell.Count);
+    var displayItems = InboxCategories.BuildItems(categorizedAlerts, visibleAlerts, categoryState);
+    var heatmapCells = GetHeatmapCells(filteredAlerts);
 }
     @if (GetWidget(InboxWidgetKind.Navigation) is { } navigationWidget)
     {
@@ -250,56 +259,56 @@
                 <InboxWidgetActions Widget="navigationWidget" OnAction="action => HandleDashboardWidgetActionAsync(navigationWidget.Id, action)" />
             }
             <div class="inbox-widget-body">
-<nav class="alert-navigation" aria-label="Alert history by subscription, resource group, and target">
+<nav class="alert-navigation" aria-label="Alert history by domain, role, and target">
     <div class="tree-heading">
         <div>
             <strong>Alert navigation</strong>
-            <span>Seen in last @HistoryWindowLabel / active counts</span>
+            <span>Inventory systems / active alert counts</span>
         </div>
-        <span class="tree-total">@navigationTree.Sum(subscription => subscription.Count) open</span>
+        <span class="tree-total">@knownSystemCount systems / @navigationTree.Sum(domain => domain.Count) open</span>
     </div>
     <div class="tree-root">
         <button type="button" class="tree-node tree-node-root @(IsTreeSelection(string.Empty, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode()">
-            <span>All subscriptions</span>
-            <span class="tree-count" style="@TreeCountStyle(navigationTree.Sum(subscription => subscription.Count))">@navigationTree.Sum(subscription => subscription.Count)</span>
+            <span>All domains</span>
+            <span class="tree-count" style="@TreeCountStyle(navigationTree.Sum(domain => domain.Count))">@navigationTree.Sum(domain => domain.Count)</span>
         </button>
-        @foreach (var subscription in navigationTree)
+        @foreach (var domain in navigationTree)
         {
-            var subscriptionExpanded = expandedSubscriptions.Contains(subscription.Name);
+            var domainExpanded = expandedDomains.Contains(domain.Name);
             <div class="tree-branch">
                 <div class="tree-row tree-level-1">
-                    <button type="button" class="tree-toggle" title="@(subscriptionExpanded ? "Collapse subscription" : "Expand subscription")" aria-label="@(subscriptionExpanded ? "Collapse subscription" : "Expand subscription")" aria-expanded="@subscriptionExpanded" @onclick="() => ToggleSubscription(subscription.Name)">
+                    <button type="button" class="tree-toggle" title="@(domainExpanded ? "Collapse domain" : "Expand domain")" aria-label="@(domainExpanded ? "Collapse domain" : "Expand domain")" aria-expanded="@domainExpanded" @onclick="() => ToggleDomain(domain.Name)">
                         <span aria-hidden="true"></span>
                     </button>
-                    <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name)">
-                        <span title="@subscription.Name">@Display(subscription.Name)</span>
-                        <span class="tree-count" style="@TreeCountStyle(subscription.Count)">@subscription.Count</span>
+                    <button type="button" class="tree-node @(IsTreeSelection(domain.Name, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(domain.Name)">
+                        <span title="@domain.Name">@Display(domain.Name)</span>
+                        <span class="tree-count" style="@TreeCountStyle(domain.Count)">@domain.Count</span>
                     </button>
                 </div>
-                @if (subscriptionExpanded)
+                @if (domainExpanded)
                 {
-                    @foreach (var resourceGroup in subscription.ResourceGroups)
+                    @foreach (var role in domain.Roles)
                     {
-                        var resourceGroupKey = TreeKey(subscription.Name, resourceGroup.Name);
-                        var resourceGroupExpanded = expandedResourceGroups.Contains(resourceGroupKey);
+                        var roleKey = TreeKey(domain.Name, role.Name);
+                        var roleExpanded = expandedRoles.Contains(roleKey);
                         <div class="tree-branch">
                             <div class="tree-row tree-level-2">
-                                <button type="button" class="tree-toggle" title="@(resourceGroupExpanded ? "Collapse resource group" : "Expand resource group")" aria-label="@(resourceGroupExpanded ? "Collapse resource group" : "Expand resource group")" aria-expanded="@resourceGroupExpanded" @onclick="() => ToggleResourceGroup(resourceGroupKey)">
+                                <button type="button" class="tree-toggle" title="@(roleExpanded ? "Collapse role" : "Expand role")" aria-label="@(roleExpanded ? "Collapse role" : "Expand role")" aria-expanded="@roleExpanded" @onclick="() => ToggleRole(roleKey)">
                                     <span aria-hidden="true"></span>
                                 </button>
-                                <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, resourceGroup.Name, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name, resourceGroup.Name)">
-                                    <span title="@resourceGroup.Name">@Display(resourceGroup.Name)</span>
-                                    <span class="tree-count" style="@TreeCountStyle(resourceGroup.Count)">@resourceGroup.Count</span>
+                                <button type="button" class="tree-node @(IsTreeSelection(domain.Name, role.Name, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(domain.Name, role.Name)">
+                                    <span title="@role.Name">@Display(role.Name)</span>
+                                    <span class="tree-count" style="@TreeCountStyle(role.Count)">@role.Count</span>
                                 </button>
                             </div>
-                            @if (resourceGroupExpanded)
+                            @if (roleExpanded)
                             {
-                                @foreach (var target in resourceGroup.Targets)
+                                @foreach (var target in role.Targets)
                                 {
                                     <div class="tree-row tree-level-3">
                                         <span class="tree-leaf-marker" aria-hidden="true"></span>
-                                        <button type="button" class="tree-node @(IsTreeSelection(subscription.Name, resourceGroup.Name, target.Name) ? "selected" : null)" @onclick="() => SelectTreeNode(subscription.Name, resourceGroup.Name, target.Name)">
-                                            <span title="@target.Name">@Display(target.Name)</span>
+                                        <button type="button" class="tree-node @(IsTreeSelection(domain.Name, role.Name, target.Name) ? "selected" : null)" @onclick="() => SelectTreeNode(domain.Name, role.Name, target.Name)">
+                                            <span title="@target.DisplayName">@Display(target.DisplayName)</span>
                                             <span class="tree-count" style="@TreeCountStyle(target.Count)">@target.Count</span>
                                         </button>
                                     </div>
@@ -323,7 +332,7 @@
                   draggable="false" style="@DashboardWidgetStyle(heatmapWidget)" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(heatmapWidget.Column, heatmapWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@heatmapWidget.Title</strong><small>Target density</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@heatmapWidget.Title</strong><small>Target status</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == heatmapWidget.Id)
             {
                 <InboxWidgetActions Widget="heatmapWidget" OnAction="action => HandleDashboardWidgetActionAsync(heatmapWidget.Id, action)" />
@@ -332,13 +341,17 @@
 <section class="alert-heatmap" aria-labelledby="heatmap-title">
     <div class="heatmap-heading">
         <div>
-            <strong id="heatmap-title">Visible targets and sites</strong>
-            <span>Based on @AlertCountLabel(visibleAlerts.Length) shown</span>
+            <strong id="heatmap-title">@(TargetOutputDisplay.ShowDomain ? "Visible targets, domains and sites" : "Visible targets and sites")</strong>
+            <span>Configured alert scale; suppressed alerts do not raise the color.</span>
         </div>
         @if (heatmapCells.Count > 0)
         {
-            <div class="heatmap-legend" aria-label="Alert density from low to high">
-                <span>Low</span><i></i><i></i><i></i><span>High</span>
+            <div class="heatmap-legend" aria-label="@TargetOutputLegendDescription">
+                @foreach (var entry in TargetOutputDisplay.Legend())
+                {
+                    <i style="background:hsl(var(--heat-hue) var(--heat-saturation) var(--heat-lightness));@InboxTargetOutputDisplayOptions.ColorStyle(entry.Color)"></i><span>@entry.Label</span>
+                }
+                <i class="heatmap-legend-missing-heartbeat"></i><span>Missing heartbeat</span>
             </div>
         }
     </div>
@@ -351,10 +364,22 @@
         <div class="heatmap-grid">
             @foreach (var cell in heatmapCells)
             {
-                <div class="heatmap-cell" style="@HeatmapCellStyle(cell.Count, maximumHeatmapCount)" title="@AlertCountLabel(cell.Count) for @cell.Target in @cell.Site" aria-label="@cell.Target, site @cell.Site: @AlertCountLabel(cell.Count)">
+                <div class="@TargetOutputDisplay.CssClass(cell)" style="@TargetOutputDisplay.Style(cell)" title="@HeatmapCellDescription(cell)" aria-label="@HeatmapCellDescription(cell)">
                     <strong>@cell.Count</strong>
                     <span class="heatmap-target">@cell.Target</span>
+                    @if (TargetOutputDisplay.ShowDomain)
+                    {
+                        <span class="heatmap-domain">@cell.Domain</span>
+                    }
                     <span class="heatmap-site">@cell.Site</span>
+                    @if (cell.HasServiceHealthAlert && cell.Count == 0)
+                    {
+                        <span class="heatmap-heartbeat-status">Service health alert</span>
+                    }
+                    else if (cell.MissingHeartbeat)
+                    {
+                        <span class="heatmap-heartbeat-status">Missing heartbeat</span>
+                    }
                 </div>
             }
         </div>
@@ -384,7 +409,11 @@
             }
             <div class="inbox-widget-body">
 <section class="table-region" aria-live="polite">
-    <div class="result-summary">Showing @visibleAlerts.Length of @ViewAlerts.Count() alerts in this view</div>
+    <div class="result-summary">
+        Showing @PageRangeLabel(filteredAlerts.Length) of @filteredAlerts.Length matching alerts
+        (@ViewAlerts.Count() total)
+    </div>
+    <div class="table-scrollbar" aria-hidden="true"><div></div></div>
     <div class="table-scroll">
         <table class="alert-table">
             <colgroup>
@@ -408,7 +437,7 @@
                 </tr>
             </thead>
             <tbody>
-                @if (visibleAlerts.Length == 0)
+                @if (filteredAlerts.Length == 0)
                 {
                     <tr>
                         <td colspan="7" class="empty-state">
@@ -432,10 +461,10 @@
 
                     @if (item.Category is { } category)
                     {
-                        var isCollapsed = collapsedCategories.Contains(category.RuleId);
+                        var isCollapsed = categoryState.IsCollapsed(category);
                         <tr class="alert-category-row category-@category.Tone">
                             <td colspan="7">
-                                <button type="button" aria-expanded="@(!isCollapsed)" @onclick="() => ToggleCategory(category.RuleId)">
+                                <button type="button" aria-expanded="@(isCollapsed ? "false" : "true")" @onclick="() => categoryState.Toggle(category)">
                                     <span class="category-chevron" aria-hidden="true"></span>
                                     <strong>@category.Name</strong>
                                     <span>@AlertCountLabel(category.Alerts.Count)</span>
@@ -494,6 +523,12 @@
                                     </div>
                                     <QueryResultRows Rows="queryResult.Rows" FormatValue="FormatPresentationValue" />
                                 }
+                                @if (alert.QueryResultRefreshedAt is { } refreshedAt)
+                                {
+                                    <span class="cell-secondary" title="@($"{refreshedAt.ToUniversalTime():O} UTC")">
+                                        Refreshed @FormatTimestamp(refreshedAt)
+                                    </span>
+                                }
                             }
                         </td>
                         <td class="comments-preview" title="@alert.Comments">@Display(alert.Comments)</td>
@@ -516,19 +551,25 @@
                                     <label for="comment-@alert.Id">Worker comments</label>
                                     <textarea id="comment-@alert.Id" maxlength="4000" rows="3" @bind="commentDraft"></textarea>
                                     <div class="comment-actions">
+                                        <button type="button" disabled="@isSavingComment" @onclick="() => SaveCommentsAsync(alert.Id)">
+                                            @(isSavingComment ? "Saving..." : "Save comments")
+                                        </button>
                                         <span>@commentDraft.Length / 4000</span>
                                         @if (!string.IsNullOrWhiteSpace(commentSaveError))
                                         {
                                             <span class="comment-error" role="alert">@commentSaveError</span>
                                         }
-                                        <button type="button" disabled="@isSavingComment" @onclick="() => SaveCommentsAsync(alert.Id)">
-                                            @(isSavingComment ? "Saving..." : "Save comments")
-                                        </button>
                                     </div>
                                 </div>
                                 <div class="payload-heading">
                                     <strong>Raw payload</strong>
                                     <span>Alert ID: @Display(alert.AlertId)</span>
+                                    @if (alert.QueryResultRefreshedAt is { } refreshedAt)
+                                    {
+                                        <span title="@($"{refreshedAt.ToUniversalTime():O} UTC")">
+                                            Query refreshed: @FormatTimestamp(refreshedAt)
+                                        </span>
+                                    }
                                 </div>
                                 <pre>@alert.RawJson</pre>
                             </td>
@@ -538,6 +579,22 @@
             </tbody>
         </table>
     </div>
+    @if (pageCount > 1)
+    {
+        <nav class="inbox-pagination" aria-label="Inbox result pages">
+            <button type="button" disabled="@(currentPage == 1)" @onclick="() => ChangePage(currentPage - 1)">Previous</button>
+            @foreach (var pageNumber in VisiblePageNumbers(pageCount))
+            {
+                <button type="button"
+                        class="@(pageNumber == currentPage ? "current" : null)"
+                        aria-current="@(pageNumber == currentPage ? "page" : null)"
+                        @onclick="() => ChangePage(pageNumber)">
+                    @pageNumber
+                </button>
+            }
+            <button type="button" disabled="@(currentPage == pageCount)" @onclick="() => ChangePage(currentPage + 1)">Next</button>
+        </nav>
+    }
 </section>
             </div>
             <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @resultsWidget.Title" aria-label="Resize @resultsWidget.Title"></button>
@@ -551,12 +608,14 @@
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private IReadOnlyList<AlertRecord> alerts = [];
+    private IReadOnlyList<ComputerInventoryEntry> computerInventory = [];
+    private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private IReadOnlyList<AlertRule> alertRules = [];
     private IReadOnlyList<CriticalAlertLifecycle> criticalAlertLifecycles = [];
     private string viewMode = "active";
     private string searchText = string.Empty;
-    private string resourceGroupFilter = string.Empty;
-    private string subscriptionFilter = string.Empty;
+    private string domainFilter = string.Empty;
+    private string roleFilter = string.Empty;
     private string targetNameFilter = string.Empty;
     private string selectedTimeZoneId = "utc";
     private string receivedFromInput = string.Empty;
@@ -571,9 +630,10 @@
     private string currentUser = string.Empty;
     private bool isSavingComment;
     private bool isEditingDateTime;
-    private readonly HashSet<string> expandedSubscriptions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> expandedResourceGroups = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<Guid> collapsedCategories = [];
+    private int currentPage = 1;
+    private readonly HashSet<string> expandedDomains = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> expandedRoles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly InboxCategoryState categoryState = new();
     private readonly CancellationTokenSource clockCancellation = new();
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private Task? clockTask;
@@ -592,11 +652,14 @@
     private const double ChartTop = 10;
     private const double ChartBottom = 110;
     private const int ChartTickIntervalHours = 8;
+    private const int PageSize = 10;
 
     private bool IsTimeRangeValid => receivedFrom is null || receivedTo is null || receivedFrom <= receivedTo;
     private AlertTimeZoneOption SelectedTimeZone => AlertTimeZones.Get(selectedTimeZoneId);
     private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
-    private int RecentAlertCount => alerts.Count(alert => alert.ReceivedAt >= AlertHistory.GetCutoff(currentTimeUtc));
+    private IReadOnlyList<AlertRecord> InboxAlerts => InventoryMaintenance.FilterAlerts(alerts, computerInventory);
+    private IReadOnlyList<ComputerInventoryEntry> InboxInventory => computerInventory.Where(entry => !entry.Maintenance).ToArray();
+    private int RecentAlertCount => InboxAlerts.Count(alert => alert.ReceivedAt >= AlertHistory.GetCutoff(currentTimeUtc));
 
     private static string TreeCountStyle(int count)
     {
@@ -606,20 +669,20 @@
 
     private bool HasFilters =>
         !string.IsNullOrWhiteSpace(searchText) ||
-        !string.IsNullOrWhiteSpace(resourceGroupFilter) ||
-        !string.IsNullOrWhiteSpace(subscriptionFilter) ||
+        !string.IsNullOrWhiteSpace(domainFilter) ||
+        !string.IsNullOrWhiteSpace(roleFilter) ||
         !string.IsNullOrWhiteSpace(targetNameFilter) ||
         receivedFrom is not null ||
         receivedTo is not null;
 
     private IEnumerable<AlertRecord> ViewAlerts => viewMode == "history"
-        ? alerts
+        ? InboxAlerts
         : ActiveAlerts;
 
-    private IReadOnlyList<AlertRecord> ActiveAlerts => AlertLifecycle.GetActiveAlerts(alerts);
+    private IReadOnlyList<AlertRecord> ActiveAlerts => AlertLifecycle.GetActiveAlerts(InboxAlerts);
 
-    private IReadOnlyList<SubscriptionNode> GetNavigationTree() =>
-        AlertNavigation.Build(alerts, ActiveAlerts, AlertHistory.GetCutoff(currentTimeUtc));
+    private IReadOnlyList<DomainNode> GetNavigationTree() =>
+        AlertNavigation.Build(InboxAlerts, ActiveAlerts, InboxInventory, AlertHistory.GetCutoff(currentTimeUtc));
 
     private IEnumerable<AlertRecord> FilteredAlerts
     {
@@ -627,8 +690,7 @@
         {
             var filtered = ViewAlerts.Where(alert =>
                 IsTimeRangeValid &&
-                (string.IsNullOrWhiteSpace(resourceGroupFilter) || alert.ResourceGroup.Equals(resourceGroupFilter, StringComparison.OrdinalIgnoreCase)) &&
-                (string.IsNullOrWhiteSpace(subscriptionFilter) || alert.SubscriptionId.Equals(subscriptionFilter, StringComparison.OrdinalIgnoreCase)) &&
+                MatchesInventoryFilter(alert, domainFilter, roleFilter) &&
                 (string.IsNullOrWhiteSpace(targetNameFilter) || alert.TargetName.Equals(targetNameFilter, StringComparison.OrdinalIgnoreCase)) &&
                 (receivedFrom is null || ToDisplayTime(alert.ReceivedAt) >= receivedFrom) &&
                 (receivedTo is null || ToDisplayTime(alert.ReceivedAt) <= receivedTo) &&
@@ -648,46 +710,47 @@
         }
     }
 
-    private static IReadOnlyList<HeatmapCell> GetHeatmapCells(IEnumerable<AlertRecord> visibleAlerts) =>
-        visibleAlerts
-            .GroupBy(
-                alert => $"{HeatmapTarget(alert)}\u001f{HeatmapSite(alert)}",
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => new HeatmapCell(
-                HeatmapTarget(group.First()),
-                HeatmapSite(group.First()),
-                group.Count()))
-            .OrderByDescending(cell => cell.Count)
-            .ThenBy(cell => cell.Site, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(cell => cell.Target, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+    private IReadOnlyList<InboxTargetOutputCell> GetHeatmapCells(IReadOnlyList<AlertRecord> visibleAlerts) =>
+        InboxTargetOutput.Build(
+            visibleAlerts, ActiveAlerts, computerInventory, currentTimeUtc, currentHeartbeatAge,
+            entry => IsTimeRangeValid &&
+                MatchesInventoryFilter(entry, domainFilter, roleFilter) &&
+                (string.IsNullOrWhiteSpace(targetNameFilter) || entry.Computer.Equals(targetNameFilter, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(searchText) || string.Join(' ',
+                    entry.Computer, entry.Site, entry.Domain, entry.Role, entry.ResourceGroup, entry.SubscriptionId)
+                    .Contains(searchText, StringComparison.OrdinalIgnoreCase)),
+            AlertRuleEvaluator.Categorize(visibleAlerts, alertRules, InboxInventory, ActiveAlerts).Categories);
 
-    private static string HeatmapTarget(AlertRecord alert) =>
-        string.IsNullOrWhiteSpace(alert.TargetName) ? "Unknown target" : alert.TargetName;
-
-    private static string HeatmapSite(AlertRecord alert) =>
-        string.IsNullOrWhiteSpace(alert.SiteName) ? "Unknown site" : alert.SiteName;
+    private string HeatmapCellDescription(InboxTargetOutputCell cell) =>
+        $"{cell.Target}, " + (TargetOutputDisplay.ShowDomain ? $"domain {cell.Domain}, " : string.Empty) +
+        $"site {cell.Site}, subscription {cell.SubscriptionId}: {AlertCountLabel(cell.Count)}" +
+        (cell.HasServiceHealthAlert && cell.Count == 0
+            ? "; Service health alert: at least one monitored service is not running"
+            : string.Empty) +
+        (cell.SuppressedOnly
+            ? "; Suppressed alerts only"
+            : $"; {cell.NonSuppressedCount} non-suppressed alerts") +
+        (cell.IsCriticalOutage ? "; Critical outage" : cell.IsOutage ? "; Outage" : string.Empty) +
+        (cell.MissingHeartbeat
+            ? $"; Missing heartbeat (older than {currentHeartbeatAge.TotalMinutes:0} minutes or never received)"
+            : string.Empty);
 
     private static string AlertCountLabel(int count) => $"{count} {(count == 1 ? "alert" : "alerts")}";
 
-    private static string HeatmapCellStyle(int count, int maximumCount)
-    {
-        var intensity = maximumCount == 0 ? 0 : (double)count / maximumCount;
-        var hue = 112 - intensity * 112;
-        var saturation = 58 + intensity * 12;
-        var lightness = 94 - intensity * 36;
-        return FormattableString.Invariant($"--heat-hue:{hue:0};--heat-saturation:{saturation:0}%;--heat-lightness:{lightness:0}%");
-    }
+    private string TargetOutputLegendDescription => string.Join("; ",
+        TargetOutputDisplay.Legend().Select(entry => $"{entry.Label}: {entry.Color.ToString().ToLowerInvariant()}")) +
+        "; Missing heartbeat: gray";
 
     private IReadOnlyList<HourlyAlertCount> GetHourlyAlertCounts()
     {
         var firstHour = GetChartFirstHour();
+        var inboxAlerts = InboxAlerts;
 
         return Enumerable.Range(0, 48)
             .Select(offset =>
             {
                 var hour = firstHour.AddHours(offset);
-                var count = alerts.Count(alert =>
+                var count = inboxAlerts.Count(alert =>
                     alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase) &&
                     alert.ReceivedAt >= hour &&
                     alert.ReceivedAt < hour.AddHours(1));
@@ -696,12 +759,13 @@
             .ToArray();
     }
 
-    private IReadOnlyList<HourlyCriticalAlertCount> GetHourlyCriticalAlertCounts() =>
-        CriticalAlertTimeline.GetHourlyCounts(
-            criticalAlertLifecycles,
-            GetChartFirstHour(),
-            48,
-            currentTimeUtc);
+    private IReadOnlyList<HourlyCriticalAlertCount> GetHourlyCriticalAlertCounts()
+    {
+        var visibleAlertIds = InboxAlerts.Select(alert => alert.AlertId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return CriticalAlertTimeline.GetHourlyCounts(
+            criticalAlertLifecycles.Where(lifecycle => visibleAlertIds.Contains(lifecycle.AlertId)),
+            GetChartFirstHour(), 48, currentTimeUtc);
+    }
 
     private DateTimeOffset GetChartFirstHour()
     {
@@ -807,18 +871,21 @@
         }
 
         selectedTimeZoneId = newTimeZoneId;
+        ResetPagination();
     }
 
     private void ChangeReceivedFrom(ChangeEventArgs eventArgs)
     {
         receivedFromInput = eventArgs.Value?.ToString() ?? string.Empty;
         receivedFrom = ParseDateTimeInput(receivedFromInput);
+        ResetPagination();
     }
 
     private void ChangeReceivedTo(ChangeEventArgs eventArgs)
     {
         receivedToInput = eventArgs.Value?.ToString() ?? string.Empty;
         receivedTo = ParseDateTimeInput(receivedToInput);
+        ResetPagination();
     }
 
     private static DateTime? ParseDateTimeInput(string value) =>
@@ -837,7 +904,9 @@
     protected override async Task OnInitializedAsync()
     {
         var authenticationState = await AuthenticationStateTask;
-        currentUser = authenticationState.User.Identity?.Name?.Trim() ?? string.Empty;
+        currentUser = CurrentUserIdentity.GetActor(
+            authenticationState.User,
+            ApplicationAuthentication.IsOpen);
         dashboardOwnerKey = string.IsNullOrWhiteSpace(currentUser) ? "open-access" : currentUser;
         var savedDashboard = await InboxLayoutRepository.LoadAsync(dashboardOwnerKey);
         if (savedDashboard is not null)
@@ -850,11 +919,12 @@
             dashboardStatus = "Default workspace ready";
         }
         alerts = await AlertStore.GetAllAsync();
-        alertRules = await AlertStore.GetAlertRulesAsync();
+        computerInventory = await AlertStore.GetComputerInventoryAsync();
+        alertRules = await AlertStore.GetAllAlertRulesAsync();
+        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(alertRules);
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
             GetChartFirstHour(),
             currentTimeUtc);
-        collapsedCategories.UnionWith(alertRules.Where(rule => rule.Collapsed).Select(rule => rule.Id));
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
     }
@@ -906,46 +976,20 @@
     private async Task ReloadAlertsAsync()
     {
         alerts = await AlertStore.GetAllAsync();
-        alertRules = await AlertStore.GetAlertRulesAsync();
+        computerInventory = await AlertStore.GetComputerInventoryAsync();
+        alertRules = await AlertStore.GetAllAlertRulesAsync();
+        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(alertRules);
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
             GetChartFirstHour(),
             currentTimeUtc);
         await InvokeAsync(StateHasChanged);
     }
 
-    private IReadOnlyList<AlertDisplayItem> GetDisplayItems(AlertCategorizationResult categorization)
-    {
-        var items = new List<AlertDisplayItem>();
-        foreach (var category in categorization.Categories)
-        {
-            items.Add(new AlertDisplayItem(category, null, false));
-            if (!collapsedCategories.Contains(category.RuleId))
-            {
-                items.AddRange(category.Alerts.Select(alert => new AlertDisplayItem(null, alert, false)));
-            }
-        }
-
-        if (categorization.Categories.Count > 0 && categorization.Uncategorized.Count > 0)
-        {
-            items.Add(new AlertDisplayItem(null, null, true));
-        }
-
-        items.AddRange(categorization.Uncategorized.Select(alert => new AlertDisplayItem(null, alert, false)));
-        return items;
-    }
-
-    private void ToggleCategory(Guid ruleId)
-    {
-        if (!collapsedCategories.Remove(ruleId))
-        {
-            collapsedCategories.Add(ruleId);
-        }
-    }
-
     private void SortBy(string column)
     {
         sortAscending = sortColumn == column ? !sortAscending : true;
         sortColumn = column;
+        ResetPagination();
     }
 
     private string SortIndicator(string column) => sortColumn == column
@@ -984,47 +1028,107 @@
     private void ClearFilters()
     {
         searchText = string.Empty;
-        resourceGroupFilter = string.Empty;
-        subscriptionFilter = string.Empty;
+        domainFilter = string.Empty;
+        roleFilter = string.Empty;
         targetNameFilter = string.Empty;
         receivedFromInput = string.Empty;
         receivedToInput = string.Empty;
         receivedFrom = null;
         receivedTo = null;
+        ResetPagination();
     }
 
     private void SelectTreeNode(
-        string subscriptionId = "",
-        string resourceGroup = "",
+        string domain = "",
+        string role = "",
         string targetName = "")
     {
-        subscriptionFilter = subscriptionId;
-        resourceGroupFilter = resourceGroup;
+        domainFilter = domain;
+        roleFilter = role;
         targetNameFilter = targetName;
+        ResetPagination();
     }
 
-    private bool IsTreeSelection(string subscriptionId, string resourceGroup, string targetName) =>
-        subscriptionFilter.Equals(subscriptionId, StringComparison.OrdinalIgnoreCase) &&
-        resourceGroupFilter.Equals(resourceGroup, StringComparison.OrdinalIgnoreCase) &&
+    private void ResetPagination()
+    {
+        currentPage = 1;
+        expandedAlertId = null;
+        commentDraft = string.Empty;
+        commentSaveError = string.Empty;
+    }
+
+    private void ChangePage(int page)
+    {
+        currentPage = Math.Max(1, page);
+        expandedAlertId = null;
+        commentDraft = string.Empty;
+        commentSaveError = string.Empty;
+    }
+
+    private string PageRangeLabel(int totalCount)
+    {
+        if (totalCount == 0)
+        {
+            return "0";
+        }
+
+        var first = (currentPage - 1) * PageSize + 1;
+        var last = Math.Min(currentPage * PageSize, totalCount);
+        return $"{first}-{last}";
+    }
+
+    private IEnumerable<int> VisiblePageNumbers(int pageCount)
+    {
+        const int maximumButtons = 7;
+        var first = Math.Max(1, currentPage - maximumButtons / 2);
+        var last = Math.Min(pageCount, first + maximumButtons - 1);
+        first = Math.Max(1, last - maximumButtons + 1);
+        return Enumerable.Range(first, last - first + 1);
+    }
+
+    private bool IsTreeSelection(string domain, string role, string targetName) =>
+        domainFilter.Equals(domain, StringComparison.OrdinalIgnoreCase) &&
+        roleFilter.Equals(role, StringComparison.OrdinalIgnoreCase) &&
         targetNameFilter.Equals(targetName, StringComparison.OrdinalIgnoreCase);
 
-    private void ToggleSubscription(string subscriptionId)
+    private void ToggleDomain(string domain)
     {
-        if (!expandedSubscriptions.Remove(subscriptionId))
+        if (!expandedDomains.Remove(domain))
         {
-            expandedSubscriptions.Add(subscriptionId);
+            expandedDomains.Add(domain);
         }
     }
 
-    private void ToggleResourceGroup(string key)
+    private void ToggleRole(string key)
     {
-        if (!expandedResourceGroups.Remove(key))
+        if (!expandedRoles.Remove(key))
         {
-            expandedResourceGroups.Add(key);
+            expandedRoles.Add(key);
         }
     }
 
-    private static string TreeKey(string subscriptionId, string resourceGroup) => $"{subscriptionId}\u001f{resourceGroup}";
+    private static string TreeKey(string domain, string role) => $"{domain}\u001f{role}";
+
+    private bool MatchesInventoryFilter(AlertRecord alert, string domain, string role)
+    {
+        if (string.IsNullOrWhiteSpace(domain) && string.IsNullOrWhiteSpace(role))
+        {
+            return true;
+        }
+
+        var entry = computerInventory.FirstOrDefault(candidate =>
+            candidate.SubscriptionId.Equals(alert.SubscriptionId, StringComparison.OrdinalIgnoreCase) &&
+            candidate.Computer.Equals(alert.TargetName, StringComparison.OrdinalIgnoreCase));
+        return MatchesInventoryFilter(entry, domain, role);
+    }
+
+    private static bool MatchesInventoryFilter(ComputerInventoryEntry? entry, string domain, string role)
+    {
+        var alertDomain = string.IsNullOrWhiteSpace(entry?.Domain) ? "Unknown domain" : entry.Domain.Trim();
+        var alertRole = string.IsNullOrWhiteSpace(entry?.Role) ? "Unknown role" : entry.Role.Trim();
+        return (string.IsNullOrWhiteSpace(domain) || alertDomain.Equals(domain, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(role) || alertRole.Equals(role, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string Display(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
@@ -1318,11 +1422,6 @@
         $"grid-column:{widget.Column} / span {widget.ColumnSpan};grid-row:{widget.Row} / span {widget.RowSpan};";
 
     private sealed record HourlyAlertCount(DateTimeOffset Hour, int Count);
-    private sealed record HeatmapCell(string Target, string Site, int Count);
-    private sealed record AlertDisplayItem(
-        AlertCategoryGroup? Category,
-        AlertRecord? Alert,
-        bool IsUncategorizedHeader);
 
     public async ValueTask DisposeAsync()
     {

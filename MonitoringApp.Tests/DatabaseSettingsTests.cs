@@ -55,6 +55,61 @@ public sealed class DatabaseSettingsTests
     }
 
     [Fact]
+    public void DeserializesSafeAgentAnalysisDefault()
+    {
+        var setting = DatabaseSettingsLoader.Deserialize<AgentAnalysisExecutionOptions>(
+            DatabaseSettingsLoader.AgentAnalysisExecution,
+            """{"Version":1,"Mode":"CopilotPrompt","TeamsWorkflowProfile":null,"ApiProfile":null}""");
+
+        Assert.Equal(AgentAnalysisExecutionModes.CopilotPrompt, setting.Mode);
+        Assert.Empty(setting.Validate());
+        Assert.Contains(DatabaseSettingsLoader.AgentAnalysisExecution, DatabaseSettingsLoader.RequiredNames);
+    }
+
+    [Fact]
+    public void DeserializesDefaultAgentAnalysisContext()
+    {
+        var setting = DatabaseSettingsLoader.Deserialize<AgentAnalysisContextOptions>(
+            DatabaseSettingsLoader.AgentAnalysisContext,
+            """{"InventoryCorrelationLayers":["Domain","Role"]}""");
+
+        Assert.Equal([AlertGraphLayer.Domain, AlertGraphLayer.Role], setting.InventoryCorrelationLayers);
+        Assert.Empty(setting.Validate());
+        Assert.Contains(DatabaseSettingsLoader.AgentAnalysisContext, DatabaseSettingsLoader.RequiredNames);
+    }
+
+    [Fact]
+    public void RejectsEmptyOrUnsafeAgentAnalysisContext()
+    {
+        Assert.NotEmpty(new AgentAnalysisContextOptions { InventoryCorrelationLayers = [] }.Validate());
+        Assert.NotEmpty(new AgentAnalysisContextOptions
+        {
+            InventoryCorrelationLayers = [AlertGraphLayer.Target]
+        }.Validate());
+    }
+
+    [Theory]
+    [InlineData("Unknown", null, null)]
+    [InlineData("TeamsWorkflow", null, null)]
+    [InlineData("TeamsWorkflow", "https://example.com/hook", null)]
+    [InlineData("Api", null, "../provider")]
+    [InlineData("CopilotPrompt", "workflow-prod", null)]
+    public void RejectsUnsafeAgentAnalysisExecution(
+        string mode,
+        string? teamsWorkflowProfile,
+        string? apiProfile)
+    {
+        var setting = new AgentAnalysisExecutionOptions
+        {
+            Mode = mode,
+            TeamsWorkflowProfile = teamsWorkflowProfile,
+            ApiProfile = apiProfile
+        };
+
+        Assert.NotEmpty(setting.Validate());
+    }
+
+    [Fact]
     public void RejectsMalformedJson()
     {
         Assert.Throws<InvalidOperationException>(() =>
@@ -81,5 +136,26 @@ public sealed class DatabaseSettingsTests
         Assert.Equal(
             [nameof(DatabaseSetting.Name)],
             entity.FindPrimaryKey()?.Properties.Select(property => property.Name));
+    }
+
+    [Fact]
+    public void MapsAgentAnalysisJobsWithConcurrencyAndOperationalIndexes()
+    {
+        var options = new DbContextOptionsBuilder<AlertDbContext>()
+            .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ModelOnly;Trusted_Connection=True;")
+            .Options;
+        using var context = new AlertDbContext(options);
+
+        var entity = Assert.IsAssignableFrom<Microsoft.EntityFrameworkCore.Metadata.IEntityType>(
+            context.Model.FindEntityType(typeof(AgentAnalysisJob)));
+
+        Assert.Equal("AgentAnalysisJobs", entity.GetTableName());
+        Assert.True(entity.FindProperty(nameof(AgentAnalysisJob.Revision))?.IsConcurrencyToken);
+        Assert.Contains(entity.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(AgentAnalysisJob.Status), nameof(AgentAnalysisJob.CreatedAt)]));
+        Assert.Contains(entity.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(AgentAnalysisJob.CreatedBy), nameof(AgentAnalysisJob.CreatedAt)]));
     }
 }

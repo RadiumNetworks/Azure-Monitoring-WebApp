@@ -20,9 +20,12 @@ public static class DatabaseSettingsLoader
     public const string AlertHistory = AlertHistoryOptions.SectionName;
     public const string AlertGraph = AlertGraphOptions.SectionName;
     public const string AlertSeverityDisplay = AlertSeverityDisplayOptions.SectionName;
+    public const string InboxTargetOutputDisplay = InboxTargetOutputDisplayOptions.SectionName;
+    public const string AgentAnalysisContext = AgentAnalysisContextOptions.SectionName;
+    public const string AgentAnalysisExecution = AgentAnalysisExecutionOptions.SectionName;
 
     public static readonly IReadOnlyList<string> RequiredNames =
-        [Authentication, AlertHistory, AlertGraph, AlertSeverityDisplay];
+        [Authentication, AlertHistory, AlertGraph, AlertSeverityDisplay, InboxTargetOutputDisplay, AgentAnalysisContext, AgentAnalysisExecution];
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -40,7 +43,7 @@ public static class DatabaseSettingsLoader
             command.CommandText = """
                 SELECT [Name], [JsonValue]
                 FROM [dbo].[Settings]
-                WHERE [Name] IN (N'Authentication', N'AlertHistory', N'AlertGraph', N'AlertSeverityDisplay');
+                WHERE [Name] IN (N'Authentication', N'AlertHistory', N'AlertGraph', N'AlertSeverityDisplay', N'InboxTargetOutputDisplay', N'AgentAnalysisContext', N'AgentAnalysisExecution');
                 """;
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -66,7 +69,10 @@ public static class DatabaseSettingsLoader
             Deserialize<ApplicationAuthenticationOptions>(Authentication, jsonByName[Authentication]),
             Deserialize<AlertHistoryOptions>(AlertHistory, jsonByName[AlertHistory]),
             Deserialize<AlertGraphOptions>(AlertGraph, jsonByName[AlertGraph]),
-            Deserialize<AlertSeverityDisplayOptions>(AlertSeverityDisplay, jsonByName[AlertSeverityDisplay]));
+            Deserialize<AlertSeverityDisplayOptions>(AlertSeverityDisplay, jsonByName[AlertSeverityDisplay]),
+            Deserialize<AgentAnalysisContextOptions>(AgentAnalysisContext, jsonByName[AgentAnalysisContext]),
+            Deserialize<AgentAnalysisExecutionOptions>(AgentAnalysisExecution, jsonByName[AgentAnalysisExecution]),
+            Deserialize<InboxTargetOutputDisplayOptions>(InboxTargetOutputDisplay, jsonByName[InboxTargetOutputDisplay]));
     }
 
     public static T Deserialize<T>(string name, string json) where T : class
@@ -89,4 +95,7 @@ public sealed record DatabaseStartupSettings(
     ApplicationAuthenticationOptions Authentication,
     AlertHistoryOptions AlertHistory,
     AlertGraphOptions AlertGraph,
-    AlertSeverityDisplayOptions AlertSeverityDisplay);
+    AlertSeverityDisplayOptions AlertSeverityDisplay,
+    AgentAnalysisContextOptions AgentAnalysisContext,
+    AgentAnalysisExecutionOptions AgentAnalysisExecution,
+    InboxTargetOutputDisplayOptions InboxTargetOutputDisplay);

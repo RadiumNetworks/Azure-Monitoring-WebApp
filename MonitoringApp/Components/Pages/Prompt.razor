@@ -1,17 +1,24 @@
 @page "/prompt"
 @rendermode InteractiveServer
 @implements IDisposable
+@using System.Security.Claims
 @inject AlertStore AlertStore
-@inject QueryResultPresenter QueryResultPresenter
+@inject IncidentAnalysisSnapshotService SnapshotService
+@inject AlertGraphOptions GraphOptions
+@inject AgentAnalysisContextOptions AnalysisContextOptions
+@inject AgentAnalysisOrchestrator Orchestrator
+@inject AgentAnalysisJobService JobService
+@inject ApplicationAuthenticationOptions Authentication
+@inject MicrosoftSourceCatalog SourceCatalog
 @inject IJSRuntime JS
 
-<PageTitle>Copilot Prompt</PageTitle>
+<PageTitle>Analysis workspace</PageTitle>
 
 <section class="agent-heading">
     <div>
         <p class="eyebrow">Assisted triage</p>
-        <h1>Copilot prompt</h1>
-        <p class="subtitle">Prepare a controlled alert snapshot for review in Microsoft Copilot.</p>
+        <h1>Analysis workspace</h1>
+        <p class="subtitle">Prepare, inspect, and persist a controlled incident snapshot before any external handoff.</p>
     </div>
     <div class="agent-status" aria-label="Selected alert summary">
         <strong>@SelectedAlerts.Count</strong>
@@ -20,11 +27,19 @@
 </section>
 
 <div class="agent-notice" role="note">
-    <strong>Human-controlled handoff</strong>
-    <span>No alert data is sent automatically. Review the prompt, copy it, then paste it into Copilot using an approved account. Copilot protection depends on your account and tenant policy.</span>
+    <strong>@(Orchestrator.ExecutionState.IsEnabled ? "Human-controlled handoff" : "Agent analysis unavailable")</strong>
+    <span>@ExecutionNotice</span>
 </div>
 
 <section class="agent-controls" aria-label="Copilot prompt settings">
+    <label>
+        <span>Analysis scope</span>
+        <select value="@analysisScopeType" @onchange="ChangeAnalysisScope">
+            <option value="@nameof(IncidentAnalysisScopeType.Incident)">Selected incident events</option>
+            <option value="@nameof(IncidentAnalysisScopeType.Target)">Single target</option>
+            <option value="@nameof(IncidentAnalysisScopeType.GraphSubtree)" disabled>Graph subtree (authorization pending)</option>
+        </select>
+    </label>
     <label>
         <span>Alert scope</span>
         <select value="@scope" @onchange="ChangeScope">
@@ -41,15 +56,75 @@
             <option value="168">7 days</option>
         </select>
     </label>
-    <fieldset class="agent-detail-options">
-        <legend>Include in prompt</legend>
-        <label><input type="checkbox" @bind="includeTargets" @bind:after="PromptChanged" /> Targets and sites</label>
-        <label><input type="checkbox" @bind="includeSearchQueries" @bind:after="PromptChanged" /> Search queries</label>
-        <label><input type="checkbox" @bind="includeSearchResults" @bind:after="PromptChanged" /> Search results</label>
-        <label><input type="checkbox" @bind="includeDescriptions" @bind:after="PromptChanged" /> Descriptions</label>
-        <label><input type="checkbox" @bind="includeComments" @bind:after="PromptChanged" /> Operator comments</label>
+    <fieldset class="agent-detail-options" aria-label="Automatic evidence context">
+        <legend>Automatic evidence context</legend>
+        <label><input type="checkbox" checked="@includeSystemHistory" @onchange="ToggleSystemHistory" /> 7-day target history</label>
+        <label><input type="checkbox" checked="@includeRelatedContext" @onchange="ToggleRelatedContext" /> 24-hour related context</label>
+        <span>Graph, inventory, lifecycle, and rule trace are always included.</span>
     </fieldset>
 </section>
+
+<section class="agent-scope-summary" aria-labelledby="agent-scope-heading">
+    <div>
+        <p class="eyebrow">Scope preview</p>
+        <h2 id="agent-scope-heading">Data prepared for analysis</h2>
+    </div>
+    <dl>
+        <div><dt>Mode</dt><dd>@Orchestrator.ExecutionState.Mode</dd></div>
+        <div><dt>Profile</dt><dd>@DisplayValue(Orchestrator.ExecutionState.Profile, "Local manual handoff")</dd></div>
+        <div><dt>Primary events</dt><dd>@SelectedAlerts.Count / @AgentAnalysisJobApi.MaxPrimaryEvents</dd></div>
+        <div><dt>System history</dt><dd>@HistoryPreview(previewSnapshot?.SystemHistory.Count, includeSystemHistory, "7 days")</dd></div>
+        <div><dt>Related context</dt><dd>@HistoryPreview(previewSnapshot?.Context24Hours.Count, includeRelatedContext, "24 hours")</dd></div>
+        <div><dt>Rule decisions</dt><dd>@DisplayRuleDecisionSummary()</dd></div>
+        <div><dt>Subscriptions</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.SubscriptionId))</dd></div>
+        <div><dt>Targets</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.TargetDisplayName))</dd></div>
+        <div><dt>Selected range</dt><dd>@lookbackHours hour(s)</dd></div>
+    </dl>
+    <p>No data is sent automatically. Creating a job stores the versioned snapshot for the configured retention period.</p>
+</section>
+
+@if (previewSnapshot is not null)
+{
+    <section class="agent-evidence" aria-labelledby="agent-evidence-heading">
+        <div class="agent-section-heading">
+            <div>
+                <p class="eyebrow">Evidence preview</p>
+                <h2 id="agent-evidence-heading">Included evidence and rule decisions</h2>
+            </div>
+            <span class="agent-prompt-size">@previewSnapshot.AlertCount events</span>
+        </div>
+        <div class="agent-evidence-grid">
+            @foreach (var group in EvidenceGroups())
+            {
+                <section>
+                    <h3>@group.Label <span>@group.Items.Count</span></h3>
+                    @if (group.Items.Count == 0)
+                    {
+                        <p class="agent-job-empty">@(group.Included ? "No matching evidence." : "Excluded by operator.")</p>
+                    }
+                    else
+                    {
+                        @foreach (var evidence in group.Items)
+                        {
+                            <article>
+                                <div>
+                                    <strong>@evidence.Name</strong>
+                                    <span>@evidence.Target · @evidence.SubscriptionId</span>
+                                </div>
+                                <span class="agent-decision agent-decision-@evidence.Decision.Type.ToString().ToLowerInvariant()">@evidence.Decision.Type</span>
+                                <small>Event <code>@evidence.EventId</code></small>
+                                @if (evidence.Decision.RuleId is not null)
+                                {
+                                    <small>Rule <code>@evidence.Decision.RuleId</code> · @evidence.Decision.RuleName · @evidence.Decision.VisibleClassification</small>
+                                }
+                            </article>
+                        }
+                    }
+                </section>
+            }
+        </div>
+    </section>
+}
 
 <div class="agent-workspace">
     <section class="agent-alerts" aria-labelledby="agent-alerts-heading">
@@ -95,7 +170,7 @@
         <div class="agent-section-heading">
             <div>
                 <p class="eyebrow">Preview</p>
-                <h2 id="agent-prompt-heading">Copilot prompt</h2>
+                <h2 id="agent-prompt-heading">Incident analysis prompt</h2>
             </div>
             <span class="agent-prompt-size">@GeneratedPrompt.Length characters</span>
         </div>
@@ -104,26 +179,290 @@
 
         <div class="agent-handoff">
             <span class="agent-copy-status" role="status">@copyStatus</span>
-            <button class="agent-copy" type="button" disabled="@(!SelectedAlerts.Any())" @onclick="CopyPromptAsync">Copy prompt</button>
+            <button class="agent-copy" type="button" disabled="@(!CanStartConfiguredMode || isSavingJob || isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError))" @onclick="CreateJobAsync">
+                @(isSavingJob ? "Creating job..." : PrimaryActionLabel)
+            </button>
+            <button class="agent-copy" type="button" disabled="@(isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError))" @onclick="CopyPromptAsync">
+                @(isGenerating ? "Building snapshot..." : "Copy prompt")
+            </button>
             <a class="agent-open" href="https://copilot.microsoft.com/" target="_blank" rel="noopener noreferrer">Open Copilot</a>
         </div>
-        <p class="agent-footnote">All detail fields are included by default. Raw alert JSON is never added; review search queries and results for sensitive identifiers before copying.</p>
+        @if (!string.IsNullOrWhiteSpace(generationError))
+        {
+            <p class="agent-footnote" role="alert">@generationError</p>
+        }
+        else
+        {
+            <p class="agent-footnote">Operator comments and raw alert JSON are excluded. Historical evidence is tiered and carries its selection reason and relationship to primary events.</p>
+        }
     </section>
 </div>
 
+<section class="agent-jobs" aria-labelledby="agent-jobs-heading">
+    <div class="agent-section-heading">
+        <div>
+            <p class="eyebrow">Persisted analysis</p>
+            <h2 id="agent-jobs-heading">Recent jobs</h2>
+        </div>
+        @if (activeJob is not null)
+        {
+            <button class="agent-copy" type="button" disabled="@isRefreshingJob" @onclick="RefreshActiveJobAsync">
+                @(isRefreshingJob ? "Refreshing..." : "Refresh status")
+            </button>
+        }
+    </div>
+
+    @if (!CanCreateJob)
+    {
+        <p class="agent-footnote">Operator or administrator access is required to create and view analysis jobs.</p>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(jobError))
+        {
+            <p class="agent-job-error" role="alert">@jobError</p>
+        }
+        @if (recentJobs.Count == 0)
+        {
+            <p class="agent-job-empty">No persisted analysis jobs are available for this operator.</p>
+        }
+        else
+        {
+            <div class="agent-job-layout">
+                <div class="agent-job-list" aria-label="Recent analysis jobs">
+                    @foreach (var job in recentJobs)
+                    {
+                        <button type="button" class="@(activeJob?.Id == job.Id ? "selected" : null)" @onclick="() => SelectJobAsync(job.Id)">
+                            <span><strong>@job.ScopeValue</strong><small>@job.ScopeType · @job.Mode</small></span>
+                            <span class="agent-job-state">@job.Status</span>
+                            <time datetime="@job.CreatedAt.ToString("O")">@job.CreatedAt.ToLocalTime().ToString("g")</time>
+                        </button>
+                    }
+                </div>
+
+                <div class="agent-job-detail">
+                    @if (activeJob is null)
+                    {
+                        <p class="agent-job-empty">Select a job to inspect its status and result.</p>
+                    }
+                    else
+                    {
+                        <dl class="agent-job-metadata">
+                            <div><dt>Status</dt><dd>@activeJob.Status</dd></div>
+                            <div><dt>Analysis ID</dt><dd><code>@activeJob.AnalysisId</code></dd></div>
+                            <div><dt>Version</dt><dd>@activeJob.ResultVersion</dd></div>
+                            <div><dt>Mode / profile</dt><dd>@activeJob.Mode / @DisplayValue(activeJob.ExecutionProfile, "none")</dd></div>
+                            <div><dt>Evidence window</dt><dd>@activeJob.DataFrom.ToLocalTime().ToString("g") – @activeJob.DataTo.ToLocalTime().ToString("g")</dd></div>
+                            <div><dt>Retention</dt><dd>Until @activeJob.ExpiresAt.ToLocalTime().ToString("g")</dd></div>
+                        </dl>
+                        @if (!string.IsNullOrWhiteSpace(activeJob.StatusReason))
+                        {
+                            <p class="agent-job-reason">@activeJob.StatusReason</p>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(activeJob.ErrorMessage))
+                        {
+                            <p class="agent-job-error" role="alert"><strong>@DisplayValue(activeJob.ErrorCode, "Analysis failed"):</strong> @activeJob.ErrorMessage</p>
+                        }
+                        @if (activeJob.Status == AgentAnalysisJobStatuses.Completed)
+                        {
+                            <a class="agent-download" href="@AttachmentPath(activeJob.Id)">Download Markdown</a>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    }
+</section>
+
+@if (activeResult is not null)
+{
+    <section class="agent-result" aria-labelledby="agent-result-heading">
+        <div class="agent-section-heading">
+            <div>
+                <p class="eyebrow">Validated result</p>
+                <h2 id="agent-result-heading">Full analysis</h2>
+            </div>
+            <span class="agent-prompt-size">@activeResult.ContractVersion · v@activeResult.ResultVersion</span>
+        </div>
+
+        <div class="agent-result-section">
+            <h3>Teams summary</h3>
+            <ul>
+                @foreach (var bullet in activeResult.TeamsSummary)
+                {
+                    <li>@bullet.Text</li>
+                }
+            </ul>
+        </div>
+
+        <div class="agent-result-grid">
+            <section class="agent-result-section">
+                <h3>Observed facts</h3>
+                @foreach (var statement in StatementsByKind("ObservedFact"))
+                {
+                    <article>
+                        <span class="agent-result-kind">@statement.Kind</span>
+                        <p>@statement.Text</p>
+                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        @foreach (var source in ResolveSources(statement.SourceIds))
+                        {
+                            <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
+                        }
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Rule assessments</h3>
+                @foreach (var statement in StatementsByKind("RuleAssessment"))
+                {
+                    <article>
+                        <span class="agent-result-kind">@statement.Kind</span>
+                        <p>@statement.Text</p>
+                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        @foreach (var source in ResolveSources(statement.SourceIds))
+                        {
+                            <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
+                        }
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Correlations and contradictions</h3>
+                @foreach (var statement in StatementsByKind("GraphCorrelation", "HistoricalPattern", "Contradiction"))
+                {
+                    <article>
+                        <span class="agent-result-kind">@statement.Kind</span>
+                        <p>@statement.Text</p>
+                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        @foreach (var source in ResolveSources(statement.SourceIds))
+                        {
+                            <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
+                        }
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Open evidence</h3>
+                @foreach (var statement in StatementsByKind("MissingEvidence"))
+                {
+                    <article>
+                        <span class="agent-result-kind">@statement.Kind</span>
+                        <p>@statement.Text</p>
+                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Hypotheses</h3>
+                @foreach (var hypothesis in activeResult.DetailedAnalysis.Hypotheses)
+                {
+                    <article>
+                        <strong class="agent-confidence">Confidence: @hypothesis.Confidence</strong>
+                        <p>@hypothesis.Statement</p>
+                        <small>Supporting evidence: @DisplayIds(hypothesis.SupportingEvidenceIds) · Contradicting evidence: @DisplayIds(hypothesis.ContradictingEvidenceIds)</small>
+                        <small>Confirm or reject with: @hypothesis.ConfirmationOrRejectionEvidence</small>
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Recommended checks</h3>
+                @foreach (var check in activeResult.DetailedAnalysis.RecommendedChecks)
+                {
+                    <article>
+                        <strong>@check.Action</strong>
+                        <p>@check.Target · Expected: @check.ExpectedSignal</p>
+                        <small>Impact: @check.Impact · Prerequisites: @check.Prerequisites · Rollback: @check.Rollback</small>
+                        @foreach (var source in ResolveSources(check.SourceIds))
+                        {
+                            <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
+                        }
+                    </article>
+                }
+            </section>
+
+            <section class="agent-result-section">
+                <h3>Operator handoff</h3>
+                <p><strong>Decision:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.CurrentDecision</p>
+                <p><strong>Unresolved risk:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.UnresolvedRisk</p>
+                <p><strong>Missing evidence:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.MissingEvidence</p>
+                <p><strong>Audience:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.Audience</p>
+            </section>
+        </div>
+
+        <section class="agent-review" aria-labelledby="agent-review-heading">
+            <div>
+                <h3 id="agent-review-heading">Operator review</h3>
+                <p>Actions are recorded against analysis @activeResult.AnalysisId, result version @activeResult.ResultVersion.</p>
+            </div>
+            <label>
+                <span>Review comment</span>
+                <textarea rows="3" maxlength="4000" @bind="reviewComment" placeholder="Required when commenting or rejecting"></textarea>
+            </label>
+            <div class="agent-review-actions">
+                <button type="button" disabled="@isSavingReview" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Accepted)">Accept</button>
+                <button type="button" disabled="@(isSavingReview || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Commented)">Add comment</button>
+                <button class="danger" type="button" disabled="@(isSavingReview || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Rejected)">Reject</button>
+                <button type="button" disabled="@isSavingReview" @onclick="CopyHandoffAsync">Copy handoff</button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(reviewStatus))
+            {
+                <p class="agent-copy-status" role="status">@reviewStatus</p>
+            }
+            @if (reviewEvents.Count > 0)
+            {
+                <ol class="agent-review-log" reversed>
+                    @foreach (var entry in reviewEvents)
+                    {
+                        <li>
+                            <strong>@entry.Action</strong>
+                            <span>@entry.Actor · @entry.CreatedAt.ToLocalTime().ToString("g") · v@entry.ResultVersion</span>
+                            @if (!string.IsNullOrWhiteSpace(entry.Comment))
+                            {
+                                <p>@entry.Comment</p>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    </section>
+}
+
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
     private IReadOnlyList<AlertRecord> alerts = [];
     private readonly HashSet<Guid> selectedAlertIds = [];
+    private IReadOnlyList<AgentAnalysisJobResponse> recentJobs = [];
+    private ClaimsPrincipal currentUser = new(new ClaimsIdentity());
+    private AgentAnalysisJobResponse? activeJob;
+    private AgentAnalysisResult? activeResult;
+    private IReadOnlyList<AgentAnalysisReviewEvent> reviewEvents = [];
+    private IncidentAnalysisSnapshot? previewSnapshot;
+    private string analysisScopeType = nameof(IncidentAnalysisScopeType.Incident);
     private string scope = "active";
     private int lookbackHours = 24;
-    private bool includeTargets = true;
-    private bool includeSearchQueries = true;
-    private bool includeSearchResults = true;
-    private bool includeDescriptions = true;
-    private bool includeComments = true;
+    private bool includeSystemHistory = true;
+    private bool includeRelatedContext = true;
     private bool isLoading = true;
+    private bool isGenerating;
+    private bool isSavingJob;
+    private bool isRefreshingJob;
+    private bool isSavingReview;
     private string copyStatus = string.Empty;
+    private string generatedPrompt = "Select at least one alert to prepare an incident analysis prompt.";
+    private string? generationError;
+    private string? jobError;
+    private string reviewComment = string.Empty;
+    private string? reviewStatus;
     private DateTimeOffset promptGeneratedAt = DateTimeOffset.UtcNow;
+    private CancellationTokenSource? promptCancellation;
 
     private IReadOnlyList<AlertRecord> VisibleAlerts => (scope == "active"
             ? AlertLifecycle.GetActiveAlerts(alerts)
@@ -136,49 +475,81 @@
         .Where(alert => selectedAlertIds.Contains(alert.Id))
         .ToArray();
 
-    private string GeneratedPrompt => SelectedAlerts.Any()
-        ? AlertAgentPrompt.Build(
-            SelectedAlerts,
-            promptGeneratedAt,
-            new AlertAgentPromptOptions(
-                IncludeTargets: includeTargets,
-                IncludeSearchQueries: includeSearchQueries,
-                IncludeSearchResults: includeSearchResults,
-                IncludeDescriptions: includeDescriptions,
-                IncludeComments: includeComments),
-            QueryResultPresenter)
-        : "Select at least one alert to prepare a Copilot prompt.";
+    private bool CanCreateJob => Authentication.IsOpen ||
+        currentUser.IsInRole(SqlAuthenticationRoles.Operator) ||
+        currentUser.IsInRole(SqlAuthenticationRoles.Admin);
+    private bool CanStartConfiguredMode => CanCreateJob && Orchestrator.ExecutionState.IsEnabled;
+
+    private string GeneratedPrompt => generatedPrompt;
+    private string PrimaryActionLabel => Orchestrator.ExecutionState.Mode switch
+    {
+        AgentAnalysisExecutionModes.TeamsWorkflow => "Send to Teams workflow",
+        AgentAnalysisExecutionModes.Api => "Start analysis via API",
+        _ => "Create analysis job"
+    };
+    private string ExecutionNotice => Orchestrator.ExecutionState.IsEnabled
+        ? $"Mode: {Orchestrator.ExecutionState.Mode}. No alert data is sent automatically. The prompt includes primary evidence, target history, 24-hour context, lifecycles, graph, inventory, and rule decisions."
+        : $"Mode: {Orchestrator.ExecutionState.Mode}. {Orchestrator.ExecutionState.DisabledReason}";
 
     protected override async Task OnInitializedAsync()
     {
+        currentUser = (await AuthenticationStateTask).User;
         await ReloadAlertsAsync(selectDefaults: true);
+        if (CanCreateJob)
+        {
+            await ReloadRecentJobsAsync();
+        }
         AlertStore.Changed += HandleStoreChanged;
     }
 
-    private void HandleStoreChanged() => _ = ReloadAlertsAsync(selectDefaults: false);
+    private void HandleStoreChanged() => _ = InvokeAsync(() => ReloadAlertsAsync(selectDefaults: false));
 
     private async Task ReloadAlertsAsync(bool selectDefaults)
     {
         alerts = await AlertStore.GetAllAsync();
         isLoading = false;
         SyncSelection(selectDefaults);
+        await GeneratePromptAsync();
         await InvokeAsync(StateHasChanged);
     }
 
-    private void ChangeScope(ChangeEventArgs args)
+    private async Task ChangeScope(ChangeEventArgs args)
     {
         scope = args.Value?.ToString() == "recent" ? "recent" : "active";
         SyncSelection(selectDefaults: true);
+        await GeneratePromptAsync();
     }
 
-    private void ChangeTimeRange(ChangeEventArgs args)
+    private async Task ChangeAnalysisScope(ChangeEventArgs args)
+    {
+        analysisScopeType = args.Value?.ToString() == nameof(IncidentAnalysisScopeType.Target)
+            ? nameof(IncidentAnalysisScopeType.Target)
+            : nameof(IncidentAnalysisScopeType.Incident);
+        if (analysisScopeType == nameof(IncidentAnalysisScopeType.Target) && SelectedAlerts.Count > 0)
+        {
+            SelectTarget(SelectedAlerts[0]);
+        }
+
+        await GeneratePromptAsync();
+    }
+
+    private async Task ChangeTimeRange(ChangeEventArgs args)
     {
         lookbackHours = ParseOption(args, 24, 1, 4, 24, 168);
         SyncSelection(selectDefaults: true);
+        await GeneratePromptAsync();
     }
 
-    private void ToggleAlert(Guid alertId, ChangeEventArgs args)
+    private async Task ToggleAlert(Guid alertId, ChangeEventArgs args)
     {
+        if (analysisScopeType == nameof(IncidentAnalysisScopeType.Target) && args.Value is true)
+        {
+            var selectedAlert = VisibleAlerts.First(alert => alert.Id == alertId);
+            SelectTarget(selectedAlert);
+            await GeneratePromptAsync();
+            return;
+        }
+
         if (args.Value is true)
         {
             selectedAlertIds.Add(alertId);
@@ -188,20 +559,40 @@
             selectedAlertIds.Remove(alertId);
         }
 
-        PromptChanged();
+        await GeneratePromptAsync();
     }
 
-    private void SelectAll()
+    private async Task ToggleSystemHistory(ChangeEventArgs args)
     {
-        selectedAlertIds.Clear();
-        selectedAlertIds.UnionWith(VisibleAlerts.Select(alert => alert.Id));
-        PromptChanged();
+        includeSystemHistory = args.Value is true;
+        await GeneratePromptAsync();
     }
 
-    private void ClearSelection()
+    private async Task ToggleRelatedContext(ChangeEventArgs args)
+    {
+        includeRelatedContext = args.Value is true;
+        await GeneratePromptAsync();
+    }
+
+    private async Task SelectAll()
     {
         selectedAlertIds.Clear();
-        PromptChanged();
+        if (analysisScopeType == nameof(IncidentAnalysisScopeType.Target) && VisibleAlerts.FirstOrDefault() is { } target)
+        {
+            SelectTarget(target);
+        }
+        else
+        {
+            selectedAlertIds.UnionWith(VisibleAlerts.Select(alert => alert.Id));
+        }
+
+        await GeneratePromptAsync();
+    }
+
+    private async Task ClearSelection()
+    {
+        selectedAlertIds.Clear();
+        await GeneratePromptAsync();
     }
 
     private void SyncSelection(bool selectDefaults)
@@ -211,10 +602,24 @@
         if (selectDefaults)
         {
             selectedAlertIds.Clear();
-            selectedAlertIds.UnionWith(visibleIds);
+            if (analysisScopeType == nameof(IncidentAnalysisScopeType.Target) && VisibleAlerts.FirstOrDefault() is { } target)
+            {
+                SelectTarget(target);
+            }
+            else
+            {
+                selectedAlertIds.UnionWith(visibleIds);
+            }
         }
+    }
 
-        PromptChanged();
+    private void SelectTarget(AlertRecord selectedAlert)
+    {
+        selectedAlertIds.Clear();
+        selectedAlertIds.UnionWith(VisibleAlerts
+            .Where(alert => alert.SubscriptionId.Equals(selectedAlert.SubscriptionId, StringComparison.OrdinalIgnoreCase) &&
+                alert.TargetName.Equals(selectedAlert.TargetName, StringComparison.OrdinalIgnoreCase))
+            .Select(alert => alert.Id));
     }
 
     private async Task CopyPromptAsync()
@@ -223,10 +628,286 @@
         copyStatus = "Prompt copied. Review it once more before pasting.";
     }
 
-    private void PromptChanged()
+    private async Task CreateJobAsync()
     {
+        isSavingJob = true;
+        jobError = null;
+        try
+        {
+            var response = await JobService.StartAsync(
+                new AgentAnalysisJobStartRequest(
+                    SelectedAlerts.Select(alert => alert.Id).ToArray(),
+                    analysisScopeType,
+                    ScopeValue(),
+                    SystemHistoryDays: 7,
+                    ContextHours: AgentAnalysisJobApi.MaxContextHours,
+                    IncludeSystemHistory: includeSystemHistory,
+                    IncludeRelatedContext: includeRelatedContext),
+                currentUser);
+            generatedPrompt = response.ManualPrompt;
+            activeJob = response.Job;
+            await ReloadRecentJobsAsync();
+            await LoadActiveResultAsync(response.Job.Id);
+            copyStatus = "Analysis job created. Review and copy the manual prompt when ready.";
+        }
+        catch (Exception exception) when (exception is
+            AgentAnalysisRequestValidationException or
+            AgentAnalysisScopeDeniedException or
+            AgentAnalysisUnavailableException or
+            InvalidOperationException)
+        {
+            jobError = exception.Message;
+        }
+        finally
+        {
+            isSavingJob = false;
+        }
+    }
+
+    private async Task ReloadRecentJobsAsync()
+    {
+        recentJobs = await JobService.ListAccessibleAsync(currentUser);
+    }
+
+    private async Task SelectJobAsync(Guid id)
+    {
+        jobError = null;
+        await LoadActiveResultAsync(id);
+    }
+
+    private async Task RefreshActiveJobAsync()
+    {
+        if (activeJob is null)
+        {
+            return;
+        }
+
+        isRefreshingJob = true;
+        jobError = null;
+        try
+        {
+            await LoadActiveResultAsync(activeJob.Id);
+            await ReloadRecentJobsAsync();
+        }
+        finally
+        {
+            isRefreshingJob = false;
+        }
+    }
+
+    private async Task LoadActiveResultAsync(Guid id)
+    {
+        var job = await JobService.GetAccessibleAsync(id, currentUser);
+        if (job is null)
+        {
+            activeJob = null;
+            activeResult = null;
+            jobError = "The analysis job is no longer available.";
+            return;
+        }
+
+        activeJob = AgentAnalysisJobResponse.FromJob(job);
+        activeResult = null;
+        reviewEvents = [];
+        reviewStatus = null;
+        if (job.Status == AgentAnalysisJobStatuses.Completed && !string.IsNullOrWhiteSpace(job.ResultJson))
+        {
+            try
+            {
+                activeResult = AgentAnalysisResultParser.ParseStored(job.ResultJson);
+                reviewEvents = await JobService.ListReviewsAsync(id, currentUser);
+            }
+            catch (InvalidOperationException)
+            {
+                jobError = "The stored result cannot be displayed because its schema is invalid.";
+            }
+        }
+    }
+
+    private async Task SubmitReviewAsync(string action, string? comment = null)
+    {
+        if (activeJob is null || activeResult is null)
+        {
+            return;
+        }
+
+        isSavingReview = true;
+        reviewStatus = null;
+        try
+        {
+            var effectiveComment = comment ?? (action is AgentAnalysisReviewActions.Commented or AgentAnalysisReviewActions.Rejected
+                ? reviewComment
+                : null);
+            await JobService.ReviewAsync(activeJob.Id, currentUser, action, effectiveComment);
+            reviewEvents = await JobService.ListReviewsAsync(activeJob.Id, currentUser);
+            reviewComment = string.Empty;
+            reviewStatus = $"{action} recorded for result version {activeResult.ResultVersion}.";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+        {
+            reviewStatus = exception.Message;
+        }
+        finally
+        {
+            isSavingReview = false;
+        }
+    }
+
+    private async Task CopyHandoffAsync()
+    {
+        if (activeResult is null)
+        {
+            return;
+        }
+
+        var handoff = activeResult.DetailedAnalysis.OperatorHandoff;
+        var text = string.Join(Environment.NewLine,
+            $"Decision: {handoff.CurrentDecision}",
+            $"Unresolved risk: {handoff.UnresolvedRisk}",
+            $"Missing evidence: {handoff.MissingEvidence}",
+            $"Audience: {handoff.Audience}");
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await SubmitReviewAsync(AgentAnalysisReviewActions.HandoffCopied);
+    }
+
+    private string ScopeValue()
+    {
+        var selected = SelectedAlerts;
+        if (analysisScopeType == nameof(IncidentAnalysisScopeType.Target))
+        {
+            return selected.FirstOrDefault()?.TargetName ?? "No target selected";
+        }
+
+        return selected.Count == 1
+            ? selected[0].AlertId
+            : $"{selected.Count} selected alert events";
+    }
+
+    private IReadOnlyList<MicrosoftSource> ResolveSources(IEnumerable<string> sourceIds)
+    {
+        var ids = sourceIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return SourceCatalog.ApprovedSources.Where(source => ids.Contains(source.Id)).ToArray();
+    }
+
+    private static string DisplayValues(IEnumerable<string> values)
+    {
+        var distinct = values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return distinct.Length == 0 ? "None" : string.Join(", ", distinct);
+    }
+
+    private static string DisplayIds(IEnumerable<Guid> ids)
+    {
+        var values = ids.Select(id => id.ToString()).ToArray();
+        return values.Length == 0 ? "None" : string.Join(", ", values);
+    }
+
+    private static string DisplayValue(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    private string DisplayRuleDecisionSummary()
+    {
+        if (previewSnapshot is null)
+        {
+            return isGenerating ? "Calculating..." : "None";
+        }
+
+        var decisions = previewSnapshot.PrimaryEvidence
+            .GroupBy(evidence => evidence.Decision.Type)
+            .OrderBy(group => group.Key)
+            .Select(group => $"{group.Key}: {group.Count()}");
+        return string.Join(", ", decisions);
+    }
+
+    private static string HistoryPreview(int? count, bool included, string range) =>
+        included ? $"{count ?? 0} events / {range}" : "Excluded by operator";
+
+    private static string AttachmentPath(Guid id) => $"/api/agent-analysis/jobs/{id:D}/attachment";
+
+    private IReadOnlyList<AgentExecutiveStatement> StatementsByKind(params string[] kinds)
+    {
+        var allowedKinds = kinds.ToHashSet(StringComparer.Ordinal);
+        return activeResult?.DetailedAnalysis.ExecutiveSummary
+            .Where(statement => allowedKinds.Contains(statement.Kind))
+            .ToArray() ?? [];
+    }
+
+    private IReadOnlyList<EvidencePreviewGroup> EvidenceGroups() => previewSnapshot is null
+        ? []
+        :
+        [
+            new("Primary evidence", previewSnapshot.PrimaryEvidence, true),
+            new("System history", previewSnapshot.SystemHistory, includeSystemHistory),
+            new("Related context", previewSnapshot.Context24Hours, includeRelatedContext)
+        ];
+
+    private async Task GeneratePromptAsync()
+    {
+        promptCancellation?.Cancel();
+        promptCancellation?.Dispose();
+        promptCancellation = new CancellationTokenSource();
+        var cancellationToken = promptCancellation.Token;
         promptGeneratedAt = DateTimeOffset.UtcNow;
         copyStatus = string.Empty;
+        generationError = null;
+        previewSnapshot = null;
+
+        if (!Orchestrator.ExecutionState.IsEnabled)
+        {
+            generatedPrompt = string.Empty;
+            generationError = Orchestrator.ExecutionState.DisabledReason ?? "Agent analysis is disabled.";
+            isGenerating = false;
+            return;
+        }
+
+        var selected = SelectedAlerts;
+        if (selected.Count == 0)
+        {
+            generatedPrompt = "Select at least one alert to prepare an incident analysis prompt.";
+            isGenerating = false;
+            return;
+        }
+
+        isGenerating = true;
+        try
+        {
+            var snapshot = await SnapshotService.BuildAsync(
+                selected.Select(alert => alert.Id).ToArray(),
+                new IncidentAnalysisScope(
+                    AgentAnalysisJobApi.ParseScopeType(analysisScopeType),
+                    ScopeValue()),
+                GraphOptions.DefaultLayer1,
+                GraphOptions.DefaultLayer2,
+                GraphOptions.DefaultLayer3,
+                promptGeneratedAt,
+                new IncidentAnalysisSnapshotOptions(
+                    SystemHistoryDays: 7,
+                    ContextHours: AgentAnalysisJobApi.MaxContextHours,
+                    IncludeSystemHistory: includeSystemHistory,
+                    IncludeRelatedContext: includeRelatedContext,
+                    InventoryCorrelationLayers: AnalysisContextOptions.InventoryCorrelationLayers),
+                cancellationToken: cancellationToken);
+            previewSnapshot = snapshot;
+            generatedPrompt = Orchestrator.Prepare(snapshot).Prompt;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            generatedPrompt = string.Empty;
+            generationError = $"The incident snapshot could not be generated: {exception.Message}";
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                isGenerating = false;
+            }
+        }
     }
 
     private static int ParseOption(ChangeEventArgs args, int fallback, params int[] allowed) =>
@@ -234,5 +915,15 @@
 
     private static string SeverityClass(string severity) => $"severity-{severity.ToLowerInvariant()}";
 
-    public void Dispose() => AlertStore.Changed -= HandleStoreChanged;
+    public void Dispose()
+    {
+        AlertStore.Changed -= HandleStoreChanged;
+        promptCancellation?.Cancel();
+        promptCancellation?.Dispose();
+    }
+
+    private sealed record EvidencePreviewGroup(
+        string Label,
+        IReadOnlyList<IncidentAlertEvidence> Items,
+        bool Included);
 }

@@ -5,7 +5,8 @@
     "parameters": {
       "workspaceId": { "type": "String", "defaultValue": "" },
       "webhookUrl": { "type": "String", "defaultValue": "" },
-      "webhookAudience": { "type": "String", "defaultValue": "" }
+      "webhookAudience": { "type": "String", "defaultValue": "" },
+      "$connections": { "type": "Object", "defaultValue": {} }
     },
     "triggers": {
       "When_an_Azure_Monitor_alert_is_received": {
@@ -202,6 +203,7 @@
   "parameters": {
     "workspaceId": { "value": "<log-analytics-workspace-guid>" },
     "webhookUrl": { "value": "https://<app-service-name>.azurewebsites.net/api/alerts" },
-    "webhookAudience": { "value": "api://<monitoring-api-client-id>" }
+    "webhookAudience": { "value": "api://<monitoring-api-client-id>" },
+    "$connections": { "value": {} }
   }
 }

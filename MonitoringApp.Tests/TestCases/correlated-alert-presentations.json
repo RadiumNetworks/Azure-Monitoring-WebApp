@@ -1,7 +1,7 @@
 {
   "alerts": [
     {
-      "alertId": "demo-heartbeat-orion-07",
+      "alertId": "agent-demo-primary-heartbeat",
       "targetName": "DC-ORION-07",
       "siteName": "Northbridge",
       "collapseRows": false,
@@ -12,18 +12,18 @@
       "facts": []
     },
     {
-      "alertId": "demo-dcdiag-orion-07",
+      "alertId": "agent-demo-primary-dcdiag",
       "targetName": "DC-ORION-07",
       "siteName": "Northbridge",
       "collapseRows": false,
-      "summary": ["2 passed", "3 failed"],
+      "summary": ["5 passed", "1 failed"],
       "rowTitles": ["DC-ORION-07"],
       "metadata": ["Site=Northbridge", "Observed=2026-08-25T15:41:18Z"],
-      "alerts": ["Connectivity=Failed", "DNS=Failed", "Replications=Failed"],
+      "alerts": ["DNS=Failed"],
       "facts": []
     },
     {
-      "alertId": "demo-replication-atlas-to-orion",
+      "alertId": "agent-demo-primary-replication",
       "targetName": "DC-ATLAS-12",
       "siteName": "Cedarfield",
       "collapseRows": true,
@@ -34,7 +34,7 @@
       "facts": ["Last failure=2026-08-25T15:32:08Z", "Last success=2026-08-25T14:58:31Z"]
     },
     {
-      "alertId": "demo-dcport-atlas-to-orion",
+      "alertId": "agent-demo-primary-dcport",
       "targetName": "DC-ORION-07",
       "siteName": "Northbridge",
       "collapseRows": true,

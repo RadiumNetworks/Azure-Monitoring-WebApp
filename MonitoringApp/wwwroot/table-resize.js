@@ -25,6 +25,38 @@
         });
     }
 
+    function initializeScrollbars(root = document) {
+        root.querySelectorAll?.(".table-region").forEach(region => {
+            const scrollbar = region.querySelector(".table-scrollbar");
+            const scrollContainer = region.querySelector(".table-scroll");
+            const table = scrollContainer?.querySelector(".alert-table");
+            if (!scrollbar || !scrollContainer || !table || scrollbar.dataset.initialized) {
+                return;
+            }
+
+            scrollbar.dataset.initialized = "true";
+            const spacer = scrollbar.firstElementChild;
+            const updateWidth = () => {
+                spacer.style.width = `${table.scrollWidth}px`;
+                scrollbar.scrollLeft = scrollContainer.scrollLeft;
+            };
+            let syncing = false;
+            const synchronize = (source, target) => {
+                if (syncing) {
+                    return;
+                }
+                syncing = true;
+                target.scrollLeft = source.scrollLeft;
+                requestAnimationFrame(() => syncing = false);
+            };
+
+            scrollbar.addEventListener("scroll", () => synchronize(scrollbar, scrollContainer));
+            scrollContainer.addEventListener("scroll", () => synchronize(scrollContainer, scrollbar));
+            new ResizeObserver(updateWidth).observe(table);
+            updateWidth();
+        });
+    }
+
     document.addEventListener("pointerdown", event => {
         const resizer = event.target.closest?.(".column-resizer");
         if (!resizer) {
@@ -60,11 +92,13 @@
     });
 
     restoreColumnWidths();
+    initializeScrollbars();
     new MutationObserver(mutations => {
         for (const mutation of mutations) {
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     restoreColumnWidths(node);
+                    initializeScrollbars(node);
                 }
             });
         }

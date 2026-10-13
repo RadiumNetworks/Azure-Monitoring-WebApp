@@ -119,14 +119,16 @@
                     <article class="admin-rule-card inventory-card @(IsSelected(entry) ? "selected" : null) @(isExpanded ? "expanded" : null)">
                         <button class="inventory-card-toggle" type="button" aria-expanded="@isExpanded.ToString().ToLowerInvariant()" @onclick="() => ToggleExpanded(entry)">
                             <strong title="@entry.Computer">@entry.Computer</strong>
-                            <span title="@DisplayValue(entry.Role)">@DisplayValue(entry.Role)</span>
+                            <span class="inventory-card-domain" title="@DisplayValue(entry.Domain)">@DisplayValue(entry.Domain)</span>
+                            <span class="inventory-card-site" title="@DisplayValue(entry.Site)">@DisplayValue(entry.Site)</span>
+                            <span title="@(entry.Maintenance ? "Maintenance" : DisplayValue(entry.Role))">@(entry.Maintenance ? "Maintenance" : DisplayValue(entry.Role))</span>
                             <span class="inventory-card-chevron" aria-hidden="true"></span>
                         </button>
                         @if (isExpanded)
                         {
                             <div class="inventory-card-details">
                                 <div class="inventory-card-toolbar">
-                                    <span class="admin-status enabled">Discovered</span>
+                                    <span class="admin-status @(entry.Maintenance ? "inventory-maintenance" : "enabled")">@(entry.Maintenance ? "Maintenance" : "Discovered")</span>
                                     <div class="inventory-card-actions">
                                         <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">Edit</button>
                                         <button class="admin-danger" type="button" @onclick="() => BeginDelete(entry)">Delete</button>
@@ -139,8 +141,39 @@
                                     <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
                                     <div><dt>Private IP</dt><dd>@DisplayValue(entry.PrivateIP)</dd></div>
                                     <div><dt>Last heartbeat</dt><dd>@DisplayHeartbeat(entry.LastHeartbeatAt)</dd></div>
+                                    <div><dt>NTDS database size</dt><dd>@DisplayNtdsSize(entry.NtdsFileSizeInGb)</dd></div>
+                                    <div><dt>Maintenance</dt><dd>@(entry.Maintenance ? "Enabled" : "Disabled")</dd></div>
                                     <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
                                 </dl>
+                                @if (entry.Certificates.Count > 0)
+                                {
+                                    <section class="inventory-observation-details" aria-label="Certificates">
+                                        <h3>Certificates</h3>
+                                        <div class="inventory-detail-table">
+                                            <div class="inventory-detail-heading"><span>Name</span><span>Serial number</span><span>Expires</span></div>
+                                            @foreach (var certificate in entry.Certificates)
+                                            {
+                                                <div>
+                                                    <span title="@certificate.Name">@DisplayValue(certificate.Name)</span>
+                                                    <span title="@certificate.SerialNumber">@DisplayValue(certificate.SerialNumber)</span>
+                                                    <span>@DisplayDate(certificate.ExpiresAt)</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </section>
+                                }
+                                @if (entry.Services.Count > 0)
+                                {
+                                    <section class="inventory-observation-details" aria-label="Services">
+                                        <h3>Services</h3>
+                                        <div class="inventory-service-list">
+                                            @foreach (var service in entry.Services)
+                                            {
+                                                <span><strong>@service.Name</strong> @DisplayServiceStatus(service.Status)</span>
+                                            }
+                                        </div>
+                                    </section>
+                                }
                             </div>
                         }
                     </article>
@@ -220,6 +253,11 @@
                     <input maxlength="256" @bind="entry.Role" />
                     <small>May be assigned automatically by an inventory-role alert rule.</small>
                 </label>
+                <label class="admin-check">
+                    <input type="checkbox" @bind="entry.Maintenance" />
+                    <span>Maintenance</span>
+                </label>
+                <small>Hide this system's alerts and missing heartbeat from the inbox. The graph shows it in blue. Alerts continue to be stored and are visible again after maintenance ends.</small>
                 @if (!isCreating)
                 {
                     <label class="admin-field">
@@ -232,6 +270,54 @@
                         <input value="@DisplayHeartbeat(entry.LastHeartbeatAt)" readonly />
                         <small>Used to determine the target status in the graph.</small>
                     </label>
+                    <label class="admin-field">
+                        <span>NTDS database size</span>
+                        <input value="@DisplayNtdsSize(entry.NtdsFileSizeInGb)" readonly />
+                        <small>A reported NTDS database or NTDS service identifies the computer as a domain controller.</small>
+                    </label>
+                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="Certificate inventory">
+                        <span>Certificates</span>
+                        @if (entry.Certificates.Count == 0)
+                        {
+                            <div class="inventory-observation-empty">No certificate data received.</div>
+                        }
+                        else
+                        {
+                            <div class="inventory-detail-table">
+                                <div class="inventory-detail-heading"><span>Name</span><span>Serial number</span><span>Expires</span></div>
+                                @foreach (var certificate in entry.Certificates)
+                                {
+                                    <div>
+                                        <span title="@certificate.Name">@DisplayValue(certificate.Name)</span>
+                                        <span title="@certificate.SerialNumber">@DisplayValue(certificate.SerialNumber)</span>
+                                        <span>@DisplayDate(certificate.ExpiresAt)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <small>Updated automatically from inventory heartbeat events.</small>
+                    </section>
+                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="Service inventory">
+                        <span>Services</span>
+                        @if (entry.Services.Count == 0)
+                        {
+                            <div class="inventory-observation-empty">No service data received.</div>
+                        }
+                        else
+                        {
+                            <div class="inventory-service-table">
+                                <div class="inventory-detail-heading"><span>Service</span><span>Last status</span></div>
+                                @foreach (var service in entry.Services)
+                                {
+                                    <div>
+                                        <span>@service.Name</span>
+                                        <span>@DisplayServiceStatus(service.Status)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <small>Status reported with the inventory heartbeat at @DisplayHeartbeat(entry.LastHeartbeatAt).</small>
+                    </section>
                 }
                 <div class="admin-form-actions">
                     <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
@@ -493,7 +579,11 @@
         ResourceGroup = source.ResourceGroup,
         Role = source.Role,
         PrivateIP = source.PrivateIP,
-        LastHeartbeatAt = source.LastHeartbeatAt
+        LastHeartbeatAt = source.LastHeartbeatAt,
+        NtdsFileSizeInGb = source.NtdsFileSizeInGb,
+        CertificatesJson = source.CertificatesJson,
+        ServicesJson = source.ServicesJson,
+        Maintenance = source.Maintenance
     };
 
     private void ClearInventoryFilters()
@@ -520,6 +610,24 @@
 
     private static string DisplayHeartbeat(DateTimeOffset? value) =>
         value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "Not available";
+
+    private static string DisplayDate(DateTimeOffset? value) =>
+        value?.ToUniversalTime().ToString("yyyy-MM-dd") ?? "Not available";
+
+    private static string DisplayNtdsSize(double? value) =>
+        value.HasValue ? $"{value.Value:N2} GB" : "Not available";
+
+    private static string DisplayServiceStatus(int? status) => status switch
+    {
+        1 => "Stopped",
+        2 => "Start pending",
+        3 => "Stop pending",
+        4 => "Running",
+        5 => "Continue pending",
+        6 => "Pause pending",
+        7 => "Paused",
+        _ => status.HasValue ? $"Status {status.Value}" : "Unknown"
+    };
 
     private static string InventoryCountLabel(int count) =>
         count == 1 ? "1 system" : $"{count} systems";

@@ -14,10 +14,11 @@ public static class AlertGraphHierarchy
         AlertGraphLayer layer2,
         AlertGraphLayer layer3)
     {
-        var snapshot = alerts.ToArray();
+        var snapshot = UseLatestSystemSubscriptions(
+            alerts.Where(alert => HasTarget(alert.Target)));
         var activeAlertIds = snapshot
             .Where(alert => !string.IsNullOrWhiteSpace(alert.AlertId))
-            .GroupBy(alert => alert.AlertId, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(alert => $"{alert.SubscriptionId}\u001f{alert.AlertId}", StringComparer.OrdinalIgnoreCase)
             .Select(group => group.OrderByDescending(alert => alert.ReceivedAt).First())
             .Concat(snapshot.Where(alert => string.IsNullOrWhiteSpace(alert.AlertId)))
             .Where(alert => alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase) &&
@@ -43,7 +44,9 @@ public static class AlertGraphHierarchy
         AlertGraphLayer layer2,
         AlertGraphLayer layer3)
     {
-        var recentAlerts = alerts.Where(alert => alert.ReceivedAt >= receivedSince).ToArray();
+        var recentAlerts = alerts
+            .Where(alert => alert.ReceivedAt >= receivedSince && HasTarget(alert.TargetName))
+            .ToArray();
         var activeAlertIds = activeAlerts.Select(alert => alert.Id).ToHashSet();
 
         return BuildLevel(recentAlerts, activeAlertIds, [layer1, layer2, layer3], 0);
@@ -61,13 +64,15 @@ public static class AlertGraphHierarchy
         var layer = layers[level];
 
         return alerts
-            .GroupBy(alert => ValueFor(alert, layer), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(alert => layer == AlertGraphLayer.Target
+                ? $"{alert.SubscriptionId.Trim()}\u001f{ValueFor(alert, layer)}"
+                : ValueFor(alert, layer), StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
                 var groupedAlerts = group.ToArray();
                 return new AlertGraphHierarchyNode(
-                    group.Key,
+                    ValueFor(groupedAlerts[0], layer),
                     layer,
                     level + 1,
                     groupedAlerts.Count(alert => activeAlertIds.Contains(alert.Id)),
@@ -75,7 +80,8 @@ public static class AlertGraphHierarchy
                     level == layers.Count - 1
                         ? []
                         : BuildLevel(groupedAlerts, activeAlertIds, layers, level + 1),
-                    null);
+                    null,
+                    SubscriptionId: layer == AlertGraphLayer.Target ? groupedAlerts[0].SubscriptionId.Trim() : string.Empty);
             })
             .ToArray();
     }
@@ -89,13 +95,15 @@ public static class AlertGraphHierarchy
         var layer = layers[level];
 
         return alerts
-            .GroupBy(alert => ValueFor(alert, layer), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(alert => layer == AlertGraphLayer.Target
+                ? SystemKey(alert.Domain, alert.Target)
+                : ValueFor(alert, layer), StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
                 var groupedAlerts = group.ToArray();
                 return new AlertGraphHierarchyNode(
-                    group.Key,
+                    ValueFor(groupedAlerts[0], layer),
                     layer,
                     level + 1,
                     groupedAlerts.Count(alert => activeAlertIds.Contains(alert.Id)),
@@ -106,10 +114,37 @@ public static class AlertGraphHierarchy
                     groupedAlerts
                         .Where(alert => alert.LastHeartbeatAt.HasValue)
                         .Select(alert => alert.LastHeartbeatAt)
-                        .Max());
+                        .Max(),
+                    groupedAlerts.All(alert => alert.Maintenance),
+                    layer == AlertGraphLayer.Target ? groupedAlerts[0].SubscriptionId.Trim() : string.Empty,
+                    layer == AlertGraphLayer.Target ? ValueFor(groupedAlerts[0], AlertGraphLayer.Domain) : string.Empty,
+                    groupedAlerts.Any(alert => alert.HasServiceHealthAlert));
             })
             .ToArray();
     }
+
+    private static AlertGraphRecord[] UseLatestSystemSubscriptions(IEnumerable<AlertGraphRecord> alerts) =>
+        alerts
+            .GroupBy(alert => SystemKey(alert.Domain, alert.Target), StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group =>
+            {
+                var subscriptionId = group
+                    .OrderByDescending(alert => alert.ReceivedAt)
+                    .First()
+                    .SubscriptionId;
+                return group.Select(alert => alert with { SubscriptionId = subscriptionId });
+            })
+            .ToArray();
+
+    private static string SystemKey(string? domain, string? target) =>
+        $"{NormalizedValue(domain)}\u001f{NormalizedValue(target)}";
+
+    private static string NormalizedValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
+
+    private static bool HasTarget(string? target) =>
+        !string.IsNullOrWhiteSpace(target) &&
+        !target.Trim().Equals("-", StringComparison.Ordinal);
 
     /// <summary>
     /// Reads the grouping value for one alert and graph layer. Missing site names are represented by a dash.
@@ -158,7 +193,9 @@ public sealed record AlertGraphRecord(
     string Domain,
     string Role,
     DateTimeOffset? LastHeartbeatAt = null,
-    bool IsInventoryOnly = false);
+    bool IsInventoryOnly = false,
+    bool Maintenance = false,
+    bool HasServiceHealthAlert = false);
 
 /// <summary>
 /// Filters graph records by the inventory and Azure scope fields exposed by the graph page.
@@ -199,7 +236,11 @@ public sealed record AlertGraphHierarchyNode(
     int Count,
     int HistoryCount,
     IReadOnlyList<AlertGraphHierarchyNode> Children,
-    DateTimeOffset? LastHeartbeatAt = null);
+    DateTimeOffset? LastHeartbeatAt = null,
+    bool Maintenance = false,
+    string SubscriptionId = "",
+    string Domain = "",
+    bool HasServiceHealthAlert = false);
 
 /// <summary>
 /// Pairs a graph-layer enum value with the label shown in the layer selector. It is used to populate graph configuration controls.

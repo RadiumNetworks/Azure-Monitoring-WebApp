@@ -8,14 +8,20 @@
     }
 
     function constrainView(state, view) {
-        const width = Math.min(state.base.width, Math.max(state.base.width * 0.2, view.width));
+        const minimumWidth = state.base.width * 0.1;
+        const maximumWidth = state.base.width * 1.75;
+        const width = Math.min(maximumWidth, Math.max(minimumWidth, view.width));
         const height = state.base.height * width / state.base.width;
-        const maximumX = state.base.x + state.base.width - width;
-        const maximumY = state.base.y + state.base.height - height;
+        const horizontalPadding = state.base.width * 0.375;
+        const verticalPadding = state.base.height * 0.375;
+        const minimumX = state.base.x - horizontalPadding;
+        const minimumY = state.base.y - verticalPadding;
+        const maximumX = state.base.x + state.base.width + horizontalPadding - width;
+        const maximumY = state.base.y + state.base.height + verticalPadding - height;
 
         return {
-            x: Math.min(maximumX, Math.max(state.base.x, view.x)),
-            y: Math.min(maximumY, Math.max(state.base.y, view.y)),
+            x: Math.min(maximumX, Math.max(minimumX, view.x)),
+            y: Math.min(maximumY, Math.max(minimumY, view.y)),
             width,
             height
         };

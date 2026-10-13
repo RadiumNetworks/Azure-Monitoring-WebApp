@@ -56,7 +56,8 @@
       "expectedNodes": 5, "expectedEdges": 4, "expectedSubscriptions": 2,
       "expectedMiddleNodes": 2, "expectedTargets": 1, "minimumDistinctX": 1, "minimumDistinctY": 1,
       "sharedTarget": "server-1", "sharedTargetCount": 2, "sharedTargetHistoryCount": 3,
-      "sharedTargetIncomingEdges": 2
+      "sharedTargetIncomingEdges": 2,
+      "assertNoOverlap": true
     }
   ]
 }

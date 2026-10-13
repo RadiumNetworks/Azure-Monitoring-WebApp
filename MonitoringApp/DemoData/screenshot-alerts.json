@@ -3,14 +3,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-dcdiag-orion-07",
-        "alertRule": "Northwind Directory Health",
+        "alertId": "agent-demo-primary-dcdiag",
+        "alertRule": "Directory Health",
         "severity": "Sev1",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
+        "targetSubscriptionId": "demo-subscription-a",
+        "alertTargetIDs": ["/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
         "firedDateTime": "2026-08-25T15:42:00Z",
         "description": "Directory diagnostics detected one failed test."
       },
@@ -35,7 +35,7 @@
         { "name": "TimeGenerated", "type": "datetime" },
         { "name": "Status", "type": "dynamic" }
       ],
-      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:41:18Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Failed\",\"DNS\":\"Failed\",\"Replications\":\"Failed\",\"Services\":\"Passed\"}"]],
+      "rows": [["DC-ORION-07", "Northbridge", "2026-08-25T15:41:18Z", "{\"Advertising\":\"Passed\",\"Connectivity\":\"Passed\",\"DNS\":\"Failed\",\"DFSREvent\":\"Passed\",\"Replications\":\"Passed\",\"Services\":\"Passed\"}"]],
       "rowCount": 1
     }
   },
@@ -43,14 +43,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-replication-atlas-to-orion",
+        "alertId": "agent-demo-primary-replication",
         "alertRule": "Directory Replication Delay",
         "severity": "Sev2",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "targetSubscriptionId": "demo-subscription-a",
+        "alertTargetIDs": ["/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
         "firedDateTime": "2026-08-25T15:35:00Z",
         "description": "Replication to the destination controller failed over RPC."
       },
@@ -82,7 +82,7 @@
         { "name": "LastSuccessTime", "type": "datetime" },
         { "name": "LastErrorStatus", "type": "string" }
       ],
-      "rows": [["DC-ATLAS-12", "2026-08-25T15:34:24Z", "Northbridge", "DC-ORION-07", "DC=demo,DC=example", "Cedarfield", "RPC", "4", "2026-08-25T15:32:08Z", "2026-08-25T14:58:31Z", "1722"]],
+      "rows": [["DC-ATLAS-12", "2026-08-25T15:34:24Z", "Northbridge", "DC-ORION-07", "DC=corp,DC=example,DC=test", "Cedarfield", "RPC", "4", "2026-08-25T15:32:08Z", "2026-08-25T14:58:31Z", "1722"]],
       "rowCount": 1
     }
   },
@@ -90,14 +90,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-heartbeat-orion-07",
+        "alertId": "agent-demo-primary-heartbeat",
         "alertRule": "Directory Server Heartbeat",
         "severity": "Sev3",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
+        "targetSubscriptionId": "demo-subscription-a",
+        "alertTargetIDs": ["/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ORION-07"],
         "firedDateTime": "2026-08-25T15:28:00Z",
         "description": "No heartbeat was received during the evaluation window."
       },
@@ -129,14 +129,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-dcport-atlas-to-orion",
+        "alertId": "agent-demo-primary-dcport",
         "alertRule": "Domain Controller Port Monitoring",
         "severity": "Sev1",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "targetSubscriptionId": "demo-subscription-a",
+        "alertTargetIDs": ["/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
         "firedDateTime": "2026-08-25T15:31:00Z",
         "description": "Required Active Directory ports failed from the source controller to the destination controller."
       },
@@ -183,14 +183,14 @@
     "schemaId": "azureMonitorCommonAlertSchema",
     "data": {
       "essentials": {
-        "alertId": "demo-dcdiag-atlas-isolated-dfsr",
+        "alertId": "agent-demo-suppressed-dfsr",
         "alertRule": "DCDiag Isolated DFSR Event",
         "severity": "Sev3",
         "signalType": "Log",
         "monitorCondition": "Fired",
         "targetResourceGroup": "rg-demo-directory",
-        "targetSubscriptionId": "demo-subscription",
-        "alertTargetIDs": ["/subscriptions/demo-subscription/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
+        "targetSubscriptionId": "demo-subscription-a",
+        "alertTargetIDs": ["/subscriptions/demo-subscription-a/resourceGroups/rg-demo-directory/providers/Microsoft.HybridCompute/machines/DC-ATLAS-12"],
         "firedDateTime": "2026-08-25T15:39:00Z",
         "description": "DCDiag reported only the DFSREvent test as failed."
       },

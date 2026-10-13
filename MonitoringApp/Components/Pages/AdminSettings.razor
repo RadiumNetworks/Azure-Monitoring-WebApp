@@ -2,8 +2,12 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "AdminAccess")]
 @using System.Text.Json
+@using System.Text.Json.Serialization
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AlertDbContext> DbContextFactory
+@inject AgentAnalysisProfilesOptions AgentAnalysisProfiles
+@inject AgentAnalysisExecutionState ActiveAgentAnalysisState
+@inject IConfiguration Configuration
 
 <PageTitle>Application Settings</PageTitle>
 
@@ -68,6 +72,86 @@ else
             <small>JSON free-text value containing severity colors, font styles, and the default style.</small>
         </label>
 
+        <label class="admin-field admin-field-wide">
+            <span>Target output display</span>
+            <textarea rows="18" required spellcheck="false" @bind="inboxTargetOutputDisplayJson"></textarea>
+            <small>JSON with CountColors (MinimumCount and Color), SuppressedColor, CriticalOutageAlwaysRed, BoldOutageNames, and ShowDomain. Colors: green, yellow, orange, red, gray. CountColors must include 1 and have unique positive thresholds. Restart required.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
+            <span>Agent analysis mode</span>
+            <select required @bind="agentAnalysisMode">
+                <option value="@AgentAnalysisExecutionModes.CopilotPrompt">Copilot prompt</option>
+                <option value="@AgentAnalysisExecutionModes.TeamsWorkflow">Teams workflow</option>
+                <option value="@AgentAnalysisExecutionModes.Api">API</option>
+            </select>
+            <small>Release A executes only CopilotPrompt. Other modes remain fail closed until their server-side profiles are approved.</small>
+        </label>
+
+        <fieldset class="admin-fieldset">
+            <legend>Inventory correlation</legend>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByDomain" /> Domain</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByRole" /> Role</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateBySite" /> Site</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByResourceGroup" /> Resource group</label>
+            <small>All selected fields must match. Subscription is always enforced as an additional boundary.</small>
+        </fieldset>
+
+        <div class="admin-message @(ActiveAgentAnalysisState.IsEnabled ? "admin-message-success" : "admin-message-warning") agent-settings-state" role="status">
+            <strong>Currently active: @ActiveAgentAnalysisState.Mode</strong>
+            <span>@ActiveExecutionDescription</span>
+        </div>
+
+        <div class="admin-message @(SelectedAgentAnalysisState.IsEnabled ? "admin-message-success" : "admin-message-warning") agent-settings-state" role="status">
+            <strong>Selection after restart: @SelectedAgentAnalysisState.Mode</strong>
+            <span>@SelectedExecutionDescription</span>
+        </div>
+
+        @if (agentAnalysisMode == AgentAnalysisExecutionModes.TeamsWorkflow)
+        {
+            <label class="admin-field admin-field-wide">
+                <span>Teams workflow profile</span>
+                <select required @bind="teamsWorkflowProfile">
+                    <option value="">Select a server-side profile</option>
+                    @if (IsUnregisteredProfile(teamsWorkflowProfile, AgentAnalysisProfiles.TeamsWorkflows.Keys))
+                    {
+                        <option value="@teamsWorkflowProfile">@teamsWorkflowProfile (not registered)</option>
+                    }
+                    @foreach (var profile in AgentAnalysisProfiles.TeamsWorkflows.OrderBy(profile => profile.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@profile.Key">@profile.Key (@(profile.Value.Approved ? "approved" : "not approved"))</option>
+                    }
+                </select>
+                <small>Only logical names from the server-side registry are shown. Endpoints and credentials remain protected.</small>
+            </label>
+            @if (AgentAnalysisProfiles.TeamsWorkflows.Count == 0)
+            {
+                <p class="admin-empty agent-profile-empty">No Teams workflow profiles are configured. Saving this mode remains possible only after a profile is added to server configuration.</p>
+            }
+        }
+        else if (agentAnalysisMode == AgentAnalysisExecutionModes.Api)
+        {
+            <label class="admin-field admin-field-wide">
+                <span>API profile</span>
+                <select required @bind="apiProfile">
+                    <option value="">Select a server-side profile</option>
+                    @if (IsUnregisteredProfile(apiProfile, AgentAnalysisProfiles.Apis.Keys))
+                    {
+                        <option value="@apiProfile">@apiProfile (not registered)</option>
+                    }
+                    @foreach (var profile in AgentAnalysisProfiles.Apis.OrderBy(profile => profile.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@profile.Key">@profile.Key (@profile.Value.Provider, @(profile.Value.Approved ? "approved" : "not approved"))</option>
+                    }
+                </select>
+                <small>Only logical names and non-secret provider metadata are shown. Endpoints and credentials remain protected.</small>
+            </label>
+            @if (AgentAnalysisProfiles.Apis.Count == 0)
+            {
+                <p class="admin-empty agent-profile-empty">No API profiles are configured. Saving this mode remains possible only after a profile is added to server configuration.</p>
+            }
+        }
+
         <div class="admin-form-actions">
             <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="LoadAsync">Reset changes</button>
             <button class="admin-primary" type="submit" disabled="@isSaving">
@@ -78,16 +162,54 @@ else
 }
 
 @code {
-    private static readonly JsonSerializerOptions PrettyJson = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions PrettyJson = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     private string authenticationType = ApplicationAuthenticationOptions.Open;
     private string alertHistoryJson = string.Empty;
     private string alertGraphJson = string.Empty;
     private string alertSeverityDisplayJson = string.Empty;
+    private string inboxTargetOutputDisplayJson = string.Empty;
+    private string agentAnalysisMode = AgentAnalysisExecutionModes.CopilotPrompt;
+    private string teamsWorkflowProfile = string.Empty;
+    private string apiProfile = string.Empty;
+    private bool correlateByDomain = true;
+    private bool correlateByRole = true;
+    private bool correlateBySite;
+    private bool correlateByResourceGroup;
     private bool isLoading = true;
     private bool isSaving;
     private string? statusMessage;
     private string? errorMessage;
+
+    private string ActiveExecutionDescription => ActiveAgentAnalysisState.IsEnabled
+        ? "Local manual handoff is enabled. No alert data is sent automatically."
+        : ActiveAgentAnalysisState.DisabledReason ?? "Agent analysis is disabled.";
+
+    private AgentAnalysisExecutionState SelectedAgentAnalysisState => AgentAnalysisExecutionState.Create(
+        new AgentAnalysisExecutionOptions
+        {
+            Mode = agentAnalysisMode,
+            TeamsWorkflowProfile = agentAnalysisMode == AgentAnalysisExecutionModes.TeamsWorkflow
+                ? teamsWorkflowProfile
+                : null,
+            ApiProfile = agentAnalysisMode == AgentAnalysisExecutionModes.Api
+                ? apiProfile
+                : null
+        },
+        AgentAnalysisProfiles,
+        key => !string.IsNullOrWhiteSpace(Configuration[key]));
+
+    private string SelectedExecutionDescription => SelectedAgentAnalysisState.IsEnabled
+        ? "Local manual handoff will be enabled. No alert data will be sent automatically."
+        : SelectedAgentAnalysisState.DisabledReason ?? "Agent analysis will be disabled.";
+
+    private static bool IsUnregisteredProfile(string profile, IEnumerable<string> registeredProfiles) =>
+        !string.IsNullOrWhiteSpace(profile) &&
+        !registeredProfiles.Contains(profile, StringComparer.OrdinalIgnoreCase);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -124,6 +246,20 @@ else
             alertHistoryJson = FormatJson(settings[DatabaseSettingsLoader.AlertHistory].JsonValue);
             alertGraphJson = FormatJson(settings[DatabaseSettingsLoader.AlertGraph].JsonValue);
             alertSeverityDisplayJson = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue);
+            inboxTargetOutputDisplayJson = FormatJson(settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue);
+            var agentAnalysisContext = DatabaseSettingsLoader.Deserialize<AgentAnalysisContextOptions>(
+                DatabaseSettingsLoader.AgentAnalysisContext,
+                settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue);
+            correlateByDomain = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Domain);
+            correlateByRole = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Role);
+            correlateBySite = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Site);
+            correlateByResourceGroup = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.ResourceGroup);
+            var agentAnalysisExecution = DatabaseSettingsLoader.Deserialize<AgentAnalysisExecutionOptions>(
+                DatabaseSettingsLoader.AgentAnalysisExecution,
+                settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue);
+            agentAnalysisMode = agentAnalysisExecution.Mode;
+            teamsWorkflowProfile = agentAnalysisExecution.TeamsWorkflowProfile ?? string.Empty;
+            apiProfile = agentAnalysisExecution.ApiProfile ?? string.Empty;
         }
         catch (Exception exception)
         {
@@ -165,6 +301,29 @@ else
                 alertSeverityDisplayJson);
             EnsureValid(DatabaseSettingsLoader.AlertSeverityDisplay, alertSeverityDisplay.Validate());
 
+            var inboxTargetOutputDisplay = DatabaseSettingsLoader.Deserialize<InboxTargetOutputDisplayOptions>(
+                DatabaseSettingsLoader.InboxTargetOutputDisplay,
+                inboxTargetOutputDisplayJson);
+            EnsureValid(DatabaseSettingsLoader.InboxTargetOutputDisplay, inboxTargetOutputDisplay.Validate());
+
+            var agentAnalysisContext = new AgentAnalysisContextOptions
+            {
+                InventoryCorrelationLayers = SelectedCorrelationLayers()
+            };
+            EnsureValid(DatabaseSettingsLoader.AgentAnalysisContext, agentAnalysisContext.Validate());
+
+            var agentAnalysisExecution = new AgentAnalysisExecutionOptions
+            {
+                Mode = agentAnalysisMode,
+                TeamsWorkflowProfile = agentAnalysisMode == AgentAnalysisExecutionModes.TeamsWorkflow
+                    ? teamsWorkflowProfile
+                    : null,
+                ApiProfile = agentAnalysisMode == AgentAnalysisExecutionModes.Api
+                    ? apiProfile
+                    : null
+            };
+            EnsureValid(DatabaseSettingsLoader.AgentAnalysisExecution, agentAnalysisExecution.Validate());
+
             await using var context = await DbContextFactory.CreateDbContextAsync();
             if (authentication.IsSql && !await context.AuthenticationUsers.AnyAsync())
             {
@@ -188,11 +347,16 @@ else
             settings[DatabaseSettingsLoader.AlertHistory].JsonValue = FormatJson(alertHistoryJson);
             settings[DatabaseSettingsLoader.AlertGraph].JsonValue = FormatJson(alertGraphJson);
             settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue = FormatJson(alertSeverityDisplayJson);
+            settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue = FormatJson(inboxTargetOutputDisplayJson);
+            settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue =
+                JsonSerializer.Serialize(agentAnalysisContext, PrettyJson);
+            settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue = JsonSerializer.Serialize(agentAnalysisExecution);
             await context.SaveChangesAsync();
 
             alertHistoryJson = settings[DatabaseSettingsLoader.AlertHistory].JsonValue;
             alertGraphJson = settings[DatabaseSettingsLoader.AlertGraph].JsonValue;
             alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue;
+            inboxTargetOutputDisplayJson = settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue;
             statusMessage = "Settings saved. Restart the application to apply them.";
         }
         catch (Exception exception)
@@ -212,6 +376,16 @@ else
             throw new InvalidOperationException(
                 $"Invalid setting '{name}': {string.Join(" ", errors)}");
         }
+    }
+
+    private AlertGraphLayer[] SelectedCorrelationLayers()
+    {
+        var layers = new List<AlertGraphLayer>();
+        if (correlateByDomain) layers.Add(AlertGraphLayer.Domain);
+        if (correlateByRole) layers.Add(AlertGraphLayer.Role);
+        if (correlateBySite) layers.Add(AlertGraphLayer.Site);
+        if (correlateByResourceGroup) layers.Add(AlertGraphLayer.ResourceGroup);
+        return layers.ToArray();
     }
 
     private static string FormatJson(string json)

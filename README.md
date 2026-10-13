@@ -178,6 +178,7 @@ Wird ein Original-Alert gelöscht, verschwindet auch sein Parsed-Record. Wird ei
 | `AlertWebAgent/` | Hintergrundagent und Teams-Benachrichtigung |
 | `PlaywrightDemo/` | Browserbasierte End-to-End-Tests |
 | `Shared/` | Gemeinsam verwendete URL-Auflösung |
+| `THIRD-PARTY-DEPENDENCIES.md` | Inventar externer Komponenten, getrennt nach Produktion, Deployment, Tests und Hilfsprojekten |
 
 ## Deployment // Vor dem Einsatz
 

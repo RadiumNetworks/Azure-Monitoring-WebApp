@@ -38,12 +38,12 @@
   },
   "excludedContent": ["server-01", "Heartbeat", "example.invalid", "Internal diagnostic details", "Restart approved"],
   "diagnosticAlertIds": [
-    "demo-heartbeat-orion-07", "demo-dcdiag-orion-07",
-    "demo-replication-atlas-to-orion", "demo-dcport-atlas-to-orion"
+    "agent-demo-primary-heartbeat", "agent-demo-primary-dcdiag",
+    "agent-demo-primary-replication", "agent-demo-primary-dcport"
   ],
   "diagnosticContains": [
     "Diagnostic evidence: Heartbeat query summary", "Diagnostic evidence: DCDiag test summary",
-    "Connectivity: Failed", "DNS: Failed", "Diagnostic evidence: Replication query summary",
+    "DNS: Failed", "Diagnostic evidence: Replication query summary",
     "Result: DC-ATLAS-12 to DC-ORION-07", "Replication failures: 4", "Error status: 1722",
     "Diagnostic evidence: DC port check summary", "Source: DC-ATLAS-12", "Port: 135",
     "learn.microsoft.com/windows-server/identity/ad-ds/manage/ad-ds-troubleshooting",

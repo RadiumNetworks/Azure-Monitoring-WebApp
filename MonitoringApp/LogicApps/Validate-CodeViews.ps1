@@ -41,4 +41,44 @@ if ($inventoryPayload.queryResult.type -ne 'InventoryHeartbeat') {
 }
 
 Write-Host 'Valid: heartbeat-inventory-sync.codeview.json'
+
+$casesPath = Join-Path $PSScriptRoot 'query-enrichment-cases.json'
+$cases = (Get-Content $casesPath -Raw | ConvertFrom-Json).cases
+foreach ($case in $cases) {
+    $refreshPath = Join-Path $PSScriptRoot ([string]$case.refreshOutputFile)
+    $refresh = Get-Content $refreshPath -Raw | ConvertFrom-Json
+    $trigger = $refresh.definition.triggers.Every_five_minutes
+    $targets = $refresh.definition.actions.Get_Active_Refresh_Targets
+    $loop = $refresh.definition.actions.For_each_active_alert
+    $query = $loop.actions.Run_Log_Analytics_Query.inputs.body.query
+    $update = $loop.actions.Update_Query_Result
+
+    if ($trigger.type -ne 'Recurrence' -or
+        $trigger.recurrence.frequency -ne 'Minute' -or
+        $trigger.recurrence.interval -ne 5 -or
+        $trigger.runtimeConfiguration.concurrency.runs -ne 1) {
+        throw "Scheduled $($case.name) refresh workflow must run every five minutes without overlapping runs."
+    }
+
+    if (-not $targets.inputs.uri.Contains('refreshTargetsUrl') -or
+        $targets.inputs.method -ne 'GET' -or
+        -not $refresh.parameters.refreshTargetsUrl.value.EndsWith("?type=$($case.queryResultType)")) {
+        throw "Scheduled $($case.name) refresh workflow must load the matching active targets from the Monitoring API."
+    }
+
+    if ($loop.operationOptions -ne 'Sequential' -or
+        -not $query.Contains("item()?['dimensionValue']")) {
+        throw "Scheduled $($case.name) refresh workflow must query validated targets sequentially."
+    }
+
+    if ($update.inputs.method -ne 'PUT' -or
+        -not $update.inputs.uri.Contains('/query-result') -or
+        $update.inputs.body.type -ne $case.queryResultType -or
+        $update.inputs.body.dimensionName -ne $case.dimensionName) {
+        throw "Scheduled $($case.name) refresh workflow must update the matching existing query result."
+    }
+
+    Write-Host "Valid: $($case.refreshOutputFile)"
+}
+
 Write-Host 'All generated Logic App Code View files are current and valid.'

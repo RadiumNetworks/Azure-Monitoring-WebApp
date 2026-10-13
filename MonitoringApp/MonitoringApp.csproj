@@ -18,7 +18,16 @@
 
   <ItemGroup>
     <Content Update="AlertDefinitions\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Database\**\*.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="DemoData\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Remove="publish\**" />
   </ItemGroup>
+
+  <Target Name="CreatePublishLogDirectory" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)logs" />
+    <WriteLinesToFile File="$(PublishDir)logs\.keep"
+                      Lines="IIS startup diagnostics are written to this directory."
+                      Overwrite="true" />
+  </Target>
 
 </Project>

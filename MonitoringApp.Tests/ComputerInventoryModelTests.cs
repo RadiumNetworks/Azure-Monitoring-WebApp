@@ -23,6 +23,10 @@ public sealed class ComputerInventoryModelTests
         var roleProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Role)));
         var privateIpProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.PrivateIP)));
         var lastHeartbeatProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.LastHeartbeatAt)));
+        var ntdsFileSizeProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.NtdsFileSizeInGb)));
+        var certificatesProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.CertificatesJson)));
+        var servicesProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.ServicesJson)));
+        var maintenanceProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Maintenance)));
         var subscriptionProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.SubscriptionId)));
         var computerProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.Computer)));
 
@@ -40,6 +44,14 @@ public sealed class ComputerInventoryModelTests
         Assert.Equal(256, roleProperty.GetMaxLength());
         Assert.Equal(256, privateIpProperty.GetMaxLength());
         Assert.Equal("datetimeoffset", lastHeartbeatProperty.GetColumnType());
+        Assert.True(ntdsFileSizeProperty.IsNullable);
+        Assert.Equal("float", ntdsFileSizeProperty.GetColumnType());
+        Assert.False(certificatesProperty.IsNullable);
+        Assert.Equal("[]", certificatesProperty.GetDefaultValue());
+        Assert.False(servicesProperty.IsNullable);
+        Assert.Equal("[]", servicesProperty.GetDefaultValue());
+        Assert.False(maintenanceProperty.IsNullable);
+        Assert.Equal(false, maintenanceProperty.GetDefaultValue());
         Assert.False(subscriptionProperty.IsNullable);
         Assert.False(computerProperty.IsNullable);
     }

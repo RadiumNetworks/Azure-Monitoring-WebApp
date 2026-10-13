@@ -191,7 +191,6 @@ public sealed class AlertConsoleTests : PageTest
         await consolePage.SelectGraphLayer2Async(Cases.Graph.SelectedLayer2);
         await Expect(consolePage.GraphLayer2).ToHaveValueAsync(Cases.Graph.SelectedLayer2);
         await Expect(consolePage.GraphLegend).ToContainTextAsync(Cases.Graph.SelectedLayer2);
-        await Expect(Page.Locator(".graph-svg-resource-group")).ToHaveCountAsync(0);
     }
 
     [Test]

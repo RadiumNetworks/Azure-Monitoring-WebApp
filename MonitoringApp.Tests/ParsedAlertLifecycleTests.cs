@@ -47,11 +47,65 @@ public sealed class ParsedAlertLifecycleTests
         Assert.Null(parsed.ResolvedAt);
     }
 
+    [Fact]
+    public void MarksHistoricalDomainOutageParticipantsCritical()
+    {
+        var first = CreateParsedAlert(
+            "domain-alert-1",
+            "Fired",
+            TestCases.FiredAt,
+            [],
+            "dc-1");
+        var second = CreateParsedAlert(
+            "domain-alert-2",
+            "Fired",
+            TestCases.FiredAt.AddMinutes(1),
+            [],
+            "dc-2");
+        var resolved = CreateParsedAlert(
+            "domain-alert-1",
+            "Resolved",
+            TestCases.ResolvedAt,
+            [],
+            "dc-1");
+        resolved.ResolvedAt = TestCases.ResolvedAt;
+        var rule = new AlertRule
+        {
+            Id = Guid.NewGuid(),
+            Name = "Domain Service Outage",
+            Enabled = true,
+            Priority = 10,
+            RuleType = AlertRuleTypes.Categorization,
+            ConditionType = AlertRuleConditionTypes.DomainControllerPercentageInDomain,
+            Threshold = 50,
+            CategoryName = "Domain Service Outage",
+            IsCritical = true,
+            AnalysisClassification = AlertRuleAnalysisClassifications.SystemOutage
+        };
+        var inventory = new[]
+        {
+            CreateDomainController("dc-1"),
+            CreateDomainController("dc-2"),
+            CreateDomainController("dc-3")
+        };
+
+        ParsedAlertLifecycle.Synchronize(
+            [first, second, resolved],
+            [rule],
+            new AlertRuleEvaluator(Presenter),
+            inventory);
+
+        Assert.All([first, second, resolved], record => Assert.True(record.IsCritical));
+        Assert.Equal(TestCases.ResolvedAt, first.ResolvedAt);
+        Assert.Null(second.ResolvedAt);
+    }
+
     private static ParsedAlertRecord CreateParsedAlert(
         string alertId,
         string condition,
         DateTimeOffset receivedAt,
-        System.Text.Json.Nodes.JsonObject payload)
+        System.Text.Json.Nodes.JsonObject payload,
+        string? target = null)
     {
         var source = TestCases.Alert;
         var alert = TestAlertFactory.FromFixture(
@@ -64,7 +118,7 @@ public sealed class ParsedAlertLifecycleTests
                 Status = condition,
                 SignalType = source.SignalType,
                 MonitorCondition = condition,
-                Target = source.Target,
+                Target = target ?? source.Target,
                 ResourceGroup = source.ResourceGroup,
                 SubscriptionId = source.SubscriptionId,
                 FiredAt = receivedAt,
@@ -75,4 +129,13 @@ public sealed class ParsedAlertLifecycleTests
         parsed.Alert = alert;
         return parsed;
     }
+
+    private static ComputerInventoryEntry CreateDomainController(string computer) => new()
+    {
+        SubscriptionId = TestCases.Alert.SubscriptionId,
+        Computer = computer,
+        Domain = "contoso.test",
+        Site = "site-a",
+        Role = "domaincontrollers"
+    };
 }

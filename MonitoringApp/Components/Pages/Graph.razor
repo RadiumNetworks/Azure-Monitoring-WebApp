@@ -10,7 +10,10 @@
 
 @{
     var navigationTree = GetNavigationTree();
-    var graphLayout = AlertGraphLayout.Build(navigationTree);
+    var dnsNamespaces = selectedLayer1 == AlertGraphLayer.Domain
+        ? DnsNamespaceResolver.Resolve(alerts.Select(alert => alert.Domain))
+        : null;
+    var graphLayout = AlertGraphLayout.Build(navigationTree, dnsNamespaces);
     var openCount = navigationTree.Sum(subscription => subscription.Count);
     var historyCount = navigationTree.Sum(subscription => subscription.HistoryCount);
 }
@@ -85,8 +88,14 @@
         <div class="graph-legend" aria-label="Count legend">
             <span><i class="legend-open" aria-hidden="true"></i>Open alerts</span>
             <span><i class="legend-history" aria-hidden="true"></i>History alerts</span>
-            <span><i class="legend-target-current" aria-hidden="true"></i>Target current</span>
-            <span><i class="legend-target-stale" aria-hidden="true"></i>Target stale</span>
+            <span><i class="legend-target-current" aria-hidden="true"></i>Target current (heartbeat within @currentHeartbeatAge.TotalMinutes min)</span>
+            <span><i class="legend-target-stale" aria-hidden="true"></i>Target stale (heartbeat older than @currentHeartbeatAge.TotalMinutes min or missing)</span>
+            <span><i class="legend-target-service-health" aria-hidden="true"></i>Service health alert (service not running)</span>
+            <span><i class="legend-target-maintenance" aria-hidden="true"></i>Target in maintenance</span>
+            @if (graphLayout.Segments.Count > 0)
+            {
+                <span><i class="legend-dns-namespace" aria-hidden="true"></i>DNS namespace</span>
+            }
             <span><i class="@LegendClass(selectedLayer1) legend-level-1" aria-hidden="true"></i>Layer 1: @AlertGraph.Label(selectedLayer1)</span>
             <span><i class="@LegendClass(selectedLayer2) legend-level-2" aria-hidden="true"></i>Layer 2: @AlertGraph.Label(selectedLayer2)</span>
             <span><i class="@LegendClass(selectedLayer3) legend-level-3" aria-hidden="true"></i>Layer 3: @AlertGraph.Label(selectedLayer3)</span>
@@ -121,6 +130,19 @@
              role="img"
              aria-label="Two-dimensional alert graph with @graphLayout.Nodes.Count nodes and @graphLayout.Edges.Count connections">
             <g class="graph-world">
+                @if (graphLayout.Segments.Count > 0)
+                {
+                    <g class="graph-namespace-segments" aria-label="DNS namespace segments">
+                        @foreach (var segment in graphLayout.Segments)
+                        {
+                            <g class="graph-namespace-segment" role="group" aria-label="DNS namespace @segment.Label">
+                                <title>DNS namespace · @segment.Label</title>
+                                <rect x="@Coordinate(segment.X)" y="@Coordinate(segment.Y)" width="@Coordinate(segment.Width)" height="@Coordinate(segment.Height)" rx="12" />
+                                <text x="@Coordinate(segment.X + 18)" y="@Coordinate(segment.Y + 29)">DNS namespace · @segment.Label</text>
+                            </g>
+                        }
+                    </g>
+                }
                 <g class="graph-edges" aria-hidden="true">
                     @foreach (var edge in graphLayout.Edges)
                     {
@@ -133,8 +155,8 @@
                         <g class="graph-svg-node graph-level-@node.Level @NodeClasses(node)"
                            transform="translate(@Coordinate(node.X) @Coordinate(node.Y))"
                            role="group"
-                           aria-label="Layer @node.Level, @node.Label, @node.Count open, @node.HistoryCount history@(StatusAriaLabel(node))">
-                            <title>Layer @node.Level · @node.Label: @node.Count open, @node.HistoryCount history@(StatusTitle(node))</title>
+                           aria-label="Layer @node.Level, @(node.Label + SubscriptionLabel(node)), @node.Count open, @node.HistoryCount history@(StatusAriaLabel(node))">
+                            <title>Layer @node.Level · @(node.Label + SubscriptionLabel(node)): @node.Count open, @node.HistoryCount history@(StatusTitle(node))</title>
                             @if (node.Level == 1)
                             {
                                 <polygon points="-95,0 -78,-25 78,-25 95,0 78,25 -78,25" />
@@ -144,6 +166,12 @@
                                 <rect x="-95" y="-25" width="190" height="50" rx="@(node.Level == 3 ? 25 : 5)" />
                             }
                             <text class="graph-node-label" x="-82" y="-5">@ShortLabel(node.Label)</text>
+                            @if (node.Layer == AlertGraphLayer.Target && !string.IsNullOrWhiteSpace(node.SubscriptionId))
+                            {
+                                <g>
+                                    <text class="graph-node-subscription" x="-82" y="14">@ShortSubscription(node.SubscriptionId)</text>
+                                </g>
+                            }
                             <text class="graph-node-count" x="82" y="14" text-anchor="end">
                                 <tspan class="graph-node-open">@node.Count</tspan><tspan> (@node.HistoryCount)</tspan>
                             </text>
@@ -157,6 +185,7 @@
 
 @code {
     private IReadOnlyList<AlertGraphRecord> alerts = [];
+    private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private readonly CancellationTokenSource refreshCancellation = new();
     private Task? refreshTask;
@@ -179,8 +208,8 @@
         selectedLayer1 = AlertGraph.DefaultLayer1;
         selectedLayer2 = AlertGraph.DefaultLayer2;
         selectedLayer3 = AlertGraph.DefaultLayer3;
-        alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
         AlertStore.Changed += HandleStoreChanged;
+        await ReloadAlertsAsync();
         refreshTask = RefreshClockAsync(refreshCancellation.Token);
     }
 
@@ -202,6 +231,7 @@
     private async Task ReloadAlertsAsync()
     {
         currentTimeUtc = DateTimeOffset.UtcNow;
+        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(await AlertStore.GetAllAlertRulesAsync());
         alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
         graphNeedsInitialization = true;
         await InvokeAsync(StateHasChanged);
@@ -247,22 +277,26 @@
 
     private string NodeClasses(AlertGraphNode node)
     {
-        var statusClass = AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc) switch
+        var statusClass = AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc, currentHeartbeatAge) switch
         {
             AlertGraphTargetStatus.OpenAlert => "graph-svg-active",
+            AlertGraphTargetStatus.ServiceHealthAlert => "graph-svg-target-service-health",
             AlertGraphTargetStatus.Current => "graph-svg-target-current",
             AlertGraphTargetStatus.Stale => "graph-svg-target-stale",
+            AlertGraphTargetStatus.Maintenance => "graph-svg-target-maintenance",
             _ => string.Empty
         };
         return $"{NodeClass(node.Layer)} {statusClass}";
     }
 
     private string StatusAriaLabel(AlertGraphNode node) =>
-        AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc) switch
+        AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc, currentHeartbeatAge) switch
         {
             AlertGraphTargetStatus.OpenAlert => ", status open alert",
+            AlertGraphTargetStatus.ServiceHealthAlert => ", status service health alert",
             AlertGraphTargetStatus.Current => ", status current",
             AlertGraphTargetStatus.Stale => ", status stale",
+            AlertGraphTargetStatus.Maintenance => ", status Maintenance",
             _ => string.Empty
         };
 
@@ -279,6 +313,12 @@
         AlertGraphLayer.Role => "graph-svg-alert-name",
         _ => "graph-svg-target"
     };
+
+    private static string SubscriptionLabel(AlertGraphNode node) =>
+        node.Layer == AlertGraphLayer.Target ? $", subscription {node.SubscriptionId}" : string.Empty;
+
+    private static string ShortSubscription(string value) =>
+        value.Length <= 22 ? value : $"{value[..10]}...{value[^9..]}";
 
     private static string LegendClass(AlertGraphLayer layer) => layer switch
     {

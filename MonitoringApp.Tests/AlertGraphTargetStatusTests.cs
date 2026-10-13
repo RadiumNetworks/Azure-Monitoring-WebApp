@@ -12,10 +12,23 @@ public sealed class AlertGraphTargetStatusTests
         Assert.Equal(AlertGraphTargetStatus.OpenAlert, AlertGraphTargetStatusResolver.Resolve(node, CurrentTime));
     }
 
+    [Fact]
+    public void ServiceHealthAlertIsPurpleStatusOnlyWithoutOpenAlert()
+    {
+        var node = TargetNode(count: 0, CurrentTime.AddMinutes(-1)) with { HasServiceHealthAlert = true };
+
+        Assert.Equal(
+            AlertGraphTargetStatus.ServiceHealthAlert,
+            AlertGraphTargetStatusResolver.Resolve(node, CurrentTime));
+        Assert.Equal(
+            AlertGraphTargetStatus.OpenAlert,
+            AlertGraphTargetStatusResolver.Resolve(node with { Count = 1 }, CurrentTime));
+    }
+
     [Theory]
     [InlineData(-1)]
-    [InlineData(-20)]
-    public void HeartbeatUpToTwentyMinutesOldIsCurrent(int minutes)
+    [InlineData(-5)]
+    public void HeartbeatUpToFiveMinutesOldIsCurrent(int minutes)
     {
         var node = TargetNode(count: 0, CurrentTime.AddMinutes(minutes));
 
@@ -26,7 +39,36 @@ public sealed class AlertGraphTargetStatusTests
     public void MissingOrOlderHeartbeatIsStale()
     {
         Assert.Equal(AlertGraphTargetStatus.Stale, AlertGraphTargetStatusResolver.Resolve(TargetNode(0, null), CurrentTime));
-        Assert.Equal(AlertGraphTargetStatus.Stale, AlertGraphTargetStatusResolver.Resolve(TargetNode(0, CurrentTime.AddMinutes(-21)), CurrentTime));
+        Assert.Equal(AlertGraphTargetStatus.Stale, AlertGraphTargetStatusResolver.Resolve(TargetNode(0, CurrentTime.AddMinutes(-5).AddTicks(-1)), CurrentTime));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(10)]
+    [InlineData(20)]
+    public void UsesConfiguredHeartbeatBoundary(int minutes)
+    {
+        var currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(
+            [new AlertRule { RuleType = AlertRuleTypes.InventoryHeartbeatFreshness, Threshold = minutes }]);
+        var heartbeat = CurrentTime.AddMinutes(-minutes);
+
+        Assert.Equal(AlertGraphTargetStatus.Current,
+            AlertGraphTargetStatusResolver.Resolve(TargetNode(0, heartbeat), CurrentTime, currentHeartbeatAge));
+        Assert.Equal(AlertGraphTargetStatus.Stale,
+            AlertGraphTargetStatusResolver.Resolve(TargetNode(0, heartbeat.AddTicks(-1)), CurrentTime, currentHeartbeatAge));
+        Assert.Equal(AlertGraphTargetStatus.Stale,
+            AlertGraphTargetStatusResolver.Resolve(TargetNode(0, null), CurrentTime, currentHeartbeatAge));
+        Assert.Equal(AlertGraphTargetStatus.OpenAlert,
+            AlertGraphTargetStatusResolver.Resolve(TargetNode(1, heartbeat.AddTicks(-1)), CurrentTime, currentHeartbeatAge));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void RejectsNonPositiveHeartbeatBoundary(int minutes)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AlertGraphTargetStatusResolver.Resolve(TargetNode(0, null), CurrentTime, TimeSpan.FromMinutes(minutes)));
     }
 
     [Fact]
@@ -35,6 +77,17 @@ public sealed class AlertGraphTargetStatusTests
         var node = TargetNode(0, CurrentTime.AddMinutes(-1)) with { Level = 2 };
 
         Assert.Equal(AlertGraphTargetStatus.None, AlertGraphTargetStatusResolver.Resolve(node, CurrentTime));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void MaintenanceTakesPrecedenceOverAlertsAndMissingHeartbeat(int count)
+    {
+        var node = TargetNode(count, null) with { Maintenance = true };
+        Assert.Equal(AlertGraphTargetStatus.Maintenance, AlertGraphTargetStatusResolver.Resolve(node, CurrentTime));
+        Assert.Equal(AlertGraphTargetStatus.None,
+            AlertGraphTargetStatusResolver.Resolve(node with { Layer = AlertGraphLayer.Site }, CurrentTime));
     }
 
     private static AlertGraphNode TargetNode(int count, DateTimeOffset? heartbeat) =>

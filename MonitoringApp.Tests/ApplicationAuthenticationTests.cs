@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
+using System.Text;
 
 namespace MonitoringApp.Tests;
 
@@ -56,6 +59,90 @@ public sealed class ApplicationAuthenticationTests
         Assert.True(options.IsSql);
         Assert.False(options.IsOpen);
         Assert.Empty(options.Validate());
+    }
+}
+
+public sealed class CurrentUserIdentityTests
+{
+    [Fact]
+    public void PrefersEntraUsernameClaim()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Name, "Display Name"),
+                new Claim("preferred_username", "operator@contoso.test")
+            ],
+            "Entra"));
+        var identity = CreateIdentity();
+
+        Assert.Equal("operator@contoso.test", identity.GetDisplayName(principal));
+    }
+
+    [Fact]
+    public void ReadsAppServiceAuthenticationHeader()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-NAME"] = "operator@contoso.test";
+        var identity = CreateIdentity(httpContext);
+
+        Assert.Equal(
+            "operator@contoso.test",
+            identity.GetDisplayName(new ClaimsPrincipal(new ClaimsIdentity())));
+    }
+
+    [Fact]
+    public void ReadsEncodedAppServicePrincipal()
+    {
+        var payload = """
+            {"auth_typ":"aad","claims":[{"typ":"preferred_username","val":"operator@contoso.test"}]}
+            """;
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL"] =
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(payload));
+
+        var result = CreateIdentity(httpContext)
+            .GetDisplayName(new ClaimsPrincipal(new ClaimsIdentity()));
+
+        Assert.Equal("operator@contoso.test", result);
+    }
+
+    [Fact]
+    public void RetainsAppServiceUserForLaterBlazorEvents()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-NAME"] = "operator@contoso.test";
+        var accessor = new HttpContextAccessor { HttpContext = httpContext };
+        var identity = new CurrentUserIdentity(accessor);
+        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
+
+        Assert.Equal("operator@contoso.test", identity.GetDisplayName(anonymous));
+        accessor.HttpContext = null;
+        Assert.Equal("operator@contoso.test", identity.GetActor(anonymous, openAuthentication: true));
+    }
+
+    [Fact]
+    public void CreatesAuthenticatedPrincipalForBlazorCircuit()
+    {
+        var headers = new HeaderDictionary
+        {
+            ["X-MS-CLIENT-PRINCIPAL-NAME"] = "operator@contoso.test",
+            ["X-MS-CLIENT-PRINCIPAL-ID"] = "11111111-2222-3333-4444-555555555555"
+        };
+
+        var principal = CurrentUserIdentity.CreateAppServicePrincipal(headers);
+
+        Assert.NotNull(principal);
+        Assert.True(principal.Identity?.IsAuthenticated);
+        Assert.Equal("operator@contoso.test", principal.Identity?.Name);
+        Assert.Equal(
+            "11111111-2222-3333-4444-555555555555",
+            principal.FindFirstValue(ClaimTypes.NameIdentifier));
+    }
+
+    private static CurrentUserIdentity CreateIdentity(DefaultHttpContext? context = null)
+    {
+        var accessor = new HttpContextAccessor { HttpContext = context };
+        return new CurrentUserIdentity(accessor);
     }
 }
 

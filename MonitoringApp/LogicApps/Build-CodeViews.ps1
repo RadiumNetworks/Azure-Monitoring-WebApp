@@ -8,9 +8,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $templatePath = Join-Path $PSScriptRoot 'query-enrichment.codeview.template.json'
+$refreshTemplatePath = Join-Path $PSScriptRoot 'query-refresh.codeview.template.json'
 $casesPath = Join-Path $PSScriptRoot 'query-enrichment-cases.json'
 $outputDirectory = Split-Path $PSScriptRoot -Parent
 $template = Get-Content $templatePath -Raw
+$refreshTemplate = Get-Content $refreshTemplatePath -Raw
 $cases = (Get-Content $casesPath -Raw | ConvertFrom-Json).cases
 $dimensionToken = '{{dimensionValue}}'
 
@@ -103,5 +105,50 @@ foreach ($case in $cases) {
     else {
         [IO.File]::WriteAllText($outputPath, $rendered, [Text.UTF8Encoding]::new($false))
         Write-Host "Generated: $outputFile"
+    }
+
+    $refreshOutputFile = [string]$case.refreshOutputFile
+    if ([IO.Path]::GetFileName($refreshOutputFile) -ne $refreshOutputFile -or
+        -not $refreshOutputFile.EndsWith('.codeview.json', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Case '$($case.name)' has an invalid refreshOutputFile '$refreshOutputFile'."
+    }
+
+    $refreshQueryPrefix = $parts[0].Replace("'", "''")
+    $refreshQuerySuffix = $parts[1].Replace("'", "''")
+    $refreshValues = [ordered]@{
+        refreshQueryExpression = "@concat('$refreshQueryPrefix', item()?['dimensionValue'], '$refreshQuerySuffix')"
+        timespan = [string]$case.timespan
+        queryResultType = [string]$case.queryResultType
+        dimensionName = $dimensionName
+    }
+    $renderedRefresh = $refreshTemplate
+    foreach ($entry in $refreshValues.GetEnumerator()) {
+        $renderedRefresh = Set-TemplateValue -Text $renderedRefresh -Name $entry.Key -Value $entry.Value
+    }
+    $renderedRefresh = $renderedRefresh.Replace(
+        '{{queryResultType}}',
+        [string]$case.queryResultType)
+
+    $unresolvedRefresh = @([regex]::Matches($renderedRefresh, '\{\{[^{}]+\}\}') | ForEach-Object Value | Select-Object -Unique)
+    if ($unresolvedRefresh.Count -gt 0) {
+        throw "Case '$($case.name)' left unresolved refresh template tokens: $($unresolvedRefresh -join ', ')."
+    }
+
+    $null = $renderedRefresh | ConvertFrom-Json
+    $renderedRefresh = $renderedRefresh.TrimEnd() + [Environment]::NewLine
+    $refreshOutputPath = Join-Path $PSScriptRoot $refreshOutputFile
+
+    if ($Check) {
+        if (-not (Test-Path $refreshOutputPath)) {
+            throw "Generated refresh file '$refreshOutputFile' does not exist. Run Build-CodeViews.ps1 first."
+        }
+        if ((Get-Content $refreshOutputPath -Raw) -cne $renderedRefresh) {
+            throw "Generated refresh file '$refreshOutputFile' is out of date. Run Build-CodeViews.ps1."
+        }
+        Write-Host "Current: $refreshOutputFile"
+    }
+    else {
+        [IO.File]::WriteAllText($refreshOutputPath, $renderedRefresh, [Text.UTF8Encoding]::new($false))
+        Write-Host "Generated: $refreshOutputFile"
     }
 }

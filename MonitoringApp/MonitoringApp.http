@@ -38,3 +38,39 @@ GET {{MonitoringApp_HostAddress}}/api/query?eventHours=24
 Accept: application/json
 
 ###
+
+GET {{MonitoringApp_HostAddress}}/api/alert-query-refresh-targets?type=DCPort
+Authorization: Bearer {{AlertAccessToken}}
+Accept: application/json
+
+###
+
+@DCPortAlertRecordId = 00000000-0000-0000-0000-000000000000
+
+PUT {{MonitoringApp_HostAddress}}/api/alerts/{{DCPortAlertRecordId}}/query-result
+Authorization: Bearer {{AlertAccessToken}}
+Content-Type: application/json
+
+{
+	"type": "DCPort",
+	"dimensionName": "Computer",
+	"dimensionValue": "DC01",
+	"columns": [
+		{ "name": "TimeGenerated", "type": "datetime" },
+		{ "name": "RemoteSystem", "type": "string" },
+		{ "name": "Port", "type": "string" },
+		{ "name": "Protocol", "type": "string" },
+		{ "name": "Status", "type": "dynamic" }
+	],
+	"rows": [],
+	"rowCount": 0,
+	"queryExecutedAt": "2026-10-06T10:00:00Z"
+}
+
+###
+
+GET {{MonitoringApp_HostAddress}}/api/alert-query-refresh-targets?type=DCDiag
+Authorization: Bearer {{AlertAccessToken}}
+Accept: application/json
+
+###
