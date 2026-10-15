@@ -25,6 +25,7 @@ public sealed class CriticalAlertLogbookTests
         Assert.NotNull(entry);
         Assert.Equal(TestCases.CreatedAt, entry.CreatedAt);
         Assert.Equal("System", entry.User);
+        Assert.Equal(alert.Id, entry.AlertRecordId);
         Assert.StartsWith(testCase.ExpectedPrefix, entry.Comment);
         foreach (var expected in testCase.ExpectedContains)
         {

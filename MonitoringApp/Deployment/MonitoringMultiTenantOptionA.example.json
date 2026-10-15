@@ -1,0 +1,51 @@
+{
+  "CrossTenantLogAnalytics": {
+    "Enabled": true,
+    "ManagedIdentityClientId": "<user-assigned-managed-identity-client-id>",
+    "KeyVaultUri": "https://<key-vault-name>.vault.azure.net/",
+    "ClientSecretName": "monitoring-loganalytics-client-secret",
+    "ApplicationClientId": "<multi-tenant-app-registration-client-id>",
+    "DiagnosticTimeoutSeconds": 30,
+    "Workspaces": [
+      {
+        "Key": "tenant-a",
+        "DisplayName": "Production A",
+        "TenantId": "<tenant-a-id>",
+        "WorkspaceId": "<workspace-a-id>",
+        "SubscriptionIds": [
+          "<subscription-a-id>"
+        ],
+        "Domains": [
+          "corp-a.example",
+          "CORPA"
+        ]
+      },
+      {
+        "Key": "tenant-b",
+        "DisplayName": "Production B",
+        "TenantId": "<tenant-b-id>",
+        "WorkspaceId": "<workspace-b-id>",
+        "SubscriptionIds": [
+          "<subscription-b-id>"
+        ],
+        "Domains": [
+          "corp-b.example",
+          "CORPB"
+        ]
+      },
+      {
+        "Key": "tenant-c",
+        "DisplayName": "Production C",
+        "TenantId": "<tenant-c-id>",
+        "WorkspaceId": "<workspace-c-id>",
+        "SubscriptionIds": [
+          "<subscription-c-id>"
+        ],
+        "Domains": [
+          "corp-c.example",
+          "CORPC"
+        ]
+      }
+    ]
+  }
+}

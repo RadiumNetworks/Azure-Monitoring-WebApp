@@ -9,4 +9,5 @@ public sealed class LogbookEntry
     public DateTimeOffset CreatedAt { get; set; }
     public string User { get; set; } = string.Empty;
     public string Comment { get; set; } = string.Empty;
+    public Guid? AlertRecordId { get; set; }
 }

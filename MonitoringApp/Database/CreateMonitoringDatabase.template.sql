@@ -100,6 +100,57 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[AlertHistory]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AlertHistory]
+    (
+        [Id]               uniqueidentifier NOT NULL,
+        [ReceivedAt]       datetimeoffset    NOT NULL,
+        [AlertId]          nvarchar(512)     NOT NULL,
+        [Name]             nvarchar(512)     NOT NULL,
+        [Severity]         nvarchar(64)      NOT NULL,
+        [Status]           nvarchar(64)      NOT NULL,
+        [SignalType]       nvarchar(128)     NOT NULL,
+        [MonitorCondition] nvarchar(64)      NOT NULL,
+        [Target]           nvarchar(2048)    NOT NULL,
+        [ResourceGroup]    nvarchar(256)     NOT NULL,
+        [SubscriptionId]   nvarchar(64)      NOT NULL,
+        [FiredAt]          datetimeoffset    NULL,
+        [Description]      nvarchar(4000)    NOT NULL,
+        [SearchResultsUrl] nvarchar(2048)    NOT NULL,
+        [Comments]         nvarchar(4000)    NOT NULL,
+        [RawJson]          nvarchar(max)     NOT NULL,
+        CONSTRAINT [PK_AlertHistory] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE [name] = N'IX_AlertHistory_AlertId'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AlertHistory]')
+)
+BEGIN
+    CREATE INDEX [IX_AlertHistory_AlertId]
+        ON [dbo].[AlertHistory] ([AlertId]);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes
+    WHERE [name] = N'IX_AlertHistory_ReceivedAt'
+      AND [object_id] = OBJECT_ID(N'[dbo].[AlertHistory]')
+)
+BEGIN
+    CREATE INDEX [IX_AlertHistory_ReceivedAt]
+        ON [dbo].[AlertHistory] ([ReceivedAt]);
+END;
+GO
+
 IF OBJECT_ID(N'[dbo].[AlertRules]', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[AlertRules]
@@ -330,14 +381,33 @@ BEGIN
         [CreatedAt] datetimeoffset    NOT NULL,
         [User]      nvarchar(256)     NOT NULL,
         [Comment]   nvarchar(max)     NOT NULL,
+        [AlertRecordId] uniqueidentifier NULL,
         CONSTRAINT [PK_LogbookEntries] PRIMARY KEY ([Id])
     );
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[LogbookEntries]', N'AlertRecordId') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[LogbookEntries] ADD [AlertRecordId] uniqueidentifier NULL;
 END;
 GO
 
 IF COL_LENGTH(N'[dbo].[LogbookEntries]', N'Comment') <> -1
 BEGIN
     ALTER TABLE [dbo].[LogbookEntries] ALTER COLUMN [Comment] nvarchar(max) NOT NULL;
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [name] = N'IX_LogbookEntries_AlertRecordId'
+      AND [object_id] = OBJECT_ID(N'[dbo].[LogbookEntries]')
+)
+BEGIN
+    CREATE INDEX [IX_LogbookEntries_AlertRecordId]
+        ON [dbo].[LogbookEntries] ([AlertRecordId]);
 END;
 GO
 
@@ -594,8 +664,19 @@ BEGIN
     VALUES
     (
         N'AlertGraph',
-        N'{"Layer1":[{"Value":"Subscription","Label":"Subscription"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer2":[{"Value":"AlertName","Label":"AlertName"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer3":[{"Value":"Target","Label":"Target"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"DefaultLayer1":"ResourceGroup","DefaultLayer2":"Site","DefaultLayer3":"Target"}'
+        N'{"Layer1":[{"Value":"Subscription","Label":"Subscription"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer2":[{"Value":"AlertName","Label":"AlertName"},{"Value":"ResourceGroup","Label":"Resourcegroup"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"Layer3":[{"Value":"Target","Label":"Target"},{"Value":"Site","Label":"Site"},{"Value":"Domain","Label":"Domain"},{"Value":"Role","Label":"Role"}],"DefaultLayer1":"ResourceGroup","DefaultLayer2":"Site","DefaultLayer3":"Target","SiteLocations":[{"DisplayName":"New York","Latitude":40.7128,"Longitude":-74.006,"LabelOffsetX":-30,"LabelOffsetY":-31,"TextAnchor":"end","Aliases":["New York","NewYork","NYC"]},{"DisplayName":"Singapore","Latitude":1.3521,"Longitude":103.8198,"LabelOffsetX":30,"LabelOffsetY":-31,"TextAnchor":"start","Aliases":["Singapore","Singapure"]},{"DisplayName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"LabelOffsetX":35,"LabelOffsetY":38,"TextAnchor":"start","Aliases":["Frankfurt"]},{"DisplayName":"London","Latitude":51.5074,"Longitude":-0.1278,"LabelOffsetX":-35,"LabelOffsetY":-31,"TextAnchor":"end","Aliases":["London"]}]}'
     );
+END;
+
+IF ISJSON((SELECT [JsonValue] FROM [dbo].[Settings] WHERE [Name] = N'AlertGraph')) = 1
+   AND JSON_QUERY((SELECT [JsonValue] FROM [dbo].[Settings] WHERE [Name] = N'AlertGraph'), '$.SiteLocations') IS NULL
+BEGIN
+    UPDATE [dbo].[Settings]
+    SET [JsonValue] = JSON_MODIFY(
+        [JsonValue],
+        '$.SiteLocations',
+        JSON_QUERY(N'[{"DisplayName":"New York","Latitude":40.7128,"Longitude":-74.006,"LabelOffsetX":-30,"LabelOffsetY":-31,"TextAnchor":"end","Aliases":["New York","NewYork","NYC"]},{"DisplayName":"Singapore","Latitude":1.3521,"Longitude":103.8198,"LabelOffsetX":30,"LabelOffsetY":-31,"TextAnchor":"start","Aliases":["Singapore","Singapure"]},{"DisplayName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"LabelOffsetX":35,"LabelOffsetY":38,"TextAnchor":"start","Aliases":["Frankfurt"]},{"DisplayName":"London","Latitude":51.5074,"Longitude":-0.1278,"LabelOffsetX":-35,"LabelOffsetY":-31,"TextAnchor":"end","Aliases":["London"]}]'))
+    WHERE [Name] = N'AlertGraph';
 END;
 
 IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'AlertSeverityDisplay')
@@ -1498,6 +1579,39 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261013102000_AddAlertGraphSiteLocations'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261013102000_AddAlertGraphSiteLocations', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261015053058_AddAlertFiredHistory'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261015053058_AddAlertFiredHistory', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261015055257_AddLogbookAlertReference'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261015055257_AddLogbookAlertReference', N'10.0.11');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -1511,6 +1625,7 @@ ALTER ROLE [db_datawriter] ADD MEMBER [<managed-identity-name>];
 SELECT
     DB_NAME() AS [DatabaseName],
     OBJECT_ID(N'[dbo].[Alerts]', N'U') AS [AlertsTableObjectId],
+    OBJECT_ID(N'[dbo].[AlertHistory]', N'U') AS [AlertHistoryTableObjectId],
     OBJECT_ID(N'[dbo].[AlertRules]', N'U') AS [AlertRulesTableObjectId],
     OBJECT_ID(N'[dbo].[ComputerInventory]', N'U') AS [ComputerInventoryTableObjectId],
     OBJECT_ID(N'[dbo].[AuthenticationUsers]', N'U') AS [AuthenticationUsersTableObjectId],

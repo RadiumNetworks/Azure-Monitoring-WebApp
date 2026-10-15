@@ -1,0 +1,32 @@
+@if (Presentation.CollapseRows)
+{
+    <details class="query-result-details">
+        <summary class="query-result-summary" aria-label="@Presentation.Label">
+            <span class="test-summary">
+                @foreach (var badge in Presentation.Summary)
+                {
+                    <span class="test-count presentation-@badge.Tone">@badge.Text</span>
+                }
+            </span>
+        </summary>
+        <QueryResultRows Rows="Presentation.Rows" FormatValue="FormatValue" />
+    </details>
+}
+else
+{
+    <div class="test-summary" aria-label="@Presentation.Label">
+        @foreach (var badge in Presentation.Summary)
+        {
+            <span class="test-count presentation-@badge.Tone">@badge.Text</span>
+        }
+    </div>
+    <QueryResultRows Rows="Presentation.Rows" FormatValue="FormatValue" />
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public QueryResultPresentation Presentation { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public Func<QueryResultValue, string> FormatValue { get; set; } = value => value.Value;
+}

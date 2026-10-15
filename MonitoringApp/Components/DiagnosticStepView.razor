@@ -1,0 +1,20 @@
+<div class="admin-diagnostic-step admin-diagnostic-@Step.Status.ToString().ToLowerInvariant()">
+    <div>
+        <strong>@Step.Name</strong>
+        <span>@Step.Status</span>
+    </div>
+    <p>@Step.Message</p>
+    @if (Step.DurationMilliseconds > 0)
+    {
+        <small>@Step.DurationMilliseconds ms</small>
+    }
+    @if (!string.IsNullOrWhiteSpace(Step.CorrelationId))
+    {
+        <small>Correlation: @Step.CorrelationId</small>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public DiagnosticStep Step { get; set; } = default!;
+}

@@ -65,7 +65,7 @@ public sealed class InventoryMaintenanceTests
         var alert = Alert("sub-a", "SERVER01");
         await using (var context = factory.CreateDbContext())
         {
-            var names = new[] { "Alerts", "ParsedAlerts", "AlertRules", "ComputerInventory" };
+            var names = new[] { "Alerts", "AlertHistory", "ParsedAlerts", "AlertRules", "ComputerInventory" };
             foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Where(statement => names.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
             {
@@ -119,6 +119,12 @@ public sealed class InventoryMaintenanceTests
             """);
         Assert.True((await store.AddAsync(incoming.RootElement)).Created);
         Assert.True(Assert.Single(await store.GetComputerInventoryAsync()).Maintenance);
+        await using (var context = factory.CreateDbContext())
+        {
+            var firedHistory = Assert.Single(await context.AlertHistory.AsNoTracking().ToArrayAsync());
+            Assert.Equal("maintenance-arrival", firedHistory.AlertId);
+            Assert.Equal("Fired", firedHistory.MonitorCondition);
+        }
 
         using var heartbeat = System.Text.Json.JsonDocument.Parse("""
             {

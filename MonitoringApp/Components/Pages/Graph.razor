@@ -14,6 +14,9 @@
         ? DnsNamespaceResolver.Resolve(alerts.Select(alert => alert.Domain))
         : null;
     var graphLayout = AlertGraphLayout.Build(navigationTree, dnsNamespaces);
+    var solarOverlay = AlertGraphSolarOverlay.Build(currentTimeUtc);
+    var siteMarkers = AlertGraphSiteMap.Build(alerts, AlertGraph.SiteLocations, currentTimeUtc);
+    var easterEgg = AlertGraphEasterEggSites.Resolve(currentTimeUtc);
     var openCount = navigationTree.Sum(subscription => subscription.Count);
     var historyCount = navigationTree.Sum(subscription => subscription.HistoryCount);
 }
@@ -81,6 +84,80 @@
             </select>
         </label>
     </div>
+</section>
+
+<section class="graph-site-map" aria-labelledby="graph-site-map-heading">
+    <div class="graph-site-map-heading">
+        <div>
+            <p class="eyebrow">Global sites</p>
+            <h2 id="graph-site-map-heading">Site alert status</h2>
+            <p>Open alerts across all graph data, independent of the hierarchy filter.</p>
+        </div>
+        <div class="graph-site-map-legend" aria-label="Site status legend">
+            <span><i class="graph-site-map-healthy" aria-hidden="true"></i>No open alerts</span>
+            <span><i class="graph-site-map-alert" aria-hidden="true"></i>Open alert</span>
+            <span><i class="graph-site-map-day" aria-hidden="true"></i>Day</span>
+            <span><i class="graph-site-map-twilight" aria-hidden="true"></i>Twilight</span>
+            <span><i class="graph-site-map-night" aria-hidden="true"></i>Night</span>
+        </div>
+    </div>
+    <div class="graph-site-map-frame">
+        @if (easterEgg is not null)
+        {
+            <aside class="graph-offworld-sites graph-easter-egg-@easterEgg.Theme" aria-label="@easterEgg.AriaLabel">
+                <span class="graph-offworld-heading">@easterEgg.Heading</span>
+                <div class="graph-offworld-site-list">
+                    @foreach (var site in easterEgg.Sites)
+                    {
+                        <div class="graph-offworld-site graph-offworld-site-@site.Tone @(site.IsDanger ? "graph-offworld-site-danger" : null)"
+                             title="@(string.IsNullOrWhiteSpace(site.Status) ? site.Name : $"{site.Name} · {site.Status}")">
+                            <i aria-hidden="true"></i>
+                            <strong>@site.Name</strong>
+                        </div>
+                    }
+                </div>
+            </aside>
+        }
+        <svg class="graph-site-map-svg"
+             viewBox="0 0 2756 1399"
+             role="img"
+             aria-label="World map showing alert status for @siteMarkers.Count configured sites">
+            <image href="/world-map-configurable.svg"
+                   x="0"
+                   y="0"
+                   width="2756"
+                   height="1399"
+                   preserveAspectRatio="xMidYMid meet" />
+            <g class="graph-solar-overlay" aria-hidden="true">
+                @foreach (var path in solarOverlay.Paths)
+                {
+                    <path class="@(path.Phase == AlertGraphSolarPhase.Night ? "graph-map-night" : "graph-map-twilight")"
+                          d="@path.Data" />
+                }
+            </g>
+            @foreach (var marker in siteMarkers)
+            {
+                <g class="graph-site-marker @(marker.HasOpenAlerts ? "graph-site-marker-alert" : "graph-site-marker-healthy")"
+                   transform="translate(@Coordinate(marker.X) @Coordinate(marker.Y))"
+                   role="group"
+                   aria-label="@marker.Name, @marker.StatusLabel, @marker.SolarPhaseLabel">
+                    <title>@marker.Name · @marker.StatusLabel · @marker.SolarPhaseLabel</title>
+                    <circle class="graph-site-marker-pulse" r="31" aria-hidden="true" />
+                    <circle class="graph-site-marker-point" r="18" aria-hidden="true" />
+                    <text x="@Coordinate(marker.LabelOffsetX)"
+                          y="@Coordinate(marker.LabelOffsetY)"
+                          text-anchor="@marker.TextAnchor">@marker.Name</text>
+                </g>
+            }
+        </svg>
+    </div>
+    <p class="graph-site-map-source">
+        Map:
+        <a href="https://commons.wikimedia.org/wiki/File:World_map_configurable.svg"
+           target="_blank"
+           rel="noopener noreferrer">World map configurable.svg</a>
+        · Wikimedia Commons · CC0
+    </p>
 </section>
 
 <section class="graph-region" aria-label="Alert hierarchy graph">
@@ -188,6 +265,7 @@
     private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
     private readonly CancellationTokenSource refreshCancellation = new();
+    private readonly SemaphoreSlim reloadLock = new(1, 1);
     private Task? refreshTask;
     private bool graphNeedsInitialization = true;
     private bool graphInitialized;
@@ -230,11 +308,19 @@
 
     private async Task ReloadAlertsAsync()
     {
-        currentTimeUtc = DateTimeOffset.UtcNow;
-        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(await AlertStore.GetAllAlertRulesAsync());
-        alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
-        graphNeedsInitialization = true;
-        await InvokeAsync(StateHasChanged);
+        await reloadLock.WaitAsync();
+        try
+        {
+            currentTimeUtc = DateTimeOffset.UtcNow;
+            currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(await AlertStore.GetAllAlertRulesAsync());
+            alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
+            graphNeedsInitialization = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            reloadLock.Release();
+        }
     }
 
     private async Task ZoomAsync(double factor) =>
@@ -261,13 +347,12 @@
 
     private async Task RefreshClockAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                currentTimeUtc = DateTimeOffset.UtcNow;
-                await InvokeAsync(StateHasChanged);
+                await ReloadAlertsAsync();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

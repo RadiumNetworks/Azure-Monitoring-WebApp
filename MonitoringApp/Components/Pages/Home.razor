@@ -197,9 +197,10 @@
 <section class="controls" aria-label="Alert filters">
     <label>
         <span>View</span>
-        <select @bind="viewMode" @bind:after="ResetPagination">
+        <select value="@viewMode" @onchange="ChangeViewModeAsync">
             <option value="active">Active alerts</option>
             <option value="history">Full history</option>
+            <option value="history-fired">History Fired</option>
         </select>
     </label>
     <label class="search-field">
@@ -499,30 +500,7 @@
                             }
                             else
                             {
-                                @if (queryResult.CollapseRows)
-                                {
-                                    <details class="query-result-details">
-                                        <summary class="query-result-summary" aria-label="@queryResult.Label">
-                                            <span class="test-summary">
-                                                @foreach (var badge in queryResult.Summary)
-                                                {
-                                                    <span class="test-count presentation-@badge.Tone">@badge.Text</span>
-                                                }
-                                            </span>
-                                        </summary>
-                                        <QueryResultRows Rows="queryResult.Rows" FormatValue="FormatPresentationValue" />
-                                    </details>
-                                }
-                                else
-                                {
-                                    <div class="test-summary" aria-label="@queryResult.Label">
-                                        @foreach (var badge in queryResult.Summary)
-                                        {
-                                            <span class="test-count presentation-@badge.Tone">@badge.Text</span>
-                                        }
-                                    </div>
-                                    <QueryResultRows Rows="queryResult.Rows" FormatValue="FormatPresentationValue" />
-                                }
+                                <QueryResultPresentationView Presentation="queryResult" FormatValue="FormatPresentationValue" />
                                 @if (alert.QueryResultRefreshedAt is { } refreshedAt)
                                 {
                                     <span class="cell-secondary" title="@($"{refreshedAt.ToUniversalTime():O} UTC")">
@@ -608,6 +586,7 @@
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private IReadOnlyList<AlertRecord> alerts = [];
+    private IReadOnlyList<AlertRecord> firedHistoryAlerts = [];
     private IReadOnlyList<ComputerInventoryEntry> computerInventory = [];
     private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private IReadOnlyList<AlertRule> alertRules = [];
@@ -630,6 +609,7 @@
     private string currentUser = string.Empty;
     private bool isSavingComment;
     private bool isEditingDateTime;
+    private bool isFiredHistoryLoaded;
     private int currentPage = 1;
     private readonly HashSet<string> expandedDomains = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> expandedRoles = new(StringComparer.OrdinalIgnoreCase);
@@ -675,9 +655,12 @@
         receivedFrom is not null ||
         receivedTo is not null;
 
-    private IEnumerable<AlertRecord> ViewAlerts => viewMode == "history"
-        ? InboxAlerts
-        : ActiveAlerts;
+    private IEnumerable<AlertRecord> ViewAlerts => viewMode switch
+    {
+        "history" => InboxAlerts,
+        "history-fired" => InventoryMaintenance.FilterAlerts(firedHistoryAlerts, computerInventory),
+        _ => ActiveAlerts
+    };
 
     private IReadOnlyList<AlertRecord> ActiveAlerts => AlertLifecycle.GetActiveAlerts(InboxAlerts);
 
@@ -967,6 +950,18 @@
 
     private void BeginDateTimeEdit() => isEditingDateTime = true;
 
+    private async Task ChangeViewModeAsync(ChangeEventArgs eventArgs)
+    {
+        viewMode = eventArgs.Value?.ToString() ?? "active";
+        if (viewMode == "history-fired" && !isFiredHistoryLoaded)
+        {
+            firedHistoryAlerts = await AlertStore.GetFiredHistoryAsync();
+            isFiredHistoryLoaded = true;
+        }
+
+        ResetPagination();
+    }
+
     private void EndDateTimeEdit()
     {
         isEditingDateTime = false;
@@ -976,6 +971,11 @@
     private async Task ReloadAlertsAsync()
     {
         alerts = await AlertStore.GetAllAsync();
+        if (isFiredHistoryLoaded)
+        {
+            firedHistoryAlerts = await AlertStore.GetFiredHistoryAsync();
+        }
+
         computerInventory = await AlertStore.GetComputerInventoryAsync();
         alertRules = await AlertStore.GetAllAlertRulesAsync();
         currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(alertRules);

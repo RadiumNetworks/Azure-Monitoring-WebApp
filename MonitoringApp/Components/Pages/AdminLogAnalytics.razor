@@ -1,0 +1,90 @@
+@page "/admin/log-analytics"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminAccess")]
+@inject CrossTenantLogAnalyticsOptions Options
+@inject LogAnalyticsConnectionDiagnostics Diagnostics
+
+<PageTitle>Log Analytics Connections</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Log Analytics connections</h1>
+        <p class="subtitle">Test Key Vault, tenant authentication, and workspace access without exposing credentials.</p>
+    </div>
+    <div class="admin-heading-actions">
+        <button class="admin-secondary"
+                type="button"
+                disabled="@isRunning"
+                @onclick="RunDiagnosticsAsync">
+            @(isRunning ? "Testing..." : "Run connection test")
+        </button>
+    </div>
+</section>
+
+@if (!Options.Enabled)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        <strong>Cross-tenant Log Analytics is disabled.</strong>
+        Set <code>CrossTenantLogAnalytics:Enabled</code> to <code>true</code> in the target environment after completing its non-secret configuration.
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+@if (report is not null)
+{
+    <p class="admin-diagnostics-time">Checked @report.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</p>
+    <section class="admin-diagnostics-section" aria-labelledby="key-vault-diagnostic">
+        <h2 id="key-vault-diagnostic">Key Vault</h2>
+        <DiagnosticStepView Step="report.KeyVault" />
+    </section>
+
+    <div class="admin-diagnostics-grid">
+        @foreach (var workspace in report.Workspaces)
+        {
+            <section class="admin-diagnostics-section" aria-labelledby="@($"workspace-{workspace.Key}")">
+                <h2 id="@($"workspace-{workspace.Key}")">@workspace.DisplayName</h2>
+                <code>@workspace.Key</code>
+                <DiagnosticStepView Step="workspace.Token" />
+                <DiagnosticStepView Step="workspace.Query" />
+            </section>
+        }
+    </div>
+}
+else
+{
+    <p class="admin-empty">No connection test has been run in this application process.</p>
+}
+
+@code {
+    private bool isRunning;
+    private string? errorMessage;
+    private LogAnalyticsDiagnosticsReport? report;
+
+    private async Task RunDiagnosticsAsync()
+    {
+        if (isRunning)
+        {
+            return;
+        }
+
+        isRunning = true;
+        errorMessage = null;
+        try
+        {
+            report = await Diagnostics.RunAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            errorMessage = "The connection test was cancelled.";
+        }
+        finally
+        {
+            isRunning = false;
+        }
+    }
+}

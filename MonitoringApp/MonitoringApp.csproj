@@ -7,6 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Monitor.Query.Logs" Version="1.0.0" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.11.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
@@ -20,14 +23,13 @@
     <Content Update="AlertDefinitions\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Database\**\*.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="DemoData\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Deployment\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Remove="publish\**" />
   </ItemGroup>
 
   <Target Name="CreatePublishLogDirectory" AfterTargets="Publish">
     <MakeDir Directories="$(PublishDir)logs" />
-    <WriteLinesToFile File="$(PublishDir)logs\.keep"
-                      Lines="IIS startup diagnostics are written to this directory."
-                      Overwrite="true" />
+    <WriteLinesToFile File="$(PublishDir)logs\.keep" Lines="IIS startup diagnostics are written to this directory." Overwrite="true" />
   </Target>
 
 </Project>

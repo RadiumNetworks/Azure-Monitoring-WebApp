@@ -1083,6 +1083,36 @@ public sealed class AlertStore
     }
 
     /// <summary>
+    /// Loads the immutable snapshots captured when alerts were first received as fired.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertRecord>> GetFiredHistoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!databaseConfiguration.IsValid)
+        {
+            logger.LogError("Alert history cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
+            return [];
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var history = await context.AlertHistory
+                .AsNoTracking()
+                .OrderByDescending(alert => alert.ReceivedAt)
+                .ToArrayAsync(cancellationToken);
+            return history
+                .Select(alert => ResolveDisplayIdentity(alert.ToAlertRecord()))
+                .ToArray();
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load fired alert history from the database.");
+            return [];
+        }
+    }
+
+    /// <summary>
     /// Loads alerts received on or after the supplied timestamp, ordered newest first. Configuration or database failures are logged and return an empty list for the UI.
     /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetSinceAsync(
@@ -1723,6 +1753,11 @@ public sealed class AlertStore
                 }
 
                 dbContext.Alerts.Add(alert);
+                if (resolvedAlert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase))
+                {
+                    dbContext.AlertHistory.Add(AlertHistoryRecord.Create(resolvedAlert));
+                }
+
                 await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
                 var parsedAlert = ParsedAlertFactory.Create(resolvedAlert);
                 if (resolvedAlert.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase))

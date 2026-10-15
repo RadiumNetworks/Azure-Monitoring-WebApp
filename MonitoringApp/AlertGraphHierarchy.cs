@@ -16,19 +16,7 @@ public static class AlertGraphHierarchy
     {
         var snapshot = UseLatestSystemSubscriptions(
             alerts.Where(alert => HasTarget(alert.Target)));
-        var activeAlertIds = snapshot
-            .Where(alert => !string.IsNullOrWhiteSpace(alert.AlertId))
-            .GroupBy(alert => $"{alert.SubscriptionId}\u001f{alert.AlertId}", StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.OrderByDescending(alert => alert.ReceivedAt).First())
-            .Concat(snapshot.Where(alert => string.IsNullOrWhiteSpace(alert.AlertId)))
-            .Where(alert => alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase) &&
-                !System.Text.RegularExpressions.Regex.IsMatch(
-                    alert.Comments,
-                    @"\bResolved\b",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-                    System.Text.RegularExpressions.RegexOptions.CultureInvariant))
-            .Select(alert => alert.Id)
-            .ToHashSet();
+        var activeAlertIds = AlertGraphActiveAlerts.ResolveIds(snapshot);
 
         return BuildGraphLevel(snapshot, activeAlertIds, [layer1, layer2, layer3], 0);
     }

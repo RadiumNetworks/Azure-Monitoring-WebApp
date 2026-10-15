@@ -37,6 +37,7 @@ public static class CriticalAlertLogbook
             Id = Guid.NewGuid(),
             CreatedAt = createdAt,
             User = SystemUser,
+            AlertRecordId = alert.Id,
             Comment = $"Critical alert {action}: {alertName}; Target: {target}; Severity: {severity}; Alert ID: {alertId}."
         };
     }

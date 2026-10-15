@@ -1,6 +1,8 @@
 @page "/logbook"
 @rendermode InteractiveServer
 @inject LogbookStore LogbookStore
+@inject AlertStore AlertStore
+@inject QueryResultPresenter QueryResultPresenter
 @inject ApplicationAuthenticationOptions ApplicationAuthentication
 @inject CurrentUserIdentity CurrentUserIdentity
 
@@ -81,7 +83,31 @@
                         <tr>
                             <td><time class="timestamp" datetime="@entry.CreatedAt.ToString("O")">@entry.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</time></td>
                             <td class="logbook-user">@entry.User</td>
-                            <td class="logbook-comment">@entry.Comment</td>
+                            <td class="logbook-comment">
+                                @if (entry.AlertRecordId is { } alertRecordId &&
+                                    alertSnapshots.TryGetValue(alertRecordId, out var alert))
+                                {
+                                    var queryResult = QueryResultPresenter.Parse(alert.RawJson);
+                                    <div class="logbook-alert-entry">
+                                        <strong>@FormatAlertIdentity(alert)</strong>
+                                        <div class="logbook-search-results">
+                                            <b>Search Results</b>
+                                            @if (queryResult is null)
+                                            {
+                                                <span class="search-result-empty">-</span>
+                                            }
+                                            else
+                                            {
+                                                <QueryResultPresentationView Presentation="queryResult" FormatValue="FormatPresentationValue" />
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @entry.Comment
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -95,6 +121,8 @@
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private IReadOnlyList<LogbookEntry> entries = [];
+    private IReadOnlyDictionary<Guid, AlertRecord> alertSnapshots = new Dictionary<Guid, AlertRecord>();
+    private IReadOnlyList<ComputerInventoryEntry> computerInventory = [];
     private string currentUser = string.Empty;
     private string commentDraft = string.Empty;
     private string? statusMessage;
@@ -117,7 +145,21 @@
         errorMessage = null;
         try
         {
-            entries = await LogbookStore.GetAllAsync();
+            var entriesTask = LogbookStore.GetAllAsync();
+            var alertsTask = AlertStore.GetAllAsync();
+            var historyTask = AlertStore.GetFiredHistoryAsync();
+            var inventoryTask = AlertStore.GetComputerInventoryAsync();
+            await Task.WhenAll(entriesTask, alertsTask, historyTask, inventoryTask);
+
+            entries = await entriesTask;
+            computerInventory = await inventoryTask;
+            var snapshots = (await alertsTask).ToDictionary(alert => alert.Id);
+            foreach (var historyAlert in await historyTask)
+            {
+                snapshots[historyAlert.Id] = historyAlert;
+            }
+
+            alertSnapshots = snapshots;
         }
         catch (Exception exception)
         {
@@ -155,6 +197,23 @@
             isSaving = false;
         }
     }
+
+    private string FormatAlertIdentity(AlertRecord alert)
+    {
+        var domain = computerInventory.FirstOrDefault(entry =>
+            entry.SubscriptionId.Equals(alert.SubscriptionId, StringComparison.OrdinalIgnoreCase) &&
+            entry.Computer.Equals(alert.TargetName, StringComparison.OrdinalIgnoreCase))?.Domain;
+        return $"{Display(domain)} - {Display(alert.SiteName)} - {Display(alert.TargetName)} - {Display(alert.Name)}";
+    }
+
+    private static string FormatPresentationValue(QueryResultValue value) =>
+        value.Format.Equals("datetime", StringComparison.OrdinalIgnoreCase) &&
+        DateTimeOffset.TryParse(value.Value, out var timestamp)
+            ? timestamp.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+            : value.Value;
+
+    private static string Display(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "(unknown)" : value.Trim();
 
     private static string EntryCountLabel(int count) => count == 1 ? "1 entry" : $"{count} entries";
 }

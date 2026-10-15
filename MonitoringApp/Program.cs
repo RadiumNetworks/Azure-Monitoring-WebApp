@@ -83,6 +83,9 @@ var agentAnalysisProfiles = builder.Configuration
 var agentAnalysisAccess = builder.Configuration
     .GetSection(AgentAnalysisAccessOptions.SectionName)
     .Get<AgentAnalysisAccessOptions>() ?? new AgentAnalysisAccessOptions();
+var crossTenantLogAnalytics = builder.Configuration
+    .GetSection(CrossTenantLogAnalyticsOptions.SectionName)
+    .Get<CrossTenantLogAnalyticsOptions>() ?? new CrossTenantLogAnalyticsOptions();
 
 var applicationAuthenticationErrors = applicationAuthentication.Validate();
 if (applicationAuthenticationErrors.Count > 0)
@@ -136,6 +139,12 @@ if (agentAnalysisAccessErrors.Count > 0)
     throw new InvalidOperationException(
         $"Invalid agent analysis access configuration: {string.Join(" ", agentAnalysisAccessErrors)}");
 }
+var crossTenantLogAnalyticsErrors = crossTenantLogAnalytics.Validate();
+if (crossTenantLogAnalyticsErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid cross-tenant Log Analytics configuration: {string.Join(" ", crossTenantLogAnalyticsErrors)}");
+}
 
 builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>
@@ -160,6 +169,11 @@ builder.Services.AddSingleton(agentAnalysisContext);
 builder.Services.AddSingleton(agentAnalysisProfiles);
 builder.Services.AddSingleton(agentAnalysisExecutionState);
 builder.Services.AddSingleton(agentAnalysisAccess);
+builder.Services.AddSingleton(crossTenantLogAnalytics);
+builder.Services.AddSingleton<TargetWorkspaceResolver>();
+builder.Services.AddSingleton<ILogAnalyticsSecretProvider, KeyVaultLogAnalyticsSecretProvider>();
+builder.Services.AddSingleton<ILogAnalyticsWorkspaceProbe, AzureLogAnalyticsWorkspaceProbe>();
+builder.Services.AddSingleton<LogAnalyticsConnectionDiagnostics>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddAuthentication(options =>

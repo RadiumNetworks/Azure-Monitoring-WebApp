@@ -148,10 +148,15 @@ public sealed class AlertQueryRefreshTests
         await using var context = await database.Factory.CreateDbContextAsync();
         var storedAlert = Assert.Single(await context.Alerts.AsNoTracking().ToArrayAsync());
         var storedParsed = Assert.Single(await context.ParsedAlerts.AsNoTracking().ToArrayAsync());
+        var storedHistory = Assert.Single(await context.AlertHistory.AsNoTracking().ToArrayAsync());
         using var rawJson = JsonDocument.Parse(storedAlert.RawJson);
+        using var historyJson = JsonDocument.Parse(storedHistory.RawJson);
         Assert.Equal(
             1,
             rawJson.RootElement.GetProperty("queryResult").GetProperty("rowCount").GetInt32());
+        Assert.Equal(
+            0,
+            historyJson.RootElement.GetProperty("queryResult").GetProperty("rowCount").GetInt32());
         Assert.Equal(queryTime, storedParsed.QueryResultRefreshedAt);
         Assert.Equal(fired.AlertId, storedAlert.AlertId);
         Assert.Equal(fired.MonitorCondition, storedAlert.MonitorCondition);
@@ -323,6 +328,10 @@ public sealed class AlertQueryRefreshTests
         {
             context.Alerts.Add(alert);
             context.ParsedAlerts.Add(ParsedAlertFactory.Create(alert));
+            if (alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase))
+            {
+                context.AlertHistory.Add(AlertHistoryRecord.Create(alert));
+            }
         }
 
         await context.SaveChangesAsync();
@@ -388,6 +397,25 @@ public sealed class AlertQueryRefreshTests
                 InventorySubscriptionId TEXT NULL,
                 InventoryComputer TEXT NULL,
                 FOREIGN KEY (Id) REFERENCES Alerts(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE AlertHistory (
+                Id TEXT NOT NULL PRIMARY KEY,
+                ReceivedAt TEXT NOT NULL,
+                AlertId TEXT NOT NULL,
+                Name TEXT NOT NULL,
+                Severity TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                SignalType TEXT NOT NULL,
+                MonitorCondition TEXT NOT NULL,
+                Target TEXT NOT NULL,
+                ResourceGroup TEXT NOT NULL,
+                SubscriptionId TEXT NOT NULL,
+                FiredAt TEXT NULL,
+                Description TEXT NOT NULL,
+                SearchResultsUrl TEXT NOT NULL,
+                Comments TEXT NOT NULL,
+                RawJson TEXT NOT NULL
             );
             """);
         return new TestDatabase(connection, factory);

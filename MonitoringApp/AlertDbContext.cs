@@ -8,6 +8,7 @@ namespace MonitoringApp;
 public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : DbContext(options)
 {
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
+    public DbSet<AlertHistoryRecord> AlertHistory => Set<AlertHistoryRecord>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<ComputerInventoryEntry> ComputerInventory => Set<ComputerInventoryEntry>();
     public DbSet<SqlAuthenticationUser> AuthenticationUsers => Set<SqlAuthenticationUser>();
@@ -49,6 +50,26 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         alert.Ignore(record => record.SearchQuery);
         alert.HasIndex(record => record.ReceivedAt);
         alert.HasIndex(record => new { record.AlertId, record.MonitorCondition });
+
+        var alertHistory = modelBuilder.Entity<AlertHistoryRecord>();
+        alertHistory.ToTable("AlertHistory");
+        alertHistory.HasKey(record => record.Id);
+        alertHistory.Property(record => record.Id).ValueGeneratedNever();
+        alertHistory.Property(record => record.AlertId).HasMaxLength(512);
+        alertHistory.Property(record => record.Name).HasMaxLength(512);
+        alertHistory.Property(record => record.Severity).HasMaxLength(64);
+        alertHistory.Property(record => record.Status).HasMaxLength(64);
+        alertHistory.Property(record => record.SignalType).HasMaxLength(128);
+        alertHistory.Property(record => record.MonitorCondition).HasMaxLength(64);
+        alertHistory.Property(record => record.Target).HasMaxLength(2048);
+        alertHistory.Property(record => record.ResourceGroup).HasMaxLength(256);
+        alertHistory.Property(record => record.SubscriptionId).HasMaxLength(64);
+        alertHistory.Property(record => record.Description).HasMaxLength(4000);
+        alertHistory.Property(record => record.SearchResultsUrl).HasMaxLength(2048);
+        alertHistory.Property(record => record.Comments).HasMaxLength(4000);
+        alertHistory.Property(record => record.RawJson).HasColumnType("nvarchar(max)");
+        alertHistory.HasIndex(record => record.ReceivedAt);
+        alertHistory.HasIndex(record => record.AlertId);
 
         var rule = modelBuilder.Entity<AlertRule>();
         rule.ToTable("AlertRules");
@@ -134,6 +155,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         logbookEntry.Property(entry => entry.User).HasMaxLength(256);
         logbookEntry.Property(entry => entry.Comment).HasColumnType("nvarchar(max)");
         logbookEntry.HasIndex(entry => entry.CreatedAt);
+        logbookEntry.HasIndex(entry => entry.AlertRecordId);
 
         var inboxLayout = modelBuilder.Entity<InboxLayout>();
         inboxLayout.ToTable("InboxLayouts");

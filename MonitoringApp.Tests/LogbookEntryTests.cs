@@ -27,7 +27,10 @@ public sealed class LogbookEntryTests
         Assert.Equal("LogbookEntries", entity.GetTableName());
         Assert.Equal(256, entity.FindProperty(nameof(LogbookEntry.User))?.GetMaxLength());
         Assert.Equal("nvarchar(max)", entity.FindProperty(nameof(LogbookEntry.Comment))?.GetColumnType());
+        Assert.True(entity.FindProperty(nameof(LogbookEntry.AlertRecordId))?.IsNullable);
         Assert.Contains(entity.GetIndexes(), index =>
             index.Properties.Select(property => property.Name).SequenceEqual([nameof(LogbookEntry.CreatedAt)]));
+        Assert.Contains(entity.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name).SequenceEqual([nameof(LogbookEntry.AlertRecordId)]));
     }
 }
