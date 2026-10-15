@@ -302,6 +302,7 @@ public sealed class AlertStore
     public async Task<IReadOnlyList<AlertRule>> GetAllAlertRulesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetAllAlertRules");
         EnsureDatabaseConfigured();
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -409,6 +410,7 @@ public sealed class AlertStore
     public async Task<IReadOnlyList<ComputerInventoryEntry>> GetComputerInventoryAsync(
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetComputerInventory");
         EnsureDatabaseConfigured();
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -1048,6 +1050,7 @@ public sealed class AlertStore
     /// </summary>
     public async Task<IReadOnlyList<AlertRecord>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetAll");
         if (!databaseConfiguration.IsValid)
         {
             logger.LogError("Alerts cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
@@ -1088,6 +1091,7 @@ public sealed class AlertStore
     public async Task<IReadOnlyList<AlertRecord>> GetFiredHistoryAsync(
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetFiredHistory");
         if (!databaseConfiguration.IsValid)
         {
             logger.LogError("Alert history cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
@@ -1238,6 +1242,7 @@ public sealed class AlertStore
                 UpdateAlertQueryResultRequest request,
                 CancellationToken cancellationToken = default)
             {
+                using var activity = ApplicationTelemetry.StartOperation("AlertStore.UpdateAlertQueryResult");
                 EnsureDatabaseIsConfigured();
                 if (!AlertQueryRefresh.TryGetDefinition(request.Type, out var requestedDefinition))
                 {
@@ -1399,6 +1404,7 @@ public sealed class AlertStore
         DateTimeOffset receivedSince,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetAlertGraphRecords");
         if (!databaseConfiguration.IsValid)
         {
             logger.LogError("Graph records cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
@@ -1478,6 +1484,7 @@ public sealed class AlertStore
         DateTimeOffset rangeEnd,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.GetCriticalAlertLifecycles");
         if (!databaseConfiguration.IsValid)
         {
             logger.LogError("Critical alert lifecycles cannot be loaded: {ConfigurationError}", databaseConfiguration.Error);
@@ -1653,6 +1660,7 @@ public sealed class AlertStore
     /// </summary>
     public async Task<AddAlertResult> AddAsync(JsonElement payload, CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.AddAlert");
         EnsureDatabaseIsConfigured();
 
         var data = GetObject(payload, "data");
@@ -2097,6 +2105,7 @@ public sealed class AlertStore
         string user,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("AlertStore.UpdateComments");
         EnsureDatabaseIsConfigured();
 
         var normalizedComments = comments.Trim();

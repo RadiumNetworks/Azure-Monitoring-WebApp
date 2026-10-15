@@ -190,6 +190,24 @@ Wird ein Original-Alert gelöscht, verschwindet auch sein Parsed-Record. Wird ei
 6. Tests ausführen, bevor Produktionsverkehr auf den neuen Build zeigt.
 7. Backups prüfen. Nicht nur behaupten, dass es welche gibt.
 
+### Performance Monitoring mit Azure Monitor
+
+Die WebApp aktiviert Azure Monitor OpenTelemetry, sobald die App-Service-Einstellung
+`APPLICATIONINSIGHTS_CONNECTION_STRING` den Connection String einer Application-Insights-Ressource enthält.
+Ohne diese Einstellung bleibt der Export deaktiviert; lokale Starts schlagen deshalb nicht wegen fehlender Telemetrie fehl.
+
+Erfasst werden:
+
+- eingehende ASP.NET-Core-Anfragen und ausgehende `HttpClient`-Abhängigkeiten,
+- SQL-Aufrufe über `Microsoft.Data.SqlClient`, einschließlich Dauer und Fehlerstatus,
+- Blazor-Navigationen, Event-Handler, Render-Dauer und Render-Größe,
+- aktive, verbundene und beendete Blazor-Server-Circuits,
+- zentrale Alert- und Logbook-Operationen als benannte `MonitoringApp`-Spans.
+
+Die Daten können in Application Insights unter **Application Map**, **Performance**, **Failures**,
+**Transaction search**, **Dependencies** und **Metrics** ausgewertet werden. Connection Strings und
+andere Telemetrie-Zugangsdaten dürfen nicht in `appsettings.json` oder das Repository übernommen werden.
+
 Produktionsdaten sind keine Trainingsattrappen. Geheimnisse gehören nicht ins Repository, offene Authentifizierung nicht ins öffentliche Netz und spontane Schemaoperationen nicht in die Hauptverkehrszeit.
 
 ## Schlusswort // Bleib wachsam

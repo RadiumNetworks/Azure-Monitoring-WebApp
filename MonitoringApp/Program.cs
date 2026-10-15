@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.RateLimiting;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -12,11 +13,35 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MonitoringApp;
 using MonitoringApp.Components;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 const string SqlCookieScheme = "SqlAuthentication";
 const string OperatorPolicy = "OperatorAccess";
 const string AdminPolicy = "AdminAccess";
+var applicationInsightsConnectionString =
+    builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+
+if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
+{
+    builder.Services
+        .AddOpenTelemetry()
+        .UseAzureMonitor(options =>
+            options.ConnectionString = applicationInsightsConnectionString);
+    builder.Services.ConfigureOpenTelemetryMeterProvider(meterProvider =>
+    {
+        meterProvider.AddMeter("Microsoft.AspNetCore.Components");
+        meterProvider.AddMeter("Microsoft.AspNetCore.Components.Lifecycle");
+        meterProvider.AddMeter("Microsoft.AspNetCore.Components.Server.Circuits");
+    });
+    builder.Services.ConfigureOpenTelemetryTracerProvider(tracerProvider =>
+    {
+        tracerProvider.AddSource(ApplicationTelemetry.ActivitySourceName);
+        tracerProvider.AddSource("Microsoft.AspNetCore.Components");
+        tracerProvider.AddSource("Microsoft.AspNetCore.Components.Server.Circuits");
+    });
+}
 
 var ingestionAuthentication = builder.Configuration
     .GetSection(AlertIngestionAuthenticationOptions.SectionName)
@@ -294,6 +319,11 @@ builder.Services.AddHostedService<DatabaseStartupCheck>();
 builder.Services.AddHostedService<AgentAnalysisRetentionService>();
 
 var app = builder.Build();
+if (string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
+{
+    app.Logger.LogInformation(
+        "Azure Monitor telemetry is disabled because APPLICATIONINSIGHTS_CONNECTION_STRING is not configured.");
+}
 
 if (databaseConfiguration.IsValid)
 {

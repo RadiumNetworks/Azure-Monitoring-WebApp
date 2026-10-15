@@ -9,6 +9,7 @@ public sealed class LogbookStore(IDbContextFactory<AlertDbContext> dbContextFact
 {
     public async Task<IReadOnlyList<LogbookEntry>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("LogbookStore.GetAll");
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await context.LogbookEntries
             .AsNoTracking()
@@ -22,6 +23,7 @@ public sealed class LogbookStore(IDbContextFactory<AlertDbContext> dbContextFact
         string comment,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.StartOperation("LogbookStore.Add");
         var normalizedUser = user.Trim();
         var normalizedComment = comment.Trim();
 
