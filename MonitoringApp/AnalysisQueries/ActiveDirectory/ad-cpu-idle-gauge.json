@@ -1,0 +1,19 @@
+{
+  "key": "ad-cpu-idle-gauge",
+  "name": "DC CPU idle capacity",
+  "description": "Average Processor/Processor Information % Idle Time for _Total over the selected range, rather than counting Perf rows or using an unrelated process counter. Requires collection of this performance counter.",
+  "category": "Active Directory",
+  "kql": "Perf\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where ObjectName in ('Processor', 'Processor Information') and CounterName == '% Idle Time' and InstanceName == '_Total'\n| summarize Value = avg(CounterValue), Timestamp = max(TimeGenerated) by Series = Computer\n| project Timestamp, Series, Value\n| order by Value asc",
+  "visualizationType": "BarGauge",
+  "unit": "%",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "minimum": 0, "maximum": 100, "decimals": 2,
+    "thresholds": [
+      { "value": 0, "color": "red" }, { "value": 10, "color": "orange" }, { "value": 20, "color": "yellow" }, { "value": 40, "color": "green" }
+    ]
+  }
+}

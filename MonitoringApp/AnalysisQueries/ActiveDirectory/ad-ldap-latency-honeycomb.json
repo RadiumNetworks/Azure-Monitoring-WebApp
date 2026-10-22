@@ -1,0 +1,13 @@
+{
+  "key": "ad-ldap-latency-honeycomb",
+  "name": "LDAP latency by site",
+  "description": "Average of latest measurements per selected source computer and target DC; green 0 ms to red 2000 ms.",
+  "category": "Active Directory",
+  "kql": "LatencyReports_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, *) by Computer, TargetDC\r\n| extend Series = strcat(SourceSite, \" -> \", TargetSite)\r\n| summarize Value = avg(Latency_ms), Timestamp = max(TimeGenerated) by Series",
+  "visualizationType": "Honeycomb",
+  "unit": "ms",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

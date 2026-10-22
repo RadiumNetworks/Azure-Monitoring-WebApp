@@ -18,6 +18,9 @@
   <ItemGroup>
     <Compile Include="..\Shared\AlertConsoleUrlResolver.cs" Link="Configuration\AlertConsoleUrlResolver.cs" />
     <Content Include="TestCases\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\wwwroot\app.css" Link="AnalysisAssets\app.css" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\wwwroot\js\analysis-dashboard.js" Link="AnalysisAssets\analysis-dashboard.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\wwwroot\js\inbox-dashboard.js" Link="AnalysisAssets\inbox-dashboard.js" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\alertconsole.local.json"
           Link="alertconsole.local.json"
           CopyToOutputDirectory="PreserveNewest"

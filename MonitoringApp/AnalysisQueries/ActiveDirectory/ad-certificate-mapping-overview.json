@@ -1,0 +1,26 @@
+{
+  "key": "ad-certificate-mapping-overview",
+  "name": "Strong certificate mapping overview",
+  "description": "Latest KB5014754 KDC 39/41 observations per DC, event ID and certificate/account identity. Unlike serial-only grouping, this preserves different reporters and unparsed events (using their raw payload as fallback identity).",
+  "category": "Active Directory",
+  "kql": "Event\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where EventLog == 'System' and Source == 'Microsoft-Windows-Kerberos-Key-Distribution-Center' and EventID in (39, 41)\n| parse EventData with * 'AccountName\">' AccountName '</Data>' * 'Subject\">' Subject '</Data>' * 'Issuer\">' Issuer '</Data>' * 'SerialNumber\">' SerialNumber '</Data>' * 'Thumbprint\">' Thumbprint '</Data>' *\n| extend CertificateIdentity = iff(isnotempty(SerialNumber), strcat(Issuer, '|', SerialNumber, '|', AccountName), tostring(EventData))\n| summarize arg_max(TimeGenerated, *) by Computer, EventID, CertificateIdentity\n| project Timestamp = TimeGenerated, Computer, EventID, EventLevelName, AccountName, Subject, Issuer, SerialNumber, Thumbprint\n| order by Timestamp desc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Timestamp", "unit": "datetime", "width": 190 },
+      { "name": "Computer", "width": 180 },
+      { "name": "EventID", "displayName": "KDC event", "cellDisplay": "ColorBackground", "valueMappings": [{ "value": "39", "text": "39 - no strong mapping", "color": "orange" }, { "value": "41", "text": "41 - SID mismatch", "color": "red" }] },
+      { "name": "EventLevelName", "width": 130 },
+      { "name": "AccountName", "width": 180 },
+      { "name": "Subject", "width": 280 },
+      { "name": "Issuer", "width": 280 },
+      { "name": "SerialNumber", "width": 180 },
+      { "name": "Thumbprint", "width": 280 }
+    ]
+  }
+}

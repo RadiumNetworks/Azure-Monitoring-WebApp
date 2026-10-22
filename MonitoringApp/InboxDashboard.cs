@@ -31,7 +31,7 @@ public sealed class InboxDashboardDocument
     public List<InboxDashboardWidget> Widgets { get; set; } = [];
 }
 
-public sealed class InboxDashboardWidget
+public sealed class InboxDashboardWidget : IDashboardGridWidget
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public InboxWidgetKind Kind { get; set; }
@@ -213,13 +213,7 @@ public sealed class InboxDashboardState
     private void Normalize()
     {
         var baseLayout = InboxDashboardCatalog.GetLayout(Document.Layout);
-        var occupiedArea = Document.Widgets.Sum(widget =>
-            Math.Clamp(widget.ColumnSpan, 1, baseLayout.Columns) * Math.Clamp(widget.RowSpan, 1, 8));
-        var minimumRows = Math.Max(8, (int)Math.Ceiling(occupiedArea / (double)baseLayout.Columns));
-        Document.Rows = Math.Clamp(Document.Rows, minimumRows, 40);
-        var layout = baseLayout with { Rows = Document.Rows };
         Document.RowHeight = Math.Clamp(Document.RowHeight, 64, 132);
-        var occupied = new HashSet<(int Column, int Row)>();
 
         foreach (var widget in Document.Widgets)
         {
@@ -227,62 +221,11 @@ public sealed class InboxDashboardState
                 ? InboxDashboardCatalog.Widgets.First(item => item.Kind == widget.Kind).Name
                 : widget.Title.Trim();
             widget.Accent = widget.Accent is "teal" or "blue" or "violet" or "coral" ? widget.Accent : "teal";
-            widget.ColumnSpan = Math.Clamp(widget.ColumnSpan, 1, layout.Columns);
-            widget.RowSpan = Math.Clamp(widget.RowSpan, 1, 10);
-            widget.Column = Math.Clamp(widget.Column, 1, layout.Columns - widget.ColumnSpan + 1);
-            widget.Row = Math.Clamp(widget.Row, 1, layout.Rows - widget.RowSpan + 1);
-
-            if (!Fits(widget, occupied, layout))
-            {
-                PlaceInFirstAvailableCell(widget, occupied, layout);
-            }
-
-            foreach (var cell in Cells(widget))
-            {
-                occupied.Add(cell);
-            }
         }
-    }
-
-    private static bool Fits(
-        InboxDashboardWidget widget,
-        HashSet<(int Column, int Row)> occupied,
-        InboxLayoutOption layout) =>
-        widget.Column + widget.ColumnSpan - 1 <= layout.Columns &&
-        widget.Row + widget.RowSpan - 1 <= layout.Rows &&
-        Cells(widget).All(cell => !occupied.Contains(cell));
-
-    private static void PlaceInFirstAvailableCell(
-        InboxDashboardWidget widget,
-        HashSet<(int Column, int Row)> occupied,
-        InboxLayoutOption layout)
-    {
-        for (var row = 1; row <= layout.Rows; row++)
-        {
-            for (var column = 1; column <= layout.Columns; column++)
-            {
-                widget.Column = column;
-                widget.Row = row;
-                if (Fits(widget, occupied, layout))
-                {
-                    return;
-                }
-            }
-        }
-
-        widget.ColumnSpan = 1;
-        widget.RowSpan = 1;
-        widget.Column = 1;
-        widget.Row = layout.Rows;
-    }
-
-    private static IEnumerable<(int Column, int Row)> Cells(InboxDashboardWidget widget)
-    {
-        for (var row = widget.Row; row < widget.Row + widget.RowSpan; row++)
-        for (var column = widget.Column; column < widget.Column + widget.ColumnSpan; column++)
-        {
-            yield return (column, row);
-        }
+        Document.Rows = DashboardGridEngine.Normalize(
+            Document.Widgets,
+            baseLayout.Columns,
+            Document.Rows);
     }
 
     private InboxDashboardWidget Find(string id) => Document.Widgets.First(widget => widget.Id == id);

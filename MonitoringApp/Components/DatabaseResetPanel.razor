@@ -1,0 +1,114 @@
+@inject DatabaseResetService DatabaseReset
+@inject DatabaseConfigurationStatus DatabaseConfiguration
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<DatabaseResetPanel> Logger
+
+<section class="admin-editor" aria-labelledby="database-reset-heading">
+    <div class="admin-section-heading">
+        <div>
+            <p class="eyebrow">Danger zone</p>
+            <h2 id="database-reset-heading">Initialize / reset operational data</h2>
+        </div>
+    </div>
+    <div class="admin-message admin-message-warning" role="alert">
+        <strong>Permanent deletion. Back up the database first.</strong>
+        <p>Removes all alerts, history, comments, logbook entries, inventory, custom rules,
+            analysis jobs and reviews, analysis queries and versions, dashboards and inbox layouts.</p>
+        <p>Restores the default alert rules. Users, permissions and connection/application settings
+            are preserved. AD query templates are not installed automatically.</p>
+        <p>Pause ingestion and query-refresh agents first if the database must remain empty.
+            Incoming monitoring data can populate it again after the reset.
+            Reload other open application tabs after completion.</p>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="admin-message admin-message-success" role="status">@statusMessage</div>
+    }
+    @if (!showConfirmation && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+    }
+    <button class="admin-danger" type="button" disabled="@(isResetting || !DatabaseConfiguration.IsValid)"
+            @onclick="BeginReset">Initialize / reset database...</button>
+</section>
+
+@if (showConfirmation)
+{
+    <div class="admin-dialog-backdrop" role="presentation">
+        <section class="admin-dialog" role="dialog" aria-modal="true"
+                 aria-labelledby="confirm-database-reset-heading" aria-describedby="database-reset-warning">
+            <p class="eyebrow">Permanent action</p>
+            <h2 id="confirm-database-reset-heading">Reset database operational data?</h2>
+            <p id="database-reset-warning">
+                This permanently deletes the operational data listed above and replaces all alert rules
+                with the defaults. This cannot be undone. Users and settings will not be deleted.
+            </p>
+            <p>Database: <strong>@DatabaseConfiguration.Connection.InitialCatalog</strong>
+                on <strong>@DatabaseConfiguration.Connection.DataSource</strong></p>
+            <label class="admin-field">
+                <span>Type RESET to confirm</span>
+                <input autocomplete="off" spellcheck="false" disabled="@isResetting"
+                       @bind="confirmation" @bind:event="oninput" />
+            </label>
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+            }
+            <div class="admin-form-actions">
+                <button class="admin-secondary" type="button" disabled="@isResetting" @onclick="CancelReset">Cancel</button>
+                <button class="admin-danger" type="button" disabled="@(isResetting || confirmation != "RESET")"
+                        @onclick="ResetAsync">@(isResetting ? "Resetting..." : "Permanently reset database")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private bool showConfirmation;
+    private bool isResetting;
+    private string confirmation = string.Empty;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    private void BeginReset()
+    {
+        confirmation = string.Empty;
+        statusMessage = null;
+        errorMessage = null;
+        showConfirmation = true;
+    }
+
+    private void CancelReset()
+    {
+        showConfirmation = false;
+        confirmation = string.Empty;
+        errorMessage = null;
+    }
+
+    private async Task ResetAsync()
+    {
+        if (isResetting)
+            return;
+
+        isResetting = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            var ruleCount = await DatabaseReset.ResetAsync(user, confirmation);
+            showConfirmation = false;
+            statusMessage = $"Database reset completed. Restored {ruleCount} default alert rules. Users and settings were preserved; no AD queries were installed.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "The admin database reset action failed.");
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            confirmation = string.Empty;
+            isResetting = false;
+        }
+    }
+}

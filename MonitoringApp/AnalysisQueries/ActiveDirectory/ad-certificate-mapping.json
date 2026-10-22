@@ -1,0 +1,13 @@
+{
+  "key": "ad-certificate-mapping",
+  "name": "Strong certificate mapping events",
+  "description": "KB5014754 KDC events 39 and 41, latest event per certificate serial number.",
+  "category": "Active Directory",
+  "kql": "Event\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where EventLog == \"System\" and Source == \"Microsoft-Windows-Kerberos-Key-Distribution-Center\" and EventID in (39, 41)\r\n| parse EventData with * 'AccountName\">' AccountName '</Data>' * 'Subject\">' Subject '</Data>' * 'Issuer\">' Issuer '</Data>' * 'SerialNumber\">' SerialNumber '</Data>' * 'Thumbprint\">' Thumbprint '</Data>' *\r\n| summarize arg_max(TimeGenerated, *) by SerialNumber\r\n| project Timestamp = TimeGenerated, Computer, EventID, EventLevelName, AccountName, Subject, Issuer, SerialNumber, Thumbprint",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

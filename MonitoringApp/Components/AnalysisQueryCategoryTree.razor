@@ -1,0 +1,44 @@
+@foreach (var category in Nodes)
+{
+    <details class="analysis-query-category" @key="category.Path">
+        <summary @ondragover:preventDefault="@AllowDrop" @ondrop:preventDefault="@AllowDrop"
+                 @ondrop:stopPropagation="@AllowDrop" @ondrop="() => DropAsync(category.Path)"
+                 title="@(AllowDrop ? $"Drop a query into {category.Path}" : category.Path)">
+            <strong>@category.Name</strong>
+            <span>@category.QueryCount queries</span>
+        </summary>
+        <div class="analysis-query-category-body">
+            @if (CategoryActions is not null)
+            {
+                <div class="admin-card-actions analysis-category-actions">@CategoryActions(category)</div>
+            }
+            <AnalysisQueryCategoryTree Nodes="category.Children" QueryContent="QueryContent"
+                                       CategoryActions="CategoryActions" AllowDrop="AllowDrop" CategoryDrop="CategoryDrop"
+                                       QueryListClass="@QueryListClass" />
+            @if (category.Queries.Count > 0)
+            {
+                <div class="@QueryListClass">
+                    @foreach (var query in category.Queries)
+                    {
+                        @QueryContent(query)
+                    }
+                </div>
+            }
+            @if (category.QueryCount == 0)
+            {
+                <p class="admin-empty">No queries in this category.</p>
+            }
+        </div>
+    </details>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<AnalysisQueryCategoryNode> Nodes { get; set; } = [];
+    [Parameter, EditorRequired] public RenderFragment<AnalysisQueryDefinition> QueryContent { get; set; } = default!;
+    [Parameter] public RenderFragment<AnalysisQueryCategoryNode>? CategoryActions { get; set; }
+    [Parameter] public string QueryListClass { get; set; } = "admin-rule-cards";
+    [Parameter] public bool AllowDrop { get; set; }
+    [Parameter] public EventCallback<string> CategoryDrop { get; set; }
+
+    private Task DropAsync(string path) => AllowDrop ? CategoryDrop.InvokeAsync(path) : Task.CompletedTask;
+}

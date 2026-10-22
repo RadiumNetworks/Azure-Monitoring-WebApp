@@ -276,6 +276,21 @@ public sealed class AlertStore
 
     public event Action? Changed;
 
+    internal void NotifyDatabaseReset()
+    {
+        foreach (Action subscriber in Changed?.GetInvocationList() ?? [])
+        {
+            try
+            {
+                subscriber();
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Failed to notify a subscriber after the database reset.");
+            }
+        }
+    }
+
     public async Task<IReadOnlyList<AlertRule>> GetAlertRulesAsync(CancellationToken cancellationToken = default)
     {
         if (!databaseConfiguration.IsValid)
@@ -470,6 +485,8 @@ public sealed class AlertStore
         foreach (var alert in alerts)
         {
             var resolvedAlert = ResolveDisplayIdentity(alert);
+            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
+                continue;
             var subscriptionId = resolvedAlert.SubscriptionId.Trim();
             var computer = resolvedAlert.TargetName.Trim();
             var site = resolvedAlert.SiteName.Trim();
@@ -480,9 +497,6 @@ public sealed class AlertStore
                 continue;
             }
 
-            var learnedDomains = AlertInventoryLearning.LearnComputerDomains(resolvedAlert.RawJson);
-            var targetDomain = learnedDomains.FirstOrDefault(fact =>
-                fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase))?.Domain;
             var key = InventoryKey(subscriptionId, computer);
             var validSite = site.Length is > 0 and <= 256 ? site : null;
             if (!candidates.TryGetValue(key, out var candidate))
@@ -491,7 +505,6 @@ public sealed class AlertStore
                 {
                     SubscriptionId = subscriptionId,
                     Computer = computer,
-                    Domain = targetDomain,
                     Site = validSite,
                     ResourceGroup = resourceGroup.Length is > 0 and <= 256 ? resourceGroup : null,
                     Role = role
@@ -499,11 +512,6 @@ public sealed class AlertStore
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(candidate.Domain) && !string.IsNullOrWhiteSpace(targetDomain))
-                {
-                    candidate.Domain = targetDomain;
-                }
-
                 if (string.IsNullOrWhiteSpace(candidate.Site) && validSite is not null)
                 {
                     candidate.Site = validSite;
@@ -520,24 +528,6 @@ public sealed class AlertStore
                 if (string.IsNullOrWhiteSpace(candidate.Role) && !string.IsNullOrWhiteSpace(role))
                 {
                     candidate.Role = role;
-                }
-            }
-
-            foreach (var learned in learnedDomains)
-            {
-                var learnedKey = InventoryKey(subscriptionId, learned.Computer);
-                if (!candidates.TryGetValue(learnedKey, out var learnedCandidate))
-                {
-                    candidates.Add(learnedKey, new ComputerInventoryEntry
-                    {
-                        SubscriptionId = subscriptionId,
-                        Computer = learned.Computer,
-                        Domain = learned.Domain
-                    });
-                }
-                else if (string.IsNullOrWhiteSpace(learnedCandidate.Domain))
-                {
-                    learnedCandidate.Domain = learned.Domain;
                 }
             }
         }
@@ -596,6 +586,27 @@ public sealed class AlertStore
             }
         }
 
+        var beforeDcPort = storedEntries.ToDictionary(entry => InventoryKey(entry.SubscriptionId, entry.Computer),
+            entry => (entry.Domain, entry.Site));
+        foreach (var alert in alerts.Where(alert => AlertInventoryLearning.IsDcPort(alert.RawJson)))
+            LogSkippedDcPortSystems(alert, AlertInventoryLearning.EnrichExistingDcPortSystems(alert, storedEntries));
+        foreach (var entry in storedEntries)
+        {
+            var key = InventoryKey(entry.SubscriptionId, entry.Computer);
+            var previous = beforeDcPort[key];
+            if (previous.Domain != entry.Domain)
+            {
+                domainsFilled++;
+                changedSystems.Add(key);
+            }
+            if (previous.Site != entry.Site)
+            {
+                sitesFilled++;
+                changedSystems.Add(key);
+            }
+        }
+        var consideredSystems = candidates.Keys.Union(changedSystems, StringComparer.Ordinal).Count();
+
         if (systemsCreated > 0 || domainsFilled > 0 || sitesFilled > 0 || resourceGroupsFilled > 0 || rolesAssigned > 0)
         {
             try
@@ -615,13 +626,13 @@ public sealed class AlertStore
 
         return new ComputerInventoryPrefillResult(
             alerts.Length,
-            candidates.Count,
+            consideredSystems,
             systemsCreated,
             domainsFilled,
             sitesFilled,
             resourceGroupsFilled,
             rolesAssigned,
-            candidates.Count - changedSystems.Count);
+            consideredSystems - changedSystems.Count);
     }
 
     /// <summary>
@@ -792,7 +803,7 @@ public sealed class AlertStore
             ApplyToTarget = source.ApplyToTarget,
             Collapsed = source.Collapsed,
             Tone = source.Tone.Trim().ToLowerInvariant(),
-            InventoryRole = source.InventoryRole.Trim(),
+            InventoryRole = InventoryRoleRuleMatcher.NormalizeRole(source.InventoryRole.Trim()) ?? string.Empty,
             IsCritical = source.IsCritical,
             AnalysisClassification = source.AnalysisClassification.Trim()
         };
@@ -1028,7 +1039,7 @@ public sealed class AlertStore
             Domain = NormalizeOptionalInventoryValue(entry.Domain, 256, "Domain"),
             Site = NormalizeOptionalInventoryValue(entry.Site, 256, "Site"),
             ResourceGroup = NormalizeOptionalInventoryValue(entry.ResourceGroup, 256, "Resource group"),
-            Role = NormalizeOptionalInventoryValue(entry.Role, 256, "Role"),
+            Role = InventoryRoleRuleMatcher.NormalizeRole(NormalizeOptionalInventoryValue(entry.Role, 256, "Role")),
             Maintenance = entry.Maintenance
         };
 
@@ -1398,7 +1409,7 @@ public sealed class AlertStore
     }
 
     /// <summary>
-    /// Loads parsed alerts received on or after the supplied timestamp for the graph and enriches them with the latest maintained inventory values.
+    /// Loads inventory systems and their parsed alerts received on or after the supplied timestamp for the graph.
     /// </summary>
     public async Task<IReadOnlyList<AlertGraphRecord>> GetAlertGraphRecordsAsync(
         DateTimeOffset receivedSince,
@@ -1419,7 +1430,7 @@ public sealed class AlertStore
                 .AsNoTracking()
                 .Include(record => record.Alert)
                 .Include(record => record.InventoryComputerEntry)
-                .Where(record => record.Alert.ReceivedAt >= receivedSince)
+                .Where(record => record.Alert.ReceivedAt >= receivedSince && record.InventoryComputerEntry != null)
                 .OrderByDescending(record => record.Alert.ReceivedAt)
                 .ToArrayAsync(cancellationToken);
 
@@ -1431,7 +1442,7 @@ public sealed class AlertStore
                 .Where(record => !InventoryHeartbeatBatch.IsInventoryHeartbeat(record.Alert))
                 .Select(record =>
             {
-                var inventory = record.InventoryComputerEntry;
+                var inventory = record.InventoryComputerEntry!;
                 return new AlertGraphRecord(
                     record.Id,
                     record.Alert.ReceivedAt,
@@ -1439,15 +1450,15 @@ public sealed class AlertStore
                     record.MonitorCondition,
                     record.Alert.Comments,
                     record.AlertName,
-                    FirstNonEmpty(inventory?.SubscriptionId ?? string.Empty, record.InventorySubscriptionId ?? string.Empty),
-                    FirstNonEmpty(inventory?.ResourceGroup ?? string.Empty, record.ResourceGroup),
-                    FirstNonEmpty(inventory?.Computer ?? string.Empty, record.InventoryComputer ?? string.Empty),
-                    inventory?.Site ?? string.Empty,
-                    inventory?.Domain ?? string.Empty,
-                        inventory?.Role ?? string.Empty,
-                        inventory?.LastHeartbeatAt,
-                        Maintenance: inventory?.Maintenance ?? false,
-                        HasServiceHealthAlert: inventory?.HasServiceHealthAlert ?? false);
+                    inventory.SubscriptionId,
+                    FirstNonEmpty(inventory.ResourceGroup ?? string.Empty, record.ResourceGroup),
+                    inventory.Computer,
+                    inventory.Site ?? string.Empty,
+                    inventory.Domain ?? string.Empty,
+                        inventory.Role ?? string.Empty,
+                        inventory.LastHeartbeatAt,
+                        Maintenance: inventory.Maintenance,
+                        HasServiceHealthAlert: inventory.HasServiceHealthAlert);
                     });
                     var inventoryRecords = inventoryEntries.Select(entry => new AlertGraphRecord(
                     Guid.NewGuid(),
@@ -1561,7 +1572,12 @@ public sealed class AlertStore
             var hasInventoryKey = subscriptionId.Length is > 0 and <= 64 &&
                 computer.Length is > 0 and <= 256;
 
-            if (hasInventoryKey)
+            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
+            {
+                LogSkippedDcPortSystems(resolvedAlert,
+                    AlertInventoryLearning.EnrichExistingDcPortSystems(resolvedAlert, inventoryEntries));
+            }
+            else if (hasInventoryKey)
             {
                 var key = InventoryKey(subscriptionId, computer);
                 var site = resolvedAlert.SiteName.Trim();
@@ -1600,7 +1616,10 @@ public sealed class AlertStore
                 }
             }
 
-            context.ParsedAlerts.Add(ParsedAlertFactory.Create(resolvedAlert));
+            var parsed = ParsedAlertFactory.Create(resolvedAlert);
+            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
+                LinkDcPortInventoryTarget(parsed, resolvedAlert, inventoryEntries);
+            context.ParsedAlerts.Add(parsed);
         }
 
         try
@@ -1768,6 +1787,9 @@ public sealed class AlertStore
 
                 await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
                 var parsedAlert = ParsedAlertFactory.Create(resolvedAlert);
+                if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
+                    LinkDcPortInventoryTarget(parsedAlert, resolvedAlert,
+                        await dbContext.ComputerInventory.ToArrayAsync(cancellationToken));
                 if (resolvedAlert.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
                 {
                     parsedAlert.ResolvedAt = GetDateTime(context, "resolvedDateTime") ?? resolvedAlert.ReceivedAt;
@@ -1992,21 +2014,23 @@ public sealed class AlertStore
     }
 
     /// <summary>
-    /// Creates inventory entries for a resolved alert and any computers explicitly identified in its query results.
-    /// Missing domains are learned from DC Port local and remote system/domain pairs; existing values are preserved.
+    /// Creates inventory entries for normal alert targets. DC Port observations only enrich existing systems.
     /// </summary>
     private async Task UpsertComputerInventoryAsync(
         AlertDbContext context,
         AlertRecord alert,
         CancellationToken cancellationToken)
     {
+        if (AlertInventoryLearning.IsDcPort(alert.RawJson))
+        {
+            var inventory = await context.ComputerInventory.ToArrayAsync(cancellationToken);
+            LogSkippedDcPortSystems(alert, AlertInventoryLearning.EnrichExistingDcPortSystems(alert, inventory));
+            return;
+        }
         var subscriptionId = alert.SubscriptionId.Trim();
         var computer = alert.TargetName.Trim();
         var site = alert.SiteName.Trim();
         var resourceGroup = alert.ResourceGroup.Trim();
-        var learnedDomains = AlertInventoryLearning.LearnComputerDomains(alert.RawJson);
-        var targetDomain = learnedDomains.FirstOrDefault(fact =>
-            fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase))?.Domain;
         var roleRules = await context.AlertRules
             .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
             .OrderBy(rule => rule.Priority)
@@ -2033,17 +2057,11 @@ public sealed class AlertStore
             {
                 SubscriptionId = subscriptionId,
                 Computer = computer,
-                Domain = targetDomain,
                 Site = string.IsNullOrWhiteSpace(site) || site.Length > 256 ? null : site,
                 ResourceGroup = string.IsNullOrWhiteSpace(resourceGroup) || resourceGroup.Length > 256 ? null : resourceGroup,
                 Role = role
             };
             context.ComputerInventory.Add(stored);
-        }
-
-        if (string.IsNullOrWhiteSpace(stored.Domain) && !string.IsNullOrWhiteSpace(targetDomain))
-        {
-            stored.Domain = targetDomain;
         }
 
         if (string.IsNullOrWhiteSpace(stored.Site) &&
@@ -2065,26 +2083,22 @@ public sealed class AlertStore
             stored.Role = role;
         }
 
-        foreach (var learned in learnedDomains.Where(fact =>
-            !fact.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase)))
-        {
-            var learnedEntry = await context.ComputerInventory.FindAsync(
-                [subscriptionId, learned.Computer],
-                cancellationToken);
-            if (learnedEntry is null)
-            {
-                context.ComputerInventory.Add(new ComputerInventoryEntry
-                {
-                    SubscriptionId = subscriptionId,
-                    Computer = learned.Computer,
-                    Domain = learned.Domain
-                });
-            }
-            else if (string.IsNullOrWhiteSpace(learnedEntry.Domain))
-            {
-                learnedEntry.Domain = learned.Domain;
-            }
-        }
+    }
+
+    private static void LinkDcPortInventoryTarget(
+        ParsedAlertRecord parsed, AlertRecord alert, IReadOnlyList<ComputerInventoryEntry> inventory)
+    {
+        var target = AlertInventoryLearning.FindExistingDcPortTarget(alert, inventory);
+        parsed.InventorySubscriptionId = target?.SubscriptionId;
+        parsed.InventoryComputer = target?.Computer;
+    }
+
+    private void LogSkippedDcPortSystems(AlertRecord alert, IReadOnlyList<string> systems)
+    {
+        foreach (var computer in systems)
+            logger.LogInformation(
+                "Skipped DC Port inventory enrichment for {Computer} from alert {AlertId}: no unambiguous existing inventory system matches.",
+                computer, alert.AlertId);
     }
 
     private AlertRecord ResolveDisplayIdentity(

@@ -1,0 +1,13 @@
+{
+  "key": "ad-heartbeat",
+  "name": "Heartbeat and last reboot",
+  "description": "Latest heartbeat per selected computer; delayed after 20 minutes.",
+  "category": "Active Directory",
+  "kql": "Heartbeat\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, *) by Computer\r\n| join kind=leftouter (\r\n    Event\r\n    | where Computer in~ (_SelectedSystems)\r\n    | where TimeGenerated > ago(_TimePeriod)\r\n    | where EventID == 12 and Source == \"Microsoft-Windows-Kernel-General\"\r\n    | summarize arg_max(TimeGenerated, *) by Computer\r\n    | project Computer, LastReboot = todatetime(parse_xml(EventData).DataItem.EventData.Data[6][\"#text\"])\r\n) on Computer\r\n| project Timestamp = TimeGenerated, Computer, ComputerPrivateIPs,\r\n    LastHeartbeat = now() - TimeGenerated,\r\n    Status = iff(TimeGenerated < ago(20m), \"Error\", \"OK\"),\r\n    TimeSinceLastReboot = now() - LastReboot\r\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

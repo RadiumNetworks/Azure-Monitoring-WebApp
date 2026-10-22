@@ -1,0 +1,13 @@
+{
+  "key": "ad-kerberos-total",
+  "name": "Estimated Kerberos authentications",
+  "description": "Workbook estimate: sum of per-second samples multiplied by 60; assumes one sample per minute.",
+  "category": "Active Directory",
+  "kql": "Perf\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where ObjectName == \"Security System-Wide Statistics\" and CounterName == \"Kerberos Authentications\"\r\n| summarize Value = sum(CounterValue) * 60, Timestamp = max(TimeGenerated) by Series = Computer",
+  "visualizationType": "BarChart",
+  "unit": "Estimated count",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

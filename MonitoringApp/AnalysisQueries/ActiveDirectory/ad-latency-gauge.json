@@ -1,0 +1,19 @@
+{
+  "key": "ad-latency-gauge",
+  "name": "Site-to-site LDAP latency gauge",
+  "description": "Latest reported latency per selected source DC and target DC, then average by source/target site direction. Gauge thresholds complement the existing honeycomb and trend; workspaces remain separate.",
+  "category": "Active Directory",
+  "kql": "LatencyReports_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| summarize arg_max(TimeGenerated, *) by Computer, TargetDC\n| summarize Value = avg(todouble(Latency_ms)), Timestamp = max(TimeGenerated) by SourceSite, TargetSite\n| project Timestamp, Series = strcat(SourceSite, ' -> ', TargetSite), Value\n| order by Value desc",
+  "visualizationType": "BarGauge",
+  "unit": "ms",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "minimum": 0, "maximum": 7000, "decimals": 2,
+    "thresholds": [
+      { "value": 0, "color": "green" }, { "value": 1000, "color": "yellow" }, { "value": 2000, "color": "orange" }, { "value": 3000, "color": "#c83939" }, { "value": 5000, "color": "red" }, { "value": 7000, "color": "purple" }
+    ]
+  }
+}

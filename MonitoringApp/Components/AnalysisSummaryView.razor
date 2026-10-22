@@ -1,0 +1,90 @@
+@{
+    var seriesList = Result.Series.Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true).ToArray();
+}
+@if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb)
+{
+    @if (Options.Thresholds.Count == 0 && Options.Color is null && Options.Columns.Count == 0 && Options.ValueMappings.Count == 0)
+    {
+        <p class="cell-secondary">LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.</p>
+    }
+    else
+    {
+        <p class="cell-secondary">Colors use the query's published visualization settings, not alert rules.</p>
+    }
+    <svg class="analysis-honeycomb" viewBox="@($"0 0 500 {Math.Max(190, (int)Math.Ceiling(seriesList.Length / 4d) * 122 + 65)}")"
+         role="img" aria-label="@($"{Result.Name}: latency by source and target site")">
+        @for (var index = 0; index < seriesList.Length; index++)
+        {
+            var series = seriesList[index];
+            var point = series.Points.MaxBy(point => point.Timestamp);
+            if (point is null) { continue; }
+            var x = 90 + index % 4 * 105;
+            var y = 70 + index / 4 * 122 + (index % 4 % 2 == 0 ? 0 : 61);
+            var displayName = DisplayName(series);
+            var label = $"{displayName} · {series.Workspace}: {Text(series, point)} {Unit(series)}";
+            var configuredColor = Color(series, point);
+            var textStyle = configuredColor is null ? null : $"fill:{AnalysisVisualization.Foreground(configuredColor)};";
+            <g class="analysis-honeycomb-cell" tabindex="0" aria-label="@label">
+                <title>@label</title>
+                <polygon points="@($"{x - 70},{y} {x - 35},{y - 60} {x + 35},{y - 60} {x + 70},{y} {x + 35},{y + 60} {x - 35},{y + 60}")"
+                         fill="@(configuredColor ?? AnalysisResultFormatting.LatencyColor(point.Value))" />
+                <text x="@x" y="@(y - 10)" text-anchor="middle" style="@textStyle">@(displayName.Length > 18 ? $"{displayName[..15]}..." : displayName)</text>
+                <text x="@x" y="@(y + 14)" text-anchor="middle" style="@textStyle">@Text(series, point) @Unit(series)</text>
+                <text x="@x" y="@(y + 34)" text-anchor="middle" style="@textStyle">@series.Workspace</text>
+            </g>
+        }
+    </svg>
+}
+else
+{
+    var gauge = Result.VisualizationType == AnalysisQueryVisualizationTypes.BarGauge;
+    var minimum = gauge ? Options.Minimum ?? 0 : 0;
+    var maximum = Options.Maximum ?? seriesList.SelectMany(series => series.Points).Select(point => Math.Abs(point.Value)).DefaultIfEmpty(1).Max();
+    if (maximum <= minimum) { maximum = minimum + 1; }
+    <div class="analysis-bars" role="list" aria-label="@Result.Name">
+        @foreach (var series in seriesList)
+        {
+            var point = series.Points.MaxBy(point => point.Timestamp);
+            if (point is null) { continue; }
+            <div role="listitem">
+                <strong>@DisplayName(series) · @series.Workspace</strong>
+                @if (gauge)
+                {
+                    <div class="analysis-gauge-track" role="meter" aria-label="@($"{series.Name} {series.Dimension}")"
+                         aria-valuemin="@minimum.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                         aria-valuemax="@maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                         aria-valuenow="@Math.Clamp(point.Value, minimum, maximum).ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                         aria-valuetext="@($"{Text(series, point)} {Unit(series)}")">
+                        <div class="analysis-bar" style="@BarStyle(series, point, minimum, maximum, true)"></div>
+                    </div>
+                }
+                else
+                {
+                    <div class="analysis-bar" style="@BarStyle(series, point, minimum, maximum, false)"></div>
+                }
+                <span>@Text(series, point) @Unit(series)</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AnalysisQueryResponse Result { get; set; } = default!;
+    private readonly AnalysisVisualizationOptions defaults = new();
+    private AnalysisVisualizationOptions Options => Result.Visualization ?? defaults;
+    private string? Color(AnalysisQuerySeries series, AnalysisQueryPoint point) =>
+        AnalysisVisualization.Color(Options, point.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), series.Dimension ?? series.Name);
+    private string Text(AnalysisQuerySeries series, AnalysisQueryPoint point) =>
+        AnalysisVisualization.Text(Options, point.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), series.Dimension ?? series.Name, "0.##");
+    private string? Unit(AnalysisQuerySeries series) => AnalysisVisualization.Unit(Options, series.Dimension ?? series.Name, Result.Unit);
+    private string DisplayName(AnalysisQuerySeries series) =>
+        series.Dimension is null ? AnalysisVisualization.Column(Options, series.Name)?.DisplayName ?? series.Name :
+        $"{series.Name} · {AnalysisVisualization.Column(Options, series.Dimension)?.DisplayName ?? series.Dimension}";
+    private string BarStyle(AnalysisQuerySeries series, AnalysisQueryPoint point, double minimum, double maximum, bool gauge)
+    {
+        var fraction = gauge ? (point.Value - minimum) / (maximum - minimum) : Math.Abs(point.Value) / maximum;
+        var width = Math.Clamp(fraction, 0, 1) * 100;
+        var color = Color(series, point);
+        return FormattableString.Invariant($"width:{width:0.##}%;") + (color is null ? "" : $"background-color:{color};");
+    }
+}

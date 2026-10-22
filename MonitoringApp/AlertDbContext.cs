@@ -18,6 +18,12 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<InboxLayout> InboxLayouts => Set<InboxLayout>();
     public DbSet<AgentAnalysisJob> AgentAnalysisJobs => Set<AgentAnalysisJob>();
     public DbSet<AgentAnalysisReviewEvent> AgentAnalysisReviewEvents => Set<AgentAnalysisReviewEvent>();
+    public DbSet<AnalysisQueryDefinition> AnalysisQueryDefinitions => Set<AnalysisQueryDefinition>();
+    public DbSet<AnalysisQueryCategory> AnalysisQueryCategories => Set<AnalysisQueryCategory>();
+    public DbSet<AnalysisQueryWorkspace> AnalysisQueryWorkspaces => Set<AnalysisQueryWorkspace>();
+    public DbSet<AnalysisQueryVersion> AnalysisQueryVersions => Set<AnalysisQueryVersion>();
+    public DbSet<AnalysisDashboard> AnalysisDashboards => Set<AnalysisDashboard>();
+    public DbSet<AnalysisDashboardTemplate> AnalysisDashboardTemplates => Set<AnalysisDashboardTemplate>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
@@ -156,6 +162,81 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
         logbookEntry.Property(entry => entry.Comment).HasColumnType("nvarchar(max)");
         logbookEntry.HasIndex(entry => entry.CreatedAt);
         logbookEntry.HasIndex(entry => entry.AlertRecordId);
+
+        var analysisQuery = modelBuilder.Entity<AnalysisQueryDefinition>();
+        var analysisCategory = modelBuilder.Entity<AnalysisQueryCategory>();
+        analysisCategory.ToTable("AnalysisQueryCategories");
+        analysisCategory.HasKey(category => category.Path);
+        analysisCategory.Property(category => category.Path).HasMaxLength(128);
+        analysisQuery.ToTable("AnalysisQueryDefinitions");
+        analysisQuery.HasKey(query => query.Id);
+        analysisQuery.Property(query => query.Id).ValueGeneratedNever();
+        analysisQuery.Property(query => query.Key).HasMaxLength(128);
+        analysisQuery.Property(query => query.Name).HasMaxLength(256);
+        analysisQuery.Property(query => query.Description).HasMaxLength(2000);
+        analysisQuery.Property(query => query.Category).HasMaxLength(128);
+        analysisQuery.Property(query => query.Kql).HasColumnType("nvarchar(max)");
+        analysisQuery.Property(query => query.Scope).HasMaxLength(32).HasDefaultValue(AnalysisQueryScopes.SelectedSystems);
+        analysisQuery.Property(query => query.VisualizationType).HasMaxLength(32);
+        analysisQuery.Property(query => query.VisualizationJson).HasColumnType("nvarchar(max)").HasDefaultValue("{}");
+        analysisQuery.Property(query => query.Unit).HasMaxLength(64);
+        analysisQuery.Property(query => query.MinimumRole).HasMaxLength(16);
+        analysisQuery.Property(query => query.Status).HasMaxLength(32);
+        analysisQuery.Property(query => query.UpdatedAt).HasColumnType("datetimeoffset");
+        analysisQuery.Property(query => query.UpdatedBy).HasMaxLength(256);
+        analysisQuery.Property(query => query.RowVersion).IsRowVersion();
+        analysisQuery.HasIndex(query => query.Key).IsUnique();
+        analysisQuery.HasIndex(query => new { query.Status, query.Enabled });
+
+        var analysisWorkspace = modelBuilder.Entity<AnalysisQueryWorkspace>();
+        analysisWorkspace.ToTable("AnalysisQueryWorkspaces");
+        analysisWorkspace.HasKey(workspace => new { workspace.QueryDefinitionId, workspace.WorkspaceKey });
+        analysisWorkspace.Property(workspace => workspace.WorkspaceKey).HasMaxLength(128);
+        analysisWorkspace.Property(workspace => workspace.LastValidatedAt).HasColumnType("datetimeoffset");
+        analysisWorkspace.Property(workspace => workspace.LastValidationStatus).HasMaxLength(32);
+        analysisWorkspace.Property(workspace => workspace.LastValidationMessage).HasMaxLength(1000);
+        analysisWorkspace.HasOne(workspace => workspace.QueryDefinition)
+            .WithMany(query => query.Workspaces)
+            .HasForeignKey(workspace => workspace.QueryDefinitionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        var analysisVersion = modelBuilder.Entity<AnalysisQueryVersion>();
+        analysisVersion.ToTable("AnalysisQueryVersions");
+        analysisVersion.HasKey(version => version.Id);
+        analysisVersion.Property(version => version.Id).ValueGeneratedNever();
+        analysisVersion.Property(version => version.SnapshotJson).HasColumnType("nvarchar(max)");
+        analysisVersion.Property(version => version.PublishedAt).HasColumnType("datetimeoffset");
+        analysisVersion.Property(version => version.PublishedBy).HasMaxLength(256);
+        analysisVersion.HasOne(version => version.QueryDefinition)
+            .WithMany(query => query.Versions)
+            .HasForeignKey(version => version.QueryDefinitionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        analysisVersion.HasIndex(version => new { version.QueryDefinitionId, version.Version }).IsUnique();
+
+        var analysisDashboard = modelBuilder.Entity<AnalysisDashboard>();
+        analysisDashboard.ToTable("AnalysisDashboards");
+        analysisDashboard.HasKey(dashboard => dashboard.Id);
+        analysisDashboard.Property(dashboard => dashboard.Id).UseIdentityColumn();
+        analysisDashboard.Property(dashboard => dashboard.OwnerKey).HasMaxLength(256);
+        analysisDashboard.Property(dashboard => dashboard.Name).HasMaxLength(256);
+        analysisDashboard.Property(dashboard => dashboard.DocumentJson).HasColumnType("nvarchar(max)");
+        analysisDashboard.Property(dashboard => dashboard.CreatedAt).HasColumnType("datetimeoffset");
+        analysisDashboard.Property(dashboard => dashboard.UpdatedAt).HasColumnType("datetimeoffset");
+        analysisDashboard.Property(dashboard => dashboard.RowVersion).IsRowVersion();
+        analysisDashboard.HasIndex(dashboard => dashboard.OwnerKey).IsUnique();
+
+        var analysisTemplate = modelBuilder.Entity<AnalysisDashboardTemplate>();
+        analysisTemplate.ToTable("AnalysisDashboardTemplates");
+        analysisTemplate.HasKey(template => template.Id);
+        analysisTemplate.Property(template => template.Id).ValueGeneratedNever();
+        analysisTemplate.Property(template => template.Name).HasMaxLength(256);
+        analysisTemplate.Property(template => template.MinimumRole).HasMaxLength(16);
+        analysisTemplate.Property(template => template.DocumentJson).HasColumnType("nvarchar(max)");
+        analysisTemplate.Property(template => template.UpdatedAt).HasColumnType("datetimeoffset");
+        analysisTemplate.Property(template => template.UpdatedBy).HasMaxLength(256);
+        analysisTemplate.Property(template => template.RowVersion).IsRowVersion();
+        analysisTemplate.HasIndex(template => new { template.Name, template.Version });
+        analysisTemplate.HasIndex(template => template.Published);
 
         var inboxLayout = modelBuilder.Entity<InboxLayout>();
         inboxLayout.ToTable("InboxLayouts");

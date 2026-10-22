@@ -1,0 +1,26 @@
+{
+  "key": "ad-replication-details",
+  "name": "Replication failure details",
+  "description": "Latest reported replication state per selected reporter/destination/site/naming context, including last failure. This complements the zero-filled error trend. Invalid failure counts remain unknown instead of becoming zero.",
+  "category": "Active Directory",
+  "kql": "DCReplicationData_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| summarize arg_max(TimeGenerated, *) by Computer, DestDSA, DestDSASite, NC\n| extend Failures = tolong(NumberOfFailures), FailureTime = todatetime(LastFailureTime)\n| project Computer, DestDSA, DestDSASite, NC, NumberOfFailures = Failures, LastFailureTime = FailureTime, LastObservation = TimeGenerated\n| order by NumberOfFailures desc, Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "displayName": "Reporting DC", "width": 180 },
+      { "name": "DestDSA", "displayName": "Destination DC", "width": 200 },
+      { "name": "DestDSASite", "displayName": "Destination site", "width": 180 },
+      { "name": "NC", "displayName": "Naming context", "width": 280 },
+      { "name": "NumberOfFailures", "displayName": "Failures", "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 5, "color": "orange" }, { "value": 10, "color": "red" }
+      ] },
+      { "name": "LastFailureTime", "unit": "datetime", "width": 190 },
+      { "name": "LastObservation", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

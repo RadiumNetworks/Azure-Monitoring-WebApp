@@ -1,0 +1,20 @@
+{
+  "key": "ad-kerberos-event-count",
+  "name": "Kerberos authentication events per DC",
+  "description": "Counts collected SecurityEvent 4768/4769 observations over the selected range, split by event ID. Requires security-event collection/auditing. Unlike the Grafana example, this does not count unrelated Perf rows.",
+  "category": "Active Directory",
+  "kql": "SecurityEvent\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where EventID in (4768, 4769)\n| summarize Value = count(), Timestamp = max(TimeGenerated) by Series = Computer, EventID\n| extend Dimension = iff(EventID == 4768, 'TGT requests (4768)', 'Service ticket requests (4769)')\n| project Timestamp, Series, Dimension, Value\n| order by Value desc",
+  "visualizationType": "BarChart",
+  "unit": "events",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "decimals": 0,
+    "columns": [
+      { "name": "TGT requests (4768)", "color": "blue" },
+      { "name": "Service ticket requests (4769)", "color": "purple" }
+    ]
+  }
+}

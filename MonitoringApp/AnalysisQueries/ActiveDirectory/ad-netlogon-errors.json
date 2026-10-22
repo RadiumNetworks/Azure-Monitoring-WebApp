@@ -1,0 +1,13 @@
+{
+  "key": "ad-netlogon-errors",
+  "name": "System log Netlogon errors",
+  "description": "Events for the selected computers and time range.",
+  "category": "Active Directory",
+  "kql": "Event\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where EventLevel in (1, 2) and EventLog == \"System\" and EventID !in (10005, 10010, 10016) and Source == \"NETLOGON\" \r\n| project Timestamp = TimeGenerated, Computer, Source, EventID, EventLevelName, RenderedDescription,\r\n    Status = case(EventLevel in (1, 2), \"Error\", EventLevel == 3, \"Warning\", \"Unknown\")\r\n| order by Timestamp desc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

@@ -473,6 +473,276 @@ namespace MonitoringApp.Migrations
                     b.ToTable("AlertRules", (string)null);
                 });
 
+            modelBuilder.Entity("MonitoringApp.AnalysisDashboard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DocumentJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DocumentVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("OwnerKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerKey")
+                        .IsUnique();
+
+                    b.ToTable("AnalysisDashboards", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisDashboardTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DocumentJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MinimumRole")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("Published")
+                        .HasColumnType("bit");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Published");
+
+                    b.HasIndex("Name", "Version");
+
+                    b.ToTable("AnalysisDashboardTemplates", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryCategory", b =>
+                {
+                    b.Property<string>("Path")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Path");
+
+                    b.ToTable("AnalysisQueryCategories", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("DefaultBinMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DefaultTimeRangeMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Kql")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("MaxTimeRangeMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MinimumRole")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("PublishedVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.Property<string>("VisualizationType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("VisualizationJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("{}");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("SelectedSystems");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "Enabled");
+
+                    b.ToTable("AnalysisQueryDefinitions", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("PublishedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("QueryDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QueryDefinitionId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("AnalysisQueryVersions", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryWorkspace", b =>
+                {
+                    b.Property<Guid>("QueryDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WorkspaceKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("LastValidatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastValidationMessage")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("LastValidationStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("QueryDefinitionId", "WorkspaceKey");
+
+                    b.ToTable("AnalysisQueryWorkspaces", (string)null);
+                });
+
             modelBuilder.Entity("MonitoringApp.ComputerInventoryEntry", b =>
                 {
                     b.Property<string>("SubscriptionId")
@@ -723,6 +993,28 @@ namespace MonitoringApp.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryVersion", b =>
+                {
+                    b.HasOne("MonitoringApp.AnalysisQueryDefinition", "QueryDefinition")
+                        .WithMany("Versions")
+                        .HasForeignKey("QueryDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("QueryDefinition");
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryWorkspace", b =>
+                {
+                    b.HasOne("MonitoringApp.AnalysisQueryDefinition", "QueryDefinition")
+                        .WithMany("Workspaces")
+                        .HasForeignKey("QueryDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("QueryDefinition");
+                });
+
             modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
                 {
                     b.HasOne("MonitoringApp.AlertRecord", "Alert")
@@ -739,6 +1031,13 @@ namespace MonitoringApp.Migrations
                     b.Navigation("Alert");
 
                     b.Navigation("InventoryComputerEntry");
+                });
+
+            modelBuilder.Entity("MonitoringApp.AnalysisQueryDefinition", b =>
+                {
+                    b.Navigation("Versions");
+
+                    b.Navigation("Workspaces");
                 });
 
             modelBuilder.Entity("MonitoringApp.ComputerInventoryEntry", b =>

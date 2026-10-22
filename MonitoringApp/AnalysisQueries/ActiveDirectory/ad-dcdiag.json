@@ -1,0 +1,13 @@
+{
+  "key": "ad-dcdiag",
+  "name": "DCDiag test status",
+  "description": "Latest test results per computer. Missing or unrecognized results remain unknown.",
+  "category": "Active Directory",
+  "kql": "DCDiagData_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, *) by Computer\r\n| extend Tests = Status\r\n| mv-expand Test = bag_keys(Tests)\r\n| extend TestName = tostring(Test)\r\n| project Timestamp = TimeGenerated, Computer, TestName,\r\n    Result = tostring(Tests[TestName]), Result__Status = tostring(Tests[TestName])\r\n| order by Computer asc, TestName asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

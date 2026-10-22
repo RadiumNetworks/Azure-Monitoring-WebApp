@@ -1,0 +1,26 @@
+{
+  "key": "ad-port-usage",
+  "name": "DC port connection observations",
+  "description": "VMConnection observations for destination ports 1-1024 during the selected range. Sum of LinksLive is an interval observation count, not a current connection count or proof that a service is currently reachable.",
+  "category": "Active Directory",
+  "kql": "VMConnection\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where DestinationPort between (1 .. 1024)\n| summarize LiveLinkObservations = sum(LinksLive), LastLiveObservation = maxif(TimeGenerated, LinksLive > 0), LastTerminationObservation = maxif(TimeGenerated, LinksTerminated > 0), FailedLinkObservations = sum(LinksFailed), LastFailureObservation = maxif(TimeGenerated, LinksFailed > 0) by Computer, DestinationPort\n| extend LiveLinksObserved = LiveLinkObservations > 0\n| project Computer, DestinationPort, LiveLinksObserved, LiveLinkObservations, FailedLinkObservations, LastLiveObservation, LastTerminationObservation, LastFailureObservation\n| order by Computer asc, DestinationPort asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "wrapText": false,
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "DestinationPort", "displayName": "Destination port", "width": 120 },
+      { "name": "LiveLinksObserved", "displayName": "Live links observed", "cellDisplay": "ColorText", "valueMappings": [{ "value": "True", "text": "Yes", "color": "blue" }, { "value": "False", "text": "No", "color": "gray" }] },
+      { "name": "LiveLinkObservations", "displayName": "Live link observations" },
+      { "name": "FailedLinkObservations", "displayName": "Failed link observations", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 10, "color": "orange" }, { "value": 50, "color": "red" }] },
+      { "name": "LastLiveObservation", "unit": "datetime", "width": 190 },
+      { "name": "LastTerminationObservation", "unit": "datetime", "width": 190 },
+      { "name": "LastFailureObservation", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

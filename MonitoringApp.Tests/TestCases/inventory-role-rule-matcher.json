@@ -16,13 +16,13 @@
       "name": "DCDiag assigns domain controller",
       "queryResultType": "DCDiag",
       "rules": [{ "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "DCDiag", "inventoryRole": "domaincontrollers" }],
-      "expectedRole": "domaincontrollers"
+      "expectedRole": "Domain Controller"
     },
     {
       "name": "Replication assigns domain controller",
       "queryResultType": "Replication",
       "rules": [{ "enabled": true, "priority": 10, "ruleType": "InventoryRoleAssignment", "queryResultType": "Replication", "inventoryRole": "domaincontrollers" }],
-      "expectedRole": "domaincontrollers"
+      "expectedRole": "Domain Controller"
     },
     {
       "name": "unrelated query result",

@@ -423,6 +423,226 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[AnalysisQueryDefinitions]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisQueryDefinitions]
+    (
+        [Id] uniqueidentifier NOT NULL,
+        [Key] nvarchar(128) NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [Description] nvarchar(2000) NOT NULL,
+        [Category] nvarchar(128) NOT NULL,
+        [Kql] nvarchar(max) NOT NULL,
+        [Scope] nvarchar(32) NOT NULL DEFAULT N'SelectedSystems',
+        [VisualizationType] nvarchar(32) NOT NULL,
+        [VisualizationJson] nvarchar(max) NOT NULL DEFAULT N'{}',
+        [Unit] nvarchar(64) NOT NULL,
+        [DefaultTimeRangeMinutes] int NOT NULL,
+        [MaxTimeRangeMinutes] int NOT NULL,
+        [DefaultBinMinutes] int NOT NULL,
+        [MinimumRole] nvarchar(16) NOT NULL,
+        [Status] nvarchar(32) NOT NULL,
+        [Enabled] bit NOT NULL,
+        [Version] int NOT NULL,
+        [PublishedVersionId] uniqueidentifier NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        [UpdatedBy] nvarchar(256) NOT NULL,
+        [RowVersion] rowversion NOT NULL,
+        CONSTRAINT [PK_AnalysisQueryDefinitions] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AnalysisQueryDefinitions', N'VisualizationJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AnalysisQueryDefinitions]
+        ADD [VisualizationJson] nvarchar(max) NOT NULL DEFAULT N'{}';
+END;
+GO
+
+IF COL_LENGTH(N'dbo.AnalysisQueryDefinitions', N'Scope') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[AnalysisQueryDefinitions]
+        ADD [Scope] nvarchar(32) NOT NULL DEFAULT N'SelectedSystems';
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AnalysisQueryCategories]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisQueryCategories]
+    (
+        [Path] nvarchar(128) NOT NULL,
+        CONSTRAINT [PK_AnalysisQueryCategories] PRIMARY KEY ([Path])
+    );
+    INSERT INTO [dbo].[AnalysisQueryCategories] ([Path])
+    SELECT DISTINCT [Category] FROM [dbo].[AnalysisQueryDefinitions];
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AnalysisQueryVersions]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisQueryVersions]
+    (
+        [Id] uniqueidentifier NOT NULL,
+        [QueryDefinitionId] uniqueidentifier NOT NULL,
+        [Version] int NOT NULL,
+        [SnapshotJson] nvarchar(max) NOT NULL,
+        [PublishedAt] datetimeoffset NOT NULL,
+        [PublishedBy] nvarchar(256) NOT NULL,
+        CONSTRAINT [PK_AnalysisQueryVersions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_AnalysisQueryVersions_AnalysisQueryDefinitions_QueryDefinitionId]
+            FOREIGN KEY ([QueryDefinitionId]) REFERENCES [dbo].[AnalysisQueryDefinitions] ([Id]) ON DELETE CASCADE
+    );
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AnalysisQueryWorkspaces]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisQueryWorkspaces]
+    (
+        [QueryDefinitionId] uniqueidentifier NOT NULL,
+        [WorkspaceKey] nvarchar(128) NOT NULL,
+        [Enabled] bit NOT NULL,
+        [LastValidatedAt] datetimeoffset NULL,
+        [LastValidationStatus] nvarchar(32) NOT NULL,
+        [LastValidationMessage] nvarchar(1000) NOT NULL,
+        CONSTRAINT [PK_AnalysisQueryWorkspaces] PRIMARY KEY ([QueryDefinitionId], [WorkspaceKey]),
+        CONSTRAINT [FK_AnalysisQueryWorkspaces_AnalysisQueryDefinitions_QueryDefinitionId]
+            FOREIGN KEY ([QueryDefinitionId]) REFERENCES [dbo].[AnalysisQueryDefinitions] ([Id]) ON DELETE CASCADE
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisQueryDefinitions_Key' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisQueryDefinitions]'))
+    CREATE UNIQUE INDEX [IX_AnalysisQueryDefinitions_Key] ON [dbo].[AnalysisQueryDefinitions] ([Key]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisQueryDefinitions_Status_Enabled' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisQueryDefinitions]'))
+    CREATE INDEX [IX_AnalysisQueryDefinitions_Status_Enabled] ON [dbo].[AnalysisQueryDefinitions] ([Status], [Enabled]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisQueryVersions_QueryDefinitionId_Version' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisQueryVersions]'))
+    CREATE UNIQUE INDEX [IX_AnalysisQueryVersions_QueryDefinitionId_Version] ON [dbo].[AnalysisQueryVersions] ([QueryDefinitionId], [Version]);
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[AnalysisQueryDefinitions]
+    WHERE [Id] = 'a1000000-0000-0000-0000-000000000001' OR [Key] = N'cpu-usage'
+)
+BEGIN
+    INSERT INTO [dbo].[AnalysisQueryDefinitions]
+        ([Id], [Key], [Name], [Description], [Category], [Kql], [VisualizationType], [Unit],
+         [DefaultTimeRangeMinutes], [MaxTimeRangeMinutes], [DefaultBinMinutes], [MinimumRole],
+         [Status], [Enabled], [Version], [PublishedVersionId], [UpdatedAt], [UpdatedBy])
+    VALUES
+        ('a1000000-0000-0000-0000-000000000001', N'cpu-usage', N'CPU usage',
+         N'Average total processor utilization per selected computer.', N'Performance',
+         N'Perf
+| where Computer in~ (_SelectedSystems)
+| where ObjectName == "Processor"
+| where CounterName == "% Processor Time"
+| where InstanceName == "_Total"
+| summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer
+| project Timestamp, Series, Value
+| order by Timestamp asc',
+         N'LineChart', N'Percent', 1440, 10080, 5, N'Operator', N'Draft', 1, 0, NULL, SYSUTCDATETIME(), N'System');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[AnalysisQueryDefinitions]
+    WHERE [Id] = 'a1000000-0000-0000-0000-000000000002' OR [Key] = N'ram-usage'
+)
+BEGIN
+    INSERT INTO [dbo].[AnalysisQueryDefinitions]
+        ([Id], [Key], [Name], [Description], [Category], [Kql], [VisualizationType], [Unit],
+         [DefaultTimeRangeMinutes], [MaxTimeRangeMinutes], [DefaultBinMinutes], [MinimumRole],
+         [Status], [Enabled], [Version], [PublishedVersionId], [UpdatedAt], [UpdatedBy])
+    VALUES
+        ('a1000000-0000-0000-0000-000000000002', N'ram-usage', N'RAM usage',
+         N'Average committed memory utilization per selected computer.', N'Performance',
+         N'Perf
+| where Computer in~ (_SelectedSystems)
+| where ObjectName == "Memory"
+| where CounterName == "% Committed Bytes In Use"
+| summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer
+| project Timestamp, Series, Value
+| order by Timestamp asc',
+         N'LineChart', N'Percent', 1440, 10080, 5, N'Operator', N'Draft', 1, 0, NULL, SYSUTCDATETIME(), N'System');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[AnalysisQueryDefinitions]
+    WHERE [Id] = 'a1000000-0000-0000-0000-000000000003' OR [Key] = N'kerberos-authentications'
+)
+BEGIN
+    INSERT INTO [dbo].[AnalysisQueryDefinitions]
+        ([Id], [Key], [Name], [Description], [Category], [Kql], [VisualizationType], [Unit],
+         [DefaultTimeRangeMinutes], [MaxTimeRangeMinutes], [DefaultBinMinutes], [MinimumRole],
+         [Status], [Enabled], [Version], [PublishedVersionId], [UpdatedAt], [UpdatedBy])
+    VALUES
+        ('a1000000-0000-0000-0000-000000000003', N'kerberos-authentications', N'Kerberos authentications',
+         N'Counts Kerberos ticket-granting and service-ticket events 4768 and 4769.', N'Security',
+         N'SecurityEvent
+| where Computer in~ (_SelectedSystems)
+| where EventID in (4768, 4769)
+| summarize Value = count() by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer, Dimension = tostring(EventID)
+| project Timestamp, Series, Value, Dimension
+| order by Timestamp asc',
+         N'LineChart', N'Count', 240, 1440, 5, N'Operator', N'Draft', 1, 0, NULL, SYSUTCDATETIME(), N'System');
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AnalysisDashboards]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisDashboards]
+    (
+        [Id] int IDENTITY(1,1) NOT NULL,
+        [OwnerKey] nvarchar(256) NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [DocumentJson] nvarchar(max) NOT NULL,
+        [DocumentVersion] int NOT NULL,
+        [Revision] int NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        [RowVersion] rowversion NOT NULL,
+        CONSTRAINT [PK_AnalysisDashboards] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[AnalysisDashboardTemplates]
+    (
+        [Id] uniqueidentifier NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [Version] int NOT NULL,
+        [MinimumRole] nvarchar(16) NOT NULL,
+        [Published] bit NOT NULL,
+        [DocumentJson] nvarchar(max) NOT NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        [UpdatedBy] nvarchar(256) NOT NULL,
+        [RowVersion] rowversion NOT NULL,
+        CONSTRAINT [PK_AnalysisDashboardTemplates] PRIMARY KEY ([Id])
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisDashboards_OwnerKey' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisDashboards]'))
+    CREATE UNIQUE INDEX [IX_AnalysisDashboards_OwnerKey] ON [dbo].[AnalysisDashboards] ([OwnerKey]);
+GO
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisDashboardTemplates_Name_Version' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]') AND [is_unique] = 1)
+    DROP INDEX [IX_AnalysisDashboardTemplates_Name_Version] ON [dbo].[AnalysisDashboardTemplates];
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisDashboardTemplates_Name_Version' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]'))
+    CREATE INDEX [IX_AnalysisDashboardTemplates_Name_Version] ON [dbo].[AnalysisDashboardTemplates] ([Name], [Version]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_AnalysisDashboardTemplates_Published' AND [object_id] = OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]'))
+    CREATE INDEX [IX_AnalysisDashboardTemplates_Published] ON [dbo].[AnalysisDashboardTemplates] ([Published]);
+GO
+
 IF OBJECT_ID(N'[dbo].[AgentAnalysisJobs]', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[AgentAnalysisJobs]
@@ -1032,7 +1252,7 @@ SET [Name] = N'DCDiag targets are domain controllers',
     [ApplyToTarget] = 0,
     [Collapsed] = 0,
     [Tone] = N'info',
-    [InventoryRole] = N'domaincontrollers',
+    [InventoryRole] = N'Domain Controller',
     [IsCritical] = 0
 WHERE [Id] = '956fbb9c-cadb-4f49-ad1e-78c09a8a1301';
 
@@ -1041,7 +1261,7 @@ BEGIN
     INSERT INTO [dbo].[AlertRules]
         ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole])
     VALUES
-        ('956fbb9c-cadb-4f49-ad1e-78c09a8a1301', N'DCDiag targets are domain controllers', 1, 100, N'InventoryRoleAssignment', N'', N'DCDiag', N'', 0, N'', N'', 0, 0, N'info', N'domaincontrollers');
+        ('956fbb9c-cadb-4f49-ad1e-78c09a8a1301', N'DCDiag targets are domain controllers', 1, 100, N'InventoryRoleAssignment', N'', N'DCDiag', N'', 0, N'', N'', 0, 0, N'info', N'Domain Controller');
 END;
 GO
 
@@ -1059,7 +1279,7 @@ SET [Name] = N'Replication targets are domain controllers',
     [ApplyToTarget] = 0,
     [Collapsed] = 0,
     [Tone] = N'info',
-    [InventoryRole] = N'domaincontrollers',
+    [InventoryRole] = N'Domain Controller',
     [IsCritical] = 0
 WHERE [Id] = '956fbb9c-cadb-4f49-ad1e-78c09a8a1302';
 
@@ -1068,7 +1288,7 @@ BEGIN
     INSERT INTO [dbo].[AlertRules]
         ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains], [QueryResultType], [ConditionType], [Threshold], [FailedItemName], [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole])
     VALUES
-        ('956fbb9c-cadb-4f49-ad1e-78c09a8a1302', N'Replication targets are domain controllers', 1, 110, N'InventoryRoleAssignment', N'', N'Replication', N'', 0, N'', N'', 0, 0, N'info', N'domaincontrollers');
+        ('956fbb9c-cadb-4f49-ad1e-78c09a8a1302', N'Replication targets are domain controllers', 1, 110, N'InventoryRoleAssignment', N'', N'Replication', N'', 0, N'', N'', 0, 0, N'info', N'Domain Controller');
 END;
 GO
 
@@ -1612,6 +1832,92 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261015152546_AddAnalysisQueryRegistry'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261015152546_AddAnalysisQueryRegistry', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261015173737_AddAnalysisDashboards'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261015173737_AddAnalysisDashboards', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261021140000_AddAnalysisVisualizationOptions'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261021140000_AddAnalysisVisualizationOptions', N'10.0.11');
+END;
+GO
+
+UPDATE [dbo].[ComputerInventory]
+SET [Role] = N'Domain Controller'
+WHERE LOWER(LTRIM(RTRIM([Role]))) = N'domaincontrollers';
+
+UPDATE [dbo].[AlertRules]
+SET [InventoryRole] = N'Domain Controller'
+WHERE LOWER(LTRIM(RTRIM([InventoryRole]))) = N'domaincontrollers';
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261019142000_NormalizeDomainControllerRole'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261019142000_NormalizeDomainControllerRole', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261020170000_AllowSharedDashboardNames'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261020170000_AllowSharedDashboardNames', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261021143000_AddAnalysisQueryScope'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261021143000_AddAnalysisQueryScope', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261021173000_AddAnalysisQueryCategories'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261021173000_AddAnalysisQueryCategories', N'10.0.11');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -1632,6 +1938,11 @@ SELECT
     OBJECT_ID(N'[dbo].[Settings]', N'U') AS [SettingsTableObjectId],
     OBJECT_ID(N'[dbo].[ParsedAlerts]', N'U') AS [ParsedAlertsTableObjectId],
     OBJECT_ID(N'[dbo].[InboxLayouts]', N'U') AS [InboxLayoutsTableObjectId],
+    OBJECT_ID(N'[dbo].[AnalysisQueryDefinitions]', N'U') AS [AnalysisQueryDefinitionsTableObjectId],
+    OBJECT_ID(N'[dbo].[AnalysisQueryVersions]', N'U') AS [AnalysisQueryVersionsTableObjectId],
+    OBJECT_ID(N'[dbo].[AnalysisQueryWorkspaces]', N'U') AS [AnalysisQueryWorkspacesTableObjectId],
+    OBJECT_ID(N'[dbo].[AnalysisDashboards]', N'U') AS [AnalysisDashboardsTableObjectId],
+    OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]', N'U') AS [AnalysisDashboardTemplatesTableObjectId],
     (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
     (SELECT COUNT(*) FROM [dbo].[ComputerInventory]) AS [ComputerInventoryCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];

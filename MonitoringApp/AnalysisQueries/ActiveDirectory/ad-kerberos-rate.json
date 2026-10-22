@@ -1,0 +1,13 @@
+{
+  "key": "ad-kerberos-rate",
+  "name": "Kerberos authentications per second",
+  "description": "Average performance counter per selected computer and instance.",
+  "category": "Active Directory",
+  "kql": "Perf\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where ObjectName == \"Security System-Wide Statistics\" and CounterName == \"Kerberos Authentications\"\r\n| summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer, Dimension = InstanceName\r\n| order by Timestamp asc",
+  "visualizationType": "LineChart",
+  "unit": "Authentications/s",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

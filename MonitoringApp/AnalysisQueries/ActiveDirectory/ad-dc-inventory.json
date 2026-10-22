@@ -1,0 +1,24 @@
+{
+  "key": "ad-dc-inventory",
+  "name": "DC inventory and boot age",
+  "description": "Latest VMComputer OS/boot inventory. Supports suffixed and unsuffixed boot/OS columns. Missing boot telemetry stays unknown; boot-age colors are visualization examples, not an enforced restart policy.",
+  "category": "Active Directory",
+  "kql": "VMComputer\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| summarize arg_max(TimeGenerated, *) by Computer\n| extend BootTimestamp = todatetime(column_ifexists('BootTime_t', column_ifexists('BootTime', datetime(null)))), OperatingSystem = tostring(column_ifexists('OperatingSystemFullName_s', column_ifexists('OperatingSystemFullName', '')))\n| extend BootAgeDays = iff(BootTimestamp <= now(), datetime_diff('day', now(), BootTimestamp), long(null))\n| project Computer, BootAgeDays, BootTime = BootTimestamp, OperatingSystem, LastInventoryUpdate = TimeGenerated\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "BootAgeDays", "displayName": "Boot age", "unit": "days", "decimals": 0, "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "green" }, { "value": 35, "color": "teal" }, { "value": 45, "color": "yellow" }, { "value": 50, "color": "orange" }, { "value": 60, "color": "red" }, { "value": 70, "color": "#701b1b" }
+      ] },
+      { "name": "BootTime", "unit": "datetime", "width": 190 },
+      { "name": "OperatingSystem", "width": 280 },
+      { "name": "LastInventoryUpdate", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

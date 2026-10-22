@@ -1,0 +1,39 @@
+<section class="analysis-controls" aria-label="Dashboard execution settings">
+    <label class="admin-field">
+        <span>Dashboard time range</span>
+        <select @bind:get="TimeRangeMinutes" @bind:set="ChangeTimeRangeAsync" disabled="@Disabled">
+            <option value="">Use widget settings</option>
+            @foreach (var minutes in AnalysisQuerySelections.TimeRanges)
+            {
+                <option value="@minutes">@AnalysisQuerySelections.TimeRangeLabel(minutes)</option>
+            }
+        </select>
+    </label>
+    <label class="admin-field">
+        <span>Dashboard averaging interval</span>
+        <select @bind:get="BinMinutes" @bind:set="ChangeBinAsync" disabled="@Disabled">
+            <option value="">Use widget settings</option>
+            @foreach (var minutes in AnalysisQuerySelections.BinSizes)
+            {
+                <option value="@minutes">@(minutes == 60 ? "1h" : $"{minutes} min")</option>
+            }
+        </select>
+    </label>
+    <p>Overrides apply to all widgets on the next run, including auto-refresh.
+        A query's maximum time range still applies; exceeding it produces a widget error.</p>
+    @if (SessionOnly)
+    {
+        <p>Changes apply only to this view. Reopening the dashboard or loading a new published version restores the published defaults.</p>
+    }
+</section>
+
+@code {
+    [Parameter] public int? TimeRangeMinutes { get; set; }
+    [Parameter] public int? BinMinutes { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool SessionOnly { get; set; }
+    [Parameter] public EventCallback<(int? TimeRangeMinutes, int? BinMinutes)> Changed { get; set; }
+
+    private Task ChangeTimeRangeAsync(int? minutes) => Changed.InvokeAsync((minutes, BinMinutes));
+    private Task ChangeBinAsync(int? minutes) => Changed.InvokeAsync((TimeRangeMinutes, minutes));
+}

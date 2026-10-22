@@ -1,0 +1,30 @@
+{
+  "key": "ad-dcdiag-summary",
+  "name": "DCDiag success rates and failure counts",
+  "description": "Per DC and test: passed, failed, unknown observations and success percentage. KccEvent counts are included. Unrecognized/missing states are counted separately; no passed/failed observations yields an unknown percentage.",
+  "category": "Active Directory",
+  "kql": "DCDiagData_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| mv-expand Test = dynamic(['Advertising','ObjectsReplicated','NetLogons','KccEvent','Services','CheckSecurityError','KnowsOfRoleHolders','Connectivity','SysVolCheck','RidManager','Topology','MachineAccount','LocatorCheck','Replications']) to typeof(string)\n| extend State = tostring(todynamic(Status)[Test])\n| summarize Passed = countif(State =~ 'Passed'), Failed = countif(State =~ 'Failed'), Unknown = countif(State !~ 'Passed' and State !~ 'Failed'), LastObservation = max(TimeGenerated) by Computer, Test\n| extend SuccessPercent = iff(Passed + Failed > 0, round(100.0 * Passed / (Passed + Failed), 1), real(null))\n| project Computer, Test, SuccessPercent, Failed, Passed, Unknown, LastObservation\n| order by Computer asc, Test asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "Test", "width": 190 },
+      { "name": "SuccessPercent", "displayName": "Passed", "unit": "%", "decimals": 1, "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "red" }, { "value": 85, "color": "orange" }, { "value": 95, "color": "yellow" }, { "value": 100, "color": "green" }
+      ] },
+      { "name": "Failed", "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 20, "color": "orange" }, { "value": 50, "color": "red" }
+      ] },
+      { "name": "Passed", "displayName": "Passed observations" },
+      { "name": "Unknown", "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "gray" }, { "value": 1, "color": "yellow" }
+      ] },
+      { "name": "LastObservation", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

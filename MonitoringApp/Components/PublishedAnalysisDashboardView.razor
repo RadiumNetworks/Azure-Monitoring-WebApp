@@ -1,0 +1,185 @@
+@implements IAsyncDisposable
+@inject AnalysisDashboardPublishing Publishing
+@inject AnalysisQueryRegistry Registry
+@inject AnalysisQueryExecutionService Execution
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject CrossTenantLogAnalyticsOptions Options
+@inject TimeProvider Clock
+
+<section aria-label="Published dashboard">
+    @if (errorMessage is not null)
+    {
+        <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+    }
+    @if (snapshot is not null)
+    {
+        <div class="admin-section-heading">
+            <div>
+                <h2>@snapshot.Publication.Name</h2>
+                <p>Published by @snapshot.Publication.Owner · version @snapshot.Publication.Version · read-only</p>
+                <p>Systems: @string.Join(", ", snapshot.Document.Systems.Select(system => system.Computer))</p>
+            </div>
+            <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>Auto-refresh (30 seconds)</span></label>
+            <button class="admin-primary" type="button" disabled="@(running || !Options.Enabled)" @onclick="RunAsync">@(running ? "Running dashboard..." : "Run dashboard")</button>
+        </div>
+        <AnalysisDashboardExecutionControls TimeRangeMinutes="snapshot.Document.TimeRangeMinutesOverride"
+            BinMinutes="snapshot.Document.BinMinutesOverride" Disabled="@running" SessionOnly="true"
+            Changed="ExecutionSettingsChanged" />
+        @if (!Options.Enabled)
+        {
+            <div class="admin-message admin-message-warning">Live Log Analytics is disabled.</div>
+        }
+        @if (status is not null)
+        {
+            <p role="status">@status</p>
+        }
+        <PublishedAnalysisDashboardGrid Document="snapshot.Document" Results="results" Errors="errors" />
+    }
+</section>
+
+@code {
+    [Parameter] public Guid DashboardId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private PublishedAnalysisDashboardSnapshot? snapshot;
+    private readonly Dictionary<string, AnalysisQueryResponse> results = [];
+    private readonly Dictionary<string, string> errors = [];
+    private readonly CancellationTokenSource cancellation = new();
+    private Task? refreshTask;
+    private Task? executionTask;
+    private bool running;
+    private bool autoRefresh;
+    private string? errorMessage;
+    private string? status;
+    private System.Security.Claims.ClaimsPrincipal user = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = (await AuthenticationStateTask).User;
+        if (await ReloadAsync())
+            autoRefresh = snapshot!.Document.AutoRefreshEnabled;
+        refreshTask = AnalysisRefreshLoop.RunAsync(() => InvokeAsync(async () =>
+        {
+            if (running)
+                return;
+            // Even with query refresh paused, withdrawal must clear an already open view.
+            if (await ReloadAsync() && autoRefresh && Options.Enabled)
+                await RunAsync();
+            StateHasChanged();
+        }), cancellation.Token, Clock);
+    }
+
+    private async Task<bool> ReloadAsync()
+    {
+        try
+        {
+            var current = await Publishing.LoadAsync(DashboardId, user, cancellation.Token);
+            if (snapshot?.Publication.Version != current.Publication.Version)
+            {
+                results.Clear();
+                errors.Clear();
+                status = "Published version loaded. Run the dashboard to retrieve current data.";
+            }
+            else if (snapshot is not null)
+            {
+                current.Document.TimeRangeMinutesOverride = snapshot.Document.TimeRangeMinutesOverride;
+                current.Document.BinMinutesOverride = snapshot.Document.BinMinutesOverride;
+            }
+            snapshot = current;
+            errorMessage = null;
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            snapshot = null;
+            results.Clear();
+            errors.Clear();
+            errorMessage = $"The published dashboard is unavailable: {exception.Message}";
+            return false;
+        }
+    }
+
+    private Task RunAsync()
+    {
+        if (running || !Options.Enabled || cancellation.IsCancellationRequested)
+            return Task.CompletedTask;
+        return executionTask = ExecuteAsync();
+    }
+
+    private void ExecutionSettingsChanged((int? TimeRangeMinutes, int? BinMinutes) settings)
+    {
+        if (running || snapshot is null)
+            return;
+        AnalysisDashboardDocument.ValidateExecutionOverrides(settings.TimeRangeMinutes, settings.BinMinutes);
+        snapshot.Document.TimeRangeMinutesOverride = settings.TimeRangeMinutes;
+        snapshot.Document.BinMinutesOverride = settings.BinMinutes;
+        results.Clear();
+        errors.Clear();
+        status = "Session settings changed. Run the dashboard to retrieve current data.";
+    }
+
+    private async Task ExecuteAsync()
+    {
+        running = true;
+        try
+        {
+            if (!await ReloadAsync())
+                return;
+            var executing = snapshot!;
+            if (executing.Document.Systems.Count == 0)
+            {
+                errorMessage = "The creator must select systems and republish this dashboard before it can run.";
+                return;
+            }
+            results.Clear();
+            errors.Clear();
+            StateHasChanged();
+            var systems = executing.Document.Systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray();
+            var publishedQueries = (await Registry.ListPublishedAsync(cancellation.Token))
+                .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
+                .Select(query => query.Id).ToHashSet();
+            foreach (var widget in executing.Document.Widgets)
+            {
+                // Recheck publication before every query, not just when opening the page.
+                if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                    return;
+                if (!publishedQueries.Contains(widget.QueryDefinitionId))
+                {
+                    errors[widget.Id] = "The published query is unavailable or your role does not permit it.";
+                    continue;
+                }
+                try
+                {
+                    results[widget.Id] = await Execution.ExecuteAsync(
+                        executing.Document.CreateExecutionRequest(widget, systems), cancellation.Token);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    errors[widget.Id] = exception.Message;
+                }
+            }
+            if (await ReloadAsync() && snapshot!.Publication.Version == executing.Publication.Version)
+                status = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u}";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"The published dashboard could not be refreshed: {exception.Message}";
+        }
+        finally
+        {
+            running = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await cancellation.CancelAsync();
+        if (refreshTask is not null)
+            await refreshTask;
+        if (executionTask is not null)
+            await executionTask;
+        cancellation.Dispose();
+    }
+}

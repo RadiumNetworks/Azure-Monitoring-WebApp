@@ -199,6 +199,11 @@ builder.Services.AddSingleton<TargetWorkspaceResolver>();
 builder.Services.AddSingleton<ILogAnalyticsSecretProvider, KeyVaultLogAnalyticsSecretProvider>();
 builder.Services.AddSingleton<ILogAnalyticsWorkspaceProbe, AzureLogAnalyticsWorkspaceProbe>();
 builder.Services.AddSingleton<LogAnalyticsConnectionDiagnostics>();
+builder.Services.AddSingleton<AnalysisQueryRunner>();
+builder.Services.AddSingleton<AnalysisQueryRegistry>();
+builder.Services.AddSingleton<AnalysisQueryCategoryService>();
+builder.Services.AddSingleton<IAnalysisQueryExportService, AnalysisQueryExportService>();
+builder.Services.AddSingleton<AnalysisQueryExecutionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddAuthentication(options =>
@@ -292,6 +297,7 @@ builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
 builder.Services.AddSingleton<SqlAuthenticationService>();
 builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddScoped<DatabaseResetService>();
 builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
@@ -315,6 +321,9 @@ builder.Services.AddHttpClient<MicrosoftSourceLinkChecker>(client =>
 builder.Services.AddHostedService<MicrosoftSourceCatalogVerificationService>();
 builder.Services.AddScoped<InboxDashboardState>();
 builder.Services.AddScoped<InboxLayoutRepository>();
+builder.Services.AddScoped<AnalysisDashboardState>();
+builder.Services.AddScoped<AnalysisDashboardRepository>();
+builder.Services.AddScoped<AnalysisDashboardPublishing>();
 builder.Services.AddHostedService<DatabaseStartupCheck>();
 builder.Services.AddHostedService<AgentAnalysisRetentionService>();
 
@@ -805,6 +814,67 @@ app.MapGet("/api/query", async (
 .Produces<AlertQueryResponse>(StatusCodes.Status200OK)
 .ProducesProblem(StatusCodes.Status400BadRequest)
 .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapAnalysisQueryExport();
+
+app.MapGet("/api/analysis/queries", async (
+    ClaimsPrincipal user,
+    AnalysisQueryRegistry registry,
+    CancellationToken cancellationToken) =>
+{
+    var queries = await registry.ListPublishedAsync(cancellationToken);
+    return Results.Ok(queries
+        .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(
+            query.MinimumRole,
+            user,
+            applicationAuthentication.IsOpen))
+        .Select(query => new
+        {
+            query.Id,
+            query.Key,
+            query.Name,
+            query.Description,
+            query.Category,
+            query.Unit,
+            query.DefaultTimeRangeMinutes,
+            query.MaxTimeRangeMinutes,
+            query.DefaultBinMinutes,
+            query.Version
+        }));
+})
+.RequireAuthorization(OperatorPolicy);
+
+app.MapPost("/api/analysis/query", async (
+    AnalysisQueryRequest request,
+    ClaimsPrincipal user,
+    AnalysisQueryRegistry registry,
+    AnalysisQueryExecutionService execution,
+    CancellationToken cancellationToken) =>
+{
+    var query = (await registry.ListPublishedAsync(cancellationToken))
+        .SingleOrDefault(item => item.Id == request.QueryDefinitionId);
+    if (query is null)
+        return Results.NotFound();
+    if (!AnalysisQueryExecutionService.IsRoleAllowed(
+            query.MinimumRole,
+            user,
+            applicationAuthentication.IsOpen))
+        return Results.Forbid();
+
+    try
+    {
+        return Results.Ok(await execution.ExecuteAsync(request, cancellationToken));
+    }
+    catch (KeyNotFoundException)
+    {
+        return Results.NotFound();
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+})
+.RequireAuthorization(OperatorPolicy);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

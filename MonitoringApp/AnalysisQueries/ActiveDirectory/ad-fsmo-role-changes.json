@@ -1,0 +1,23 @@
+{
+  "key": "ad-fsmo-role-changes",
+  "name": "Observed FSMO role changes",
+  "description": "Holder transitions observed within the selected range, independently per reporting DC/domain/role. The first observation is a baseline, empty holders are not changes. Requires ADConfig_CL.Computer; reports are not mixed across DCs.",
+  "category": "Active Directory",
+  "kql": "ADConfig_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where isnotempty(DNSRoot)\n| summarize arg_max(TimeGenerated, *) by Computer, DNSRoot, Timestamp = TimeGenerated\n| extend Roles = bag_pack('PDCEmulator', PDCEmulator, 'RIDMaster', RIDMaster, 'InfrastructureMaster', InfrastructureMaster, 'SchemaMaster', SchemaMaster, 'DomainNamingMaster', DomainNamingMaster)\n| mv-expand Role = bag_keys(Roles) to typeof(string)\n| extend NewHolder = tolower(trim(' ', tostring(Roles[Role])))\n| sort by Computer asc, DNSRoot asc, Role asc, Timestamp asc\n| serialize OldHolder = prev(NewHolder), PreviousComputer = prev(Computer), PreviousDomain = prev(DNSRoot), PreviousRole = prev(Role)\n| where Computer == PreviousComputer and DNSRoot == PreviousDomain and Role == PreviousRole\n| where isnotempty(OldHolder) and isnotempty(NewHolder) and OldHolder != NewHolder\n| project Timestamp, Computer, DNSRoot, Role, OldHolder, NewHolder\n| order by Timestamp desc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Timestamp", "unit": "datetime", "width": 190 },
+      { "name": "Computer", "displayName": "Reporting DC", "width": 180 },
+      { "name": "DNSRoot", "displayName": "Domain", "width": 180 },
+      { "name": "Role", "width": 180, "color": "purple", "cellDisplay": "ColorText" },
+      { "name": "OldHolder", "width": 180, "color": "orange", "cellDisplay": "ColorText" },
+      { "name": "NewHolder", "width": 180, "color": "blue", "cellDisplay": "ColorText" }
+    ]
+  }
+}

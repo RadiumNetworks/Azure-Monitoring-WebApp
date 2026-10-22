@@ -305,7 +305,7 @@ public sealed class AlertRuleEvaluatorTests
         Computer = computer,
         Domain = "contoso.test",
         Site = site,
-        Role = "domaincontrollers"
+        Role = "Domain Controller"
     };
 
     private static AlertRecord CreateDcAlert(

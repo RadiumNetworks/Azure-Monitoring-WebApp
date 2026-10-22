@@ -1,0 +1,22 @@
+{
+  "key": "ad-memory-overview",
+  "name": "DC committed memory snapshot",
+  "description": "Latest Memory % Committed Bytes In Use per selected DC in the requested range, with configurable percentage colors. This is committed-memory utilization, not physical RAM usage.",
+  "category": "Active Directory",
+  "kql": "Perf\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where ObjectName == 'Memory' and CounterName == '% Committed Bytes In Use'\n| summarize arg_max(TimeGenerated, CounterValue) by Computer\n| project Computer, CommittedMemoryPercent = round(CounterValue, 2), LastObservation = TimeGenerated\n| order by CommittedMemoryPercent desc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "CommittedMemoryPercent", "displayName": "Committed memory", "unit": "%", "decimals": 2, "cellDisplay": "ColorBackground", "thresholds": [
+        { "value": 0, "color": "green" }, { "value": 35, "color": "blue" }, { "value": 50, "color": "teal" }, { "value": 70, "color": "yellow" }, { "value": 80, "color": "orange" }, { "value": 90, "color": "red" }
+      ] },
+      { "name": "LastObservation", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

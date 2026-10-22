@@ -1,0 +1,52 @@
+@using System.Globalization
+
+@if (Result.BinMinutes is not > 0)
+{
+    <div class="admin-message admin-message-error">Status history requires the execution bin interval.</div>
+}
+else
+{
+    <p class="cell-secondary analysis-history-description">History in UTC, @Result.BinMinutes-minute bins. Gaps mean no observations, not OK. Colors use visualization settings, not alert rules.</p>
+    var duration = Math.Max((Result.To - Result.From).TotalSeconds, 1);
+    var seriesList = Result.Series.Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true).ToArray();
+    <svg class="analysis-status-history" viewBox="@($"0 0 1000 {70 + seriesList.Length * 48}")" role="img" aria-label="@($"{Result.Name}: status history in UTC")">
+        <text x="310" y="20">@Result.From.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</text>
+        <text x="990" y="20" text-anchor="end">@Result.To.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</text>
+        @for (var index = 0; index < seriesList.Length; index++)
+        {
+            var series = seriesList[index];
+            var field = series.Dimension ?? series.Name;
+            var column = AnalysisVisualization.Column(Options, field);
+            var label = $"{series.Name} · {column?.DisplayName ?? series.Dimension} · {series.Workspace}";
+            var y = 35 + index * 48;
+            <g>
+                <title>@label</title>
+                <text x="5" y="@(y + 20)">@(label.Length > 30 ? label[..27] + "..." : label)</text>
+                <rect class="analysis-history-track" x="310" y="@y" width="680" height="30" />
+                @foreach (var point in series.Points)
+                {
+                    var end = point.Timestamp.AddMinutes(Result.BinMinutes.Value);
+                    var start = point.Timestamp < Result.From ? Result.From : point.Timestamp;
+                    end = end > Result.To ? Result.To : end;
+                    if (end <= start) { continue; }
+                    var x = 310 + Math.Clamp((start - Result.From).TotalSeconds / duration, 0, 1) * 680;
+                    var width = (end - start).TotalSeconds / duration * 680;
+                    var value = point.Value.ToString("R", CultureInfo.InvariantCulture);
+                    var color = AnalysisVisualization.Color(Options, value, field) ?? "#53616d";
+                    var text = AnalysisVisualization.Text(Options, value, field);
+                    <rect x="@x.ToString("0.##", CultureInfo.InvariantCulture)" y="@y"
+                          width="@width.ToString("0.##", CultureInfo.InvariantCulture)" height="30" fill="@color"
+                          tabindex="0" aria-label="@($"{label}: {point.Timestamp:u}, {text} {AnalysisVisualization.Unit(Options, field, Result.Unit)}")">
+                        <title>@($"{label}: {point.Timestamp:u}, {text} {AnalysisVisualization.Unit(Options, field, Result.Unit)}")</title>
+                    </rect>
+                }
+            </g>
+        }
+    </svg>
+}
+
+@code {
+    [Parameter, EditorRequired] public AnalysisQueryResponse Result { get; set; } = default!;
+    private readonly AnalysisVisualizationOptions defaults = new();
+    private AnalysisVisualizationOptions Options => Result.Visualization ?? defaults;
+}

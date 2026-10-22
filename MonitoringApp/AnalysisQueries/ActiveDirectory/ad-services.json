@@ -1,0 +1,13 @@
+{
+  "key": "ad-services",
+  "name": "Active Directory service status",
+  "description": "Latest reported state of the AD-related services listed in the workbook.",
+  "category": "Active Directory",
+  "kql": "ConfigurationData\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where ConfigDataType == \"WindowsServices\"\r\n| where SvcDisplayName in (\"Active Directory Domain Services\", \"Kerberos Key Distribution Center\",\r\n    \"DNS Server\", \"Intersite Messaging\", \"Netlogon\", \"DFS Replication\",\r\n    \"Azure Advanced Threat Protection Sensor\", \"Snare\")\r\n| summarize arg_max(TimeGenerated, *) by Computer, SvcDisplayName\r\n| project Timestamp = TimeGenerated, Computer, SvcDisplayName, SvcState, SvcState__Status = SvcState\r\n| order by Computer asc, SvcDisplayName asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

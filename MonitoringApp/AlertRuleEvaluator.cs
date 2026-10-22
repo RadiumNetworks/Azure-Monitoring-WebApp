@@ -297,7 +297,7 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
                 [new AlertRuleCriterionEvaluation(
                     "InventoryRole",
                     "Equals",
-                    "domaincontrollers",
+                    "Domain Controller",
                     "<missing>",
                     false)]);
         }
@@ -458,7 +458,7 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
             AlertRuleConditionTypes.AllDomainControllersInSite;
 
     private static bool IsDomainController(ComputerInventoryEntry entry) =>
-        entry.Role?.Equals("domaincontrollers", StringComparison.OrdinalIgnoreCase) == true;
+        InventoryRoleRuleMatcher.NormalizeRole(entry.Role) == "Domain Controller";
 
     private static string InventoryTargetKey(ComputerInventoryEntry entry) =>
         InventoryTargetKey(entry.SubscriptionId, entry.Computer);

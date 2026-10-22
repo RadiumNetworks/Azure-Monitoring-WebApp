@@ -1,0 +1,29 @@
+{
+  "key": "ad-service-tls-event-summary",
+  "name": "Service and TLS event counts",
+  "description": "System Event counts for 7022, 7031, 7032, 36873 and 36874 with per-event last-seen timestamps. A zero means no matching events among observed System telemetry, not proof of complete collection.",
+  "category": "Active Directory",
+  "kql": "Event\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where EventLog == 'System'\n| summarize SystemEventObservations = count(), Event7022 = countif(EventID == 7022), Last7022 = maxif(TimeGenerated, EventID == 7022), Event7031 = countif(EventID == 7031), Last7031 = maxif(TimeGenerated, EventID == 7031), Event7032 = countif(EventID == 7032), Last7032 = maxif(TimeGenerated, EventID == 7032), Event36873 = countif(EventID == 36873), Last36873 = maxif(TimeGenerated, EventID == 36873), Event36874 = countif(EventID == 36874), Last36874 = maxif(TimeGenerated, EventID == 36874) by Computer\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "Event7022", "displayName": "Service hung (7022)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last7022", "unit": "datetime", "width": 190 },
+      { "name": "Event7031", "displayName": "Service terminated (7031)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last7031", "unit": "datetime", "width": 190 },
+      { "name": "Event7032", "displayName": "Service recovery (7032)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last7032", "unit": "datetime", "width": 190 },
+      { "name": "Event36873", "displayName": "TLS cipher support (36873)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last36873", "unit": "datetime", "width": 190 },
+      { "name": "Event36874", "displayName": "TLS cipher mismatch (36874)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last36874", "unit": "datetime", "width": 190 },
+      { "name": "SystemEventObservations", "displayName": "System event observations" }
+    ]
+  }
+}

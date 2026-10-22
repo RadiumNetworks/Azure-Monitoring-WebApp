@@ -1,0 +1,13 @@
+{
+  "key": "ad-system-info",
+  "name": "System and certificate information",
+  "description": "NTDS database size and LDAPS, MDI and Arc certificate validity.",
+  "category": "Active Directory",
+  "kql": "SystemData_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, *) by Computer\r\n| project Timestamp = TimeGenerated, Computer, NTDSFileSizeinGB,\r\n    LDAPSCertThumbprint = LDAPSCertificate.Thumbprint,\r\n    LDAPSCertValidity = LDAPSCertificate.NotAfter,\r\n    MDICertValidity = Certificates[0].NotAfter, ArcCertValidity = Certificates[1].NotAfter",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

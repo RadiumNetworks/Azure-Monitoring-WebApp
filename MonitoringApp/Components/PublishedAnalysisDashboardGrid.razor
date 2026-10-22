@@ -1,0 +1,36 @@
+<section class="analysis-dashboard-canvas" aria-label="Read-only published dashboard">
+@if (Document.Widgets.Count == 0)
+{
+    <p class="admin-empty">This published dashboard has no widgets.</p>
+}
+<div class="inbox-dashboard-grid analysis-dashboard-grid"
+     style="--columns:@Document.Columns;--rows:@Document.Rows;--row-height:@(Document.RowHeight)px">
+    @foreach (var widget in Document.Widgets)
+    {
+        Results.TryGetValue(widget.Id, out var result);
+        Errors.TryGetValue(widget.Id, out var error);
+        <article @key="widget.Id" class="inbox-dashboard-widget analysis-dashboard-widget accent-@widget.Accent"
+                 style="grid-column:@widget.Column / span @widget.ColumnSpan;grid-row:@widget.Row / span @widget.RowSpan">
+            <header class="inbox-widget-header">
+                <div><strong>@widget.Title</strong><small>@AnalysisQuerySelections.TimeRangeLabel(Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @((Document.BinMinutesOverride ?? widget.BinMinutes) is int bin ? $"{bin} min" : "Query default interval") · @widget.GroupBy</small></div>
+            </header>
+            <div class="inbox-widget-body analysis-widget-body">
+                @if (error is not null)
+                {
+                    <div class="admin-message admin-message-error" role="alert">@error</div>
+                }
+                else
+                {
+                    <AnalysisResultView Result="result" />
+                }
+            </div>
+        </article>
+    }
+</div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public AnalysisDashboardDocument Document { get; set; } = default!;
+    [Parameter] public IReadOnlyDictionary<string, AnalysisQueryResponse> Results { get; set; } = new Dictionary<string, AnalysisQueryResponse>();
+    [Parameter] public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+}

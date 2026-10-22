@@ -152,10 +152,10 @@
         <div class="alert-trend critical-alert-trend" role="img" aria-label="@CriticalChartDescription(criticalHourlyCounts)">
             <div class="trend-heading">
                 <strong>Active critical alerts</strong>
-                <span>Last 48 hours / @SelectedTimeZone.Label</span>
+                <span>Now: @criticalHourlyCounts[^1].Count / Peak (48 h): @maximumCriticalHourlyCount / @SelectedTimeZone.Label</span>
             </div>
             <div class="chart-frame">
-                <span class="chart-maximum">@maximumCriticalHourlyCount</span>
+                <span class="chart-maximum" title="Scale maximum: peak active critical alerts over the last 48 hours">@maximumCriticalHourlyCount</span>
                 <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
                     <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
                     <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
@@ -805,7 +805,7 @@
     private static string CriticalChartDescription(IReadOnlyList<HourlyCriticalAlertCount> buckets)
     {
         var maximum = buckets.Max(bucket => bucket.Count);
-        return $"Active critical alerts over the last 48 hours, with a maximum of {maximum} active at one time.";
+        return $"Active critical alerts: {buckets[^1].Count} now. Last 48 hours, with a maximum of {maximum} active at one time.";
     }
 
     private DateTime ToDisplayTime(DateTimeOffset timestamp) =>

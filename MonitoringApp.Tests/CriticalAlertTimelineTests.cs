@@ -27,6 +27,21 @@ public sealed class CriticalAlertTimelineTests
     }
 
     [Fact]
+    public void ResolvedAlertsRemainInHistoricalPeakButNotInCurrentCount()
+    {
+        var firstHour = DateTimeOffset.Parse("2026-10-19T00:00:00Z");
+        var buckets = CriticalAlertTimeline.GetHourlyCounts(
+            [
+                new("first", firstHour, firstHour.AddHours(2)),
+                new("second", firstHour, firstHour.AddHours(3))
+            ],
+            firstHour, 48, firstHour.AddHours(47).AddMinutes(30));
+
+        Assert.Equal(2, buckets.Max(bucket => bucket.Count));
+        Assert.Equal(0, buckets[^1].Count);
+    }
+
+    [Fact]
     public void RejectsEmptyChartWindow()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>

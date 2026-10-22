@@ -1,0 +1,29 @@
+{
+  "key": "ad-system-event-summary",
+  "name": "System and Netlogon event counts",
+  "description": "System Event counts for 41, 6008, 5719, 5840 and 7001 with per-event last-seen timestamps. Rows exist only for DCs with System-event telemetry in range; missing systems must not be interpreted as healthy.",
+  "category": "Active Directory",
+  "kql": "Event\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where EventLog == 'System'\n| summarize SystemEventObservations = count(), Event41 = countif(EventID == 41), Last41 = maxif(TimeGenerated, EventID == 41), Event6008 = countif(EventID == 6008), Last6008 = maxif(TimeGenerated, EventID == 6008), Event5719 = countif(EventID == 5719), Last5719 = maxif(TimeGenerated, EventID == 5719), Event5840 = countif(EventID == 5840), Last5840 = maxif(TimeGenerated, EventID == 5840), Event7001 = countif(EventID == 7001), Last7001 = maxif(TimeGenerated, EventID == 7001) by Computer\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "Event41", "displayName": "Kernel power (41)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last41", "unit": "datetime", "width": 190 },
+      { "name": "Event6008", "displayName": "Unexpected shutdown (6008)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last6008", "unit": "datetime", "width": 190 },
+      { "name": "Event5719", "displayName": "No logon server (5719)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last5719", "unit": "datetime", "width": 190 },
+      { "name": "Event5840", "displayName": "Secure channel (5840)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 5, "color": "#967000" }, { "value": 10, "color": "orange" }, { "value": 20, "color": "red" }] },
+      { "name": "Last5840", "unit": "datetime", "width": 190 },
+      { "name": "Event7001", "displayName": "Service dependency (7001)", "cellDisplay": "ColorBackground", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "orange" }, { "value": 3, "color": "red" }] },
+      { "name": "Last7001", "unit": "datetime", "width": 190 },
+      { "name": "SystemEventObservations", "displayName": "System event observations" }
+    ]
+  }
+}

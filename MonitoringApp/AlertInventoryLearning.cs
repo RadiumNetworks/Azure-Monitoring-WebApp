@@ -7,11 +7,17 @@ namespace MonitoringApp;
 /// </summary>
 public static class AlertInventoryLearning
 {
+    public static bool IsDcPort(string rawJson) =>
+        InventoryRoleRuleMatcher.ReadQueryResultType(rawJson).Equals("DCPort", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Reads local and remote computer/domain pairs from DC Port query-result rows.
     /// Invalid, incomplete, and conflicting values are ignored.
     /// </summary>
-    public static IReadOnlyList<LearnedComputerDomain> LearnComputerDomains(string rawJson)
+    public static IReadOnlyList<LearnedComputerDomain> LearnComputerDomains(string rawJson) =>
+        LearnSystems(rawJson, requireDomain: true);
+
+    private static IReadOnlyList<LearnedComputerDomain> LearnSystems(string rawJson, bool requireDomain)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
         {
@@ -42,8 +48,8 @@ public static class AlertInventoryLearning
             foreach (var row in rows.EnumerateArray().Where(row => row.ValueKind == JsonValueKind.Array))
             {
                 var values = row.EnumerateArray().ToArray();
-                LearnPair(values, columnIndexes, "LocalSystem", "LocalDomain", learnedDomains, conflicts);
-                LearnPair(values, columnIndexes, "RemoteSystem", "RemoteDomain", learnedDomains, conflicts);
+                LearnPair(values, columnIndexes, "LocalSystem", "LocalDomain", "LocalSite", learnedDomains, conflicts, requireDomain);
+                LearnPair(values, columnIndexes, "RemoteSystem", "RemoteDomain", "RemoteSite", learnedDomains, conflicts, requireDomain);
             }
 
             return learnedDomains
@@ -62,18 +68,21 @@ public static class AlertInventoryLearning
         IReadOnlyDictionary<string, int> columnIndexes,
         string systemColumn,
         string domainColumn,
+        string siteColumn,
         IDictionary<string, LearnedComputerDomain> learnedDomains,
-        ISet<string> conflicts)
+        ISet<string> conflicts,
+        bool requireDomain)
     {
         var system = GetRowString(values, columnIndexes, systemColumn);
         var domain = GetRowString(values, columnIndexes, domainColumn);
-        if (!AlertRecord.IsMeaningfulTarget(system) || !AlertRecord.IsMeaningfulTarget(domain))
+        if (!AlertRecord.IsMeaningfulTarget(system) || (requireDomain && !AlertRecord.IsMeaningfulTarget(domain)))
         {
             return;
         }
 
         var computer = AlertRecord.GetTargetName(system).Trim();
         domain = domain.Trim();
+        var site = GetRowString(values, columnIndexes, siteColumn).Trim();
         if (computer.Length is 0 or > 256 || domain.Length > 256)
         {
             return;
@@ -86,7 +95,55 @@ public static class AlertInventoryLearning
             return;
         }
 
-        learnedDomains[computer] = new LearnedComputerDomain(computer, domain);
+        if (existing is not null && !string.Equals(existing.Site, site, StringComparison.OrdinalIgnoreCase))
+        {
+            site = string.Empty;
+        }
+        learnedDomains[computer] = new LearnedComputerDomain(computer, domain,
+            AlertRecord.IsMeaningfulTarget(site) && site.Length <= 256 ? site : null);
+    }
+
+    public static IReadOnlyList<string> EnrichExistingDcPortSystems(
+        AlertRecord alert,
+        IReadOnlyList<ComputerInventoryEntry> inventory)
+    {
+        var skipped = new List<string>();
+        foreach (var fact in LearnSystems(alert.RawJson, requireDomain: false))
+        {
+            var stored = FindExistingSystem(alert, fact, inventory);
+            if (stored is null)
+            {
+                skipped.Add(fact.Computer);
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(stored.Domain) && !string.IsNullOrWhiteSpace(fact.Domain))
+                stored.Domain = fact.Domain;
+            if (string.IsNullOrWhiteSpace(stored.Site) && !string.IsNullOrWhiteSpace(fact.Site))
+                stored.Site = fact.Site;
+        }
+        return skipped;
+    }
+
+    public static ComputerInventoryEntry? FindExistingDcPortTarget(
+        AlertRecord alert, IReadOnlyList<ComputerInventoryEntry> inventory)
+    {
+        var fact = LearnSystems(alert.RawJson, requireDomain: false).FirstOrDefault(item =>
+            item.Computer.Equals(alert.TargetName, StringComparison.OrdinalIgnoreCase));
+        return fact is null ? null : FindExistingSystem(alert, fact, inventory);
+    }
+
+    private static ComputerInventoryEntry? FindExistingSystem(
+        AlertRecord alert, LearnedComputerDomain fact, IReadOnlyList<ComputerInventoryEntry> inventory)
+    {
+        // Cross-subscription matches require an explicit matching domain, never just a computer name.
+        var candidates = inventory.Where(entry =>
+            entry.Computer.Equals(fact.Computer, StringComparison.OrdinalIgnoreCase) &&
+            (string.IsNullOrWhiteSpace(fact.Domain)
+                ? entry.SubscriptionId.Equals(alert.SubscriptionId, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(entry.Domain, fact.Domain, StringComparison.OrdinalIgnoreCase) ||
+                  (string.IsNullOrWhiteSpace(entry.Domain) &&
+                   entry.SubscriptionId.Equals(alert.SubscriptionId, StringComparison.OrdinalIgnoreCase)))).ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
     }
 
     private static string GetRowString(
@@ -111,4 +168,4 @@ public static class AlertInventoryLearning
             : string.Empty;
 }
 
-public sealed record LearnedComputerDomain(string Computer, string Domain);
+public sealed record LearnedComputerDomain(string Computer, string Domain, string? Site = null);

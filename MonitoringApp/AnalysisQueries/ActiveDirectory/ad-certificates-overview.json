@@ -1,0 +1,27 @@
+{
+  "key": "ad-certificates-overview",
+  "name": "Certificates and NTDS database size",
+  "description": "Latest SystemData_CL certificate/NTDS inventory. Certificate expiry is shown as UTC and days remaining. MDI/Arc use source certificate array order or flattened NotAfter order, which must be verified against the collector. Missing/unparseable expiry remains unknown.",
+  "category": "Active Directory",
+  "kql": "SystemData_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| summarize arg_max(TimeGenerated, *) by Computer\n| extend Ldaps = todynamic(LDAPSCertificate), Certs = todynamic(Certificates), FlatDates = extract_all(@'NotAfter=([^;]+)', tostring(Certificates))\n| extend LDAPSNotAfter = todatetime(Ldaps.NotAfter), MDINotAfter = coalesce(todatetime(Certs[0].NotAfter), todatetime(FlatDates[0])), ArcNotAfter = coalesce(todatetime(Certs[1].NotAfter), todatetime(FlatDates[1]))\n| extend LDAPSDaysRemaining = datetime_diff('day', LDAPSNotAfter, now()), MDIDaysRemaining = datetime_diff('day', MDINotAfter, now()), ArcDaysRemaining = datetime_diff('day', ArcNotAfter, now())\n| project Computer, Timestamp = TimeGenerated, NTDSFileSizeinGB = todouble(NTDSFileSizeinGB), LDAPSNotAfter, LDAPSDaysRemaining, LDAPSNotAfterThumbprint = tostring(Ldaps.Thumbprint), MDINotAfter, MDIDaysRemaining, ArcNotAfter, ArcDaysRemaining\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "NTDSFileSizeinGB", "displayName": "NTDS size", "unit": "GB", "decimals": 2 },
+      { "name": "LDAPSDaysRemaining", "displayName": "LDAPS remaining", "unit": "days", "cellDisplay": "ColorBackground", "color": "red", "thresholds": [{ "value": 0, "color": "red" }, { "value": 1, "color": "orange" }, { "value": 15, "color": "yellow" }, { "value": 31, "color": "green" }] },
+      { "name": "MDIDaysRemaining", "displayName": "MDI remaining", "unit": "days", "cellDisplay": "ColorBackground", "color": "red", "thresholds": [{ "value": 0, "color": "red" }, { "value": 1, "color": "orange" }, { "value": 15, "color": "yellow" }, { "value": 31, "color": "green" }] },
+      { "name": "ArcDaysRemaining", "displayName": "Arc remaining", "unit": "days", "cellDisplay": "ColorBackground", "color": "red", "thresholds": [{ "value": 0, "color": "red" }, { "value": 1, "color": "orange" }, { "value": 15, "color": "yellow" }, { "value": 31, "color": "green" }] },
+      { "name": "LDAPSNotAfter", "unit": "datetime", "width": 190 },
+      { "name": "MDINotAfter", "unit": "datetime", "width": 190 },
+      { "name": "ArcNotAfter", "unit": "datetime", "width": 190 },
+      { "name": "Timestamp", "unit": "datetime", "width": 190 },
+      { "name": "LDAPSNotAfterThumbprint", "displayName": "LDAPS thumbprint", "width": 280 }
+    ]
+  }
+}

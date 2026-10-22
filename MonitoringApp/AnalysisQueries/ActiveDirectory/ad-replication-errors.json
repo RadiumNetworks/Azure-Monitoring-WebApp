@@ -1,0 +1,13 @@
+{
+  "key": "ad-replication-errors",
+  "name": "Replication errors over time",
+  "description": "Failure observations grouped by naming context, DC or site. Missing intervals are filled with zero; groups without any observations are omitted.",
+  "category": "Active Directory",
+  "kql": "let StartTime = ago(_TimePeriod);\nlet EndTime = now();\nDCReplicationData_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated >= StartTime and TimeGenerated < EndTime\n| extend Series = case(\n    _GroupBy == \"NC\", tostring(NC),\n    _GroupBy == \"DestDSA\", tostring(DestDSA),\n    _GroupBy == \"SourceDSASite\", tostring(SourceDSASite),\n    _GroupBy == \"DestDSASite\", tostring(DestDSASite),\n    tostring(SourceDSA))\n| make-series Value = countif(toint(NumberOfFailures) > 0)\n    default=0\n    on TimeGenerated\n    from StartTime to EndTime step _BinSize\n    by Series\n| mv-expand\n    Timestamp = TimeGenerated to typeof(datetime),\n    Value to typeof(long)\n| project Timestamp, Series, Value\n| order by Timestamp asc, Series asc",
+  "visualizationType": "LineChart",
+  "unit": "Count",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

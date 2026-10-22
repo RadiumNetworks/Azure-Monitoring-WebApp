@@ -1,0 +1,13 @@
+{
+  "key": "ad-processor",
+  "name": "Processor utilization",
+  "description": "Average performance counter per selected computer and instance.",
+  "category": "Active Directory",
+  "kql": "Perf\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where ObjectName == \"Processor Information\" and CounterName == \"% Processor Time\"\r\n| summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer, Dimension = InstanceName\r\n| order by Timestamp asc",
+  "visualizationType": "LineChart",
+  "unit": "Percent",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

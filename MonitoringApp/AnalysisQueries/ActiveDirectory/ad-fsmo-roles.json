@@ -1,0 +1,25 @@
+{
+  "key": "ad-fsmo-roles",
+  "name": "FSMO role holders",
+  "description": "Latest ADConfig_CL role snapshot per selected reporting computer and domain. Requires a Computer column identifying the reporting DC. Separate reporters remain visible to expose inconsistent observations.",
+  "category": "Active Directory",
+  "kql": "ADConfig_CL\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where isnotempty(DNSRoot)\n| summarize arg_max(TimeGenerated, *) by Computer, DNSRoot\n| project Computer, DNSRoot, Timestamp = TimeGenerated, PDCEmulator, RIDMaster, InfrastructureMaster, SchemaMaster, DomainNamingMaster\n| order by DNSRoot asc, Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "displayName": "Reporting DC", "width": 180, "breakAtFirstDot": true },
+      { "name": "DNSRoot", "displayName": "Domain", "width": 180 },
+      { "name": "PDCEmulator", "width": 180, "color": "blue", "cellDisplay": "ColorText", "breakAtFirstDot": true },
+      { "name": "RIDMaster", "width": 180, "color": "blue", "cellDisplay": "ColorText", "breakAtFirstDot": true },
+      { "name": "InfrastructureMaster", "width": 180, "color": "teal", "cellDisplay": "ColorText", "breakAtFirstDot": true },
+      { "name": "SchemaMaster", "width": 180, "color": "purple", "cellDisplay": "ColorText", "breakAtFirstDot": true },
+      { "name": "DomainNamingMaster", "width": 180, "color": "purple", "cellDisplay": "ColorText", "breakAtFirstDot": true },
+      { "name": "Timestamp", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

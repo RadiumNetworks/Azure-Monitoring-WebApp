@@ -1,0 +1,64 @@
+<section class="analysis-dashboard-tabs" aria-label="Personal dashboards">
+    <nav aria-label="Select dashboard">
+        @foreach (var entry in Collection.Dashboards)
+        {
+            <button class="@(entry.Id == Collection.ActiveDashboardId ? "admin-primary" : "admin-secondary")"
+                    type="button" aria-pressed="@(entry.Id == Collection.ActiveDashboardId ? "true" : "false")"
+                    disabled="@Disabled" @onclick="() => Selected.InvokeAsync(entry.Id)">@entry.Document.Name</button>
+        }
+    </nav>
+    <div class="analysis-dashboard-management">
+        <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <label><span>New dashboard name</span><input required maxlength="256" @bind="newName" disabled="@Disabled" /></label>
+            <button class="admin-secondary" type="submit" disabled="@Disabled">Create dashboard</button>
+        </form>
+        <form @onsubmit="RenameAsync" @onsubmit:preventDefault>
+            <label><span>Current dashboard name</span><input required maxlength="256" @bind="currentName" disabled="@Disabled" /></label>
+            <button class="admin-secondary" type="submit" disabled="@Disabled">Rename</button>
+        </form>
+        <button class="admin-danger" type="button" disabled="@(Disabled || Collection.Dashboards.Count <= 1)"
+                @onclick="() => confirmDelete = true">Delete dashboard</button>
+    </div>
+    @if (confirmDelete)
+    {
+        <div class="admin-message admin-message-warning" role="alertdialog" aria-labelledby="delete-dashboard-heading">
+            <h2 id="delete-dashboard-heading">Delete personal dashboard?</h2>
+            <p>Delete <strong>@Collection.Active.Document.Name</strong> and its widget layout? Other dashboards,
+                query definitions and shared library preferences will be retained. This cannot be undone.</p>
+            <button class="admin-secondary" type="button" disabled="@Disabled" @onclick="() => confirmDelete = false">Cancel</button>
+            <button class="admin-danger" type="button" disabled="@Disabled" @onclick="DeleteAsync">Confirm delete</button>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public AnalysisDashboardCollection Collection { get; set; } = default!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<Guid> Selected { get; set; }
+    [Parameter] public EventCallback<string> Created { get; set; }
+    [Parameter] public EventCallback<string> Renamed { get; set; }
+    [Parameter] public EventCallback Deleted { get; set; }
+    private string newName = "";
+    private string currentName = "";
+    private Guid displayedId;
+    private string? displayedName;
+    private bool confirmDelete;
+
+    protected override void OnParametersSet()
+    {
+        if (displayedId == Collection.ActiveDashboardId && displayedName == Collection.Active.Document.Name)
+            return;
+        displayedId = Collection.ActiveDashboardId;
+        displayedName = Collection.Active.Document.Name;
+        currentName = displayedName;
+        confirmDelete = false;
+    }
+
+    private async Task CreateAsync()
+    {
+        await Created.InvokeAsync(newName);
+    }
+
+    private Task RenameAsync() => Renamed.InvokeAsync(currentName);
+    private Task DeleteAsync() => Deleted.InvokeAsync();
+}

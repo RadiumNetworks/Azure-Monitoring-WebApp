@@ -9,6 +9,18 @@ public sealed class InventoryRoleRuleMatcherTests
         new(TestCases.Cases);
 
     [Theory]
+    [InlineData("domaincontrollers", "Domain Controller")]
+    [InlineData(" DomainControllers ", "Domain Controller")]
+    [InlineData("domain controller", "Domain Controller")]
+    [InlineData("Domain Controller", "Domain Controller")]
+    [InlineData("Member Server", "Member Server")]
+    [InlineData(null, null)]
+    public void NormalizesOnlyDomainControllerRoles(string? role, string? expected)
+    {
+        Assert.Equal(expected, InventoryRoleRuleMatcher.NormalizeRole(role));
+    }
+
+    [Theory]
     [MemberData(nameof(Cases))]
     public void FindsExpectedRole(InventoryRoleRuleMatcherCase testCase)
     {

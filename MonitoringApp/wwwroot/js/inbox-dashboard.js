@@ -2,10 +2,12 @@ const cleanups = new WeakMap();
 
 export function initialize(dotNetReference, root) {
     const onPointerDown = event => {
+        if (event.button !== 0) return;
         const handle = event.target.closest("[data-inbox-resize-handle]");
         if (!handle || !root.contains(handle)) {
             const dragHandle = event.target.closest("[data-inbox-drag-handle]");
-            if (dragHandle && root.contains(dragHandle)) {
+            if (dragHandle && root.contains(dragHandle) &&
+                !event.target.closest("button, input, select, textarea, a, [contenteditable='true']")) {
                 beginMove(event, dragHandle, dotNetReference);
             }
             return;

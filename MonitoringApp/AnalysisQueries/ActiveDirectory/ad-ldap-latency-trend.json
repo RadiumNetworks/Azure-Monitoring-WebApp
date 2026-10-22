@@ -1,0 +1,13 @@
+{
+  "key": "ad-ldap-latency-trend",
+  "name": "LDAP latency over time",
+  "description": "LDAP authentication and simple query round-trip time by site direction.",
+  "category": "Active Directory",
+  "kql": "LatencyReports_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| extend Series = strcat(SourceSite, \" -> \", TargetSite)\r\n| summarize Value = avg(Latency_ms) by Timestamp = bin(TimeGenerated, _BinSize), Series\r\n| order by Timestamp asc",
+  "visualizationType": "LineChart",
+  "unit": "ms",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

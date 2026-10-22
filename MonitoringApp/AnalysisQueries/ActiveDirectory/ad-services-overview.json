@@ -1,0 +1,23 @@
+{
+  "key": "ad-services-overview",
+  "name": "AD service status board",
+  "description": "Color-configured snapshot variant of AD service status. Latest observed state per DC/service in the selected range; absent services are not inferred to be running.",
+  "category": "Active Directory",
+  "kql": "ConfigurationData\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where ConfigDataType == 'WindowsServices'\n| where SvcDisplayName in ('Active Directory Domain Services', 'Kerberos Key Distribution Center', 'DNS Server', 'Intersite Messaging', 'Netlogon', 'DFS Replication', 'Azure Advanced Threat Protection Sensor', 'Snare')\n| summarize arg_max(TimeGenerated, *) by Computer, SvcDisplayName\n| project Computer, SvcDisplayName, SvcState, SvcState__Status = SvcState, LastObservation = TimeGenerated\n| order by Computer asc, SvcDisplayName asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "SvcDisplayName", "displayName": "Service", "width": 280 },
+      { "name": "SvcState", "displayName": "State", "width": 150, "cellDisplay": "ColorBackground", "valueMappings": [
+        { "value": "Running", "color": "green" }, { "value": "Failed", "color": "red" }, { "value": "Start Pending", "color": "yellow" }, { "value": "Stopped", "color": "orange" }
+      ] },
+      { "name": "LastObservation", "unit": "datetime", "width": 190 }
+    ]
+  }
+}

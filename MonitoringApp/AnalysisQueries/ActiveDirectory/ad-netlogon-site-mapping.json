@@ -1,0 +1,13 @@
+{
+  "key": "ad-netlogon-site-mapping",
+  "name": "Netlogon connections without site mapping",
+  "description": "Event 5807 connection estimate, retaining the workbook's division by 255.",
+  "category": "Active Directory",
+  "kql": "Event\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| where EventLog == \"System\" and EventID == 5807\r\n| distinct TimeGenerated, Computer, EventID, RenderedDescription\r\n| parse RenderedDescription with * \"been \" Connections \" connections\" *\r\n| summarize Value = sum(todouble(Connections) / 255.0) by Timestamp = bin(TimeGenerated, _BinSize)\r\n| extend Series = \"All selected domain controllers\"\r\n| order by Timestamp asc",
+  "visualizationType": "LineChart",
+  "unit": "Estimated connections",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

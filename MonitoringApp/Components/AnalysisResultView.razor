@@ -1,0 +1,179 @@
+@if (Result is null)
+{
+    <p class="admin-empty">Run the dashboard to load this widget.</p>
+}
+else
+{
+    @if (Result.Scope == AnalysisQueryScopes.Workspace)
+    {
+        <div class="admin-message admin-message-warning" role="status">
+            Workspace-wide results: selected systems determine the workspaces, not the returned systems/domains. All environments in the routed, approved workspaces may be included.
+        </div>
+    }
+    @foreach (var warning in Result.Warnings)
+    {
+        <div class="admin-message admin-message-warning"><strong>@warning.Workspace</strong> @warning.Message</div>
+    }
+    @if (AllowTableView && Result.VisualizationType != AnalysisQueryVisualizationTypes.Table &&
+        (visibleSeries.Any(series => series.Points.Count > 0) ||
+            Result.VisualizationType == AnalysisQueryVisualizationTypes.Stat && Result.Tables?.Any(table => table.Rows.Count > 0) == true))
+    {
+        <label class="inbox-edit-toggle analysis-result-toggle">
+            <input type="checkbox" role="switch" checked="@ShowTable" @onchange="args => ShowTableChanged.InvokeAsync(args.Value is true)" />
+            <span>Table view</span>
+        </label>
+    }
+    @if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Table)
+    {
+        @if (Result.Tables?.Any(table => table.Rows.Count > 0) == true)
+        {
+            <AnalysisTableView Tables="Result.Tables" Name="@Result.Name" Options="DisplayOptions" />
+        }
+        else
+        {
+            <div class="admin-message admin-message-warning">The query completed successfully but returned no table rows. No data is not an OK status.</div>
+        }
+    }
+    else if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Stat)
+    {
+        @if (AllowTableView && ShowTable && Result.Tables?.Count > 0)
+        {
+            <AnalysisTableView Tables="Result.Tables" Name="@Result.Name" Options="DisplayOptions" />
+        }
+        else
+        {
+            <AnalysisStatView Result="Result" />
+        }
+    }
+    else if (!visibleSeries.Any(series => series.Points.Count > 0))
+    {
+        <div class="admin-message admin-message-warning">
+            <strong>The query completed successfully but returned no time-series rows.</strong>
+            Check the selected systems, source table, counters, and time range.
+        </div>
+    }
+    else
+    {
+        @if (AllowTableView && ShowTable)
+        {
+            @if (Result.Tables?.Count > 0)
+            {
+                <AnalysisTableView Tables="Result.Tables" Name="@($"{Result.Name} · {Result.Unit}")" Options="DisplayOptions" />
+            }
+            else
+            {
+            <div class="analysis-result-table" tabindex="0" role="region" aria-label="Query result table">
+                <table>
+                    <caption>@Result.Name · @Result.Unit</caption>
+                    <thead>
+                        <tr><th scope="col">Timestamp (UTC)</th><th scope="col">Series</th><th scope="col">Dimension</th><th scope="col">Workspace</th><th scope="col">Value (@Result.Unit)</th><th scope="col">Label</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Result.Series.SelectMany(series => series.Points.Select(point => (Series: series, Point: point))).OrderBy(row => row.Point.Timestamp).ThenBy(row => row.Series.Name))
+                        {
+                            <tr>
+                                <td>@row.Point.Timestamp.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>@row.Series.Name</td><td>@row.Series.Dimension</td><td>@row.Series.Workspace</td>
+                                <td>@row.Point.Value.ToString("G", System.Globalization.CultureInfo.CurrentCulture)</td><td>@row.Point.Label</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            }
+        }
+        else if (Result.VisualizationType == AnalysisQueryVisualizationTypes.StatusHistory)
+        {
+            <AnalysisStatusHistoryView Result="Result" />
+        }
+        else if (Result.VisualizationType is AnalysisQueryVisualizationTypes.Honeycomb or AnalysisQueryVisualizationTypes.BarChart or AnalysisQueryVisualizationTypes.BarGauge)
+        {
+            <AnalysisSummaryView Result="Result" />
+        }
+        else
+        {
+        var chart = AnalysisChartGeometry.Create(Result with { Series = visibleSeries });
+        <div class="analysis-chart-legend">
+            @for (var index = 0; index < visibleSeries.Count; index++)
+            {
+                <span style="--series-color:@SeriesColor(index)"><i></i>@SeriesLabel(visibleSeries[index])</span>
+            }
+        </div>
+        <svg class="analysis-chart" viewBox="0 0 1000 390" role="img" aria-label="@ChartDescription(Result)">
+            <defs><clipPath id="@clipId"><rect x="100" y="35" width="875" height="270" /></clipPath></defs>
+            <text x="100" y="22">@Result.Unit</text>
+            @foreach (var tick in chart.ValueTicks)
+            {
+                <g class="analysis-chart-value-tick">
+                    <line class="analysis-chart-gridline" x1="100" y1="@tick.Position" x2="975" y2="@tick.Position" />
+                    <text x="90" y="@tick.Position" text-anchor="end" dominant-baseline="middle">@tick.Label</text>
+                </g>
+            }
+            @foreach (var tick in chart.TimeTicks)
+            {
+                <g class="analysis-chart-time-tick">
+                    <line class="analysis-chart-gridline" x1="@tick.Position" y1="35" x2="@tick.Position" y2="310" />
+                    <text x="@tick.Position" y="333" text-anchor="@(tick == chart.TimeTicks[^1] ? "end" : "middle")">@tick.Label</text>
+                    <text x="@tick.Position" y="354" text-anchor="@(tick == chart.TimeTicks[^1] ? "end" : "middle")">@tick.DateLabel</text>
+                </g>
+            }
+            <line x1="100" y1="35" x2="100" y2="305" />
+            <line x1="100" y1="305" x2="975" y2="305" />
+            <g clip-path="@($"url(#{clipId})")">
+                @for (var index = 0; index < chart.Lines.Count; index++)
+                {
+                    <polyline points="@chart.Lines[index]" style="stroke:@SeriesColor(index)" />
+                }
+            </g>
+            <text x="540" y="378" text-anchor="middle">Time (UTC)</text>
+        </svg>
+        <div class="analysis-text-summary">
+            @foreach (var series in visibleSeries.Where(series => series.Points.Count > 0))
+            {
+                <span><strong>@SeriesLabel(series)</strong> @series.Points.Count points; min @series.Points.Min(point => point.Value).ToString("0.##"); max @series.Points.Max(point => point.Value).ToString("0.##") @Result.Unit</span>
+            }
+        </div>
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public AnalysisQueryResponse? Result { get; set; }
+
+    [Parameter]
+    public bool AllowTableView { get; set; }
+
+    [Parameter]
+    public bool ShowTable { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> ShowTableChanged { get; set; }
+
+    private readonly string clipId = $"analysis-plot-{Guid.NewGuid():N}";
+    private readonly AnalysisVisualizationOptions defaults = new();
+    private AnalysisVisualizationOptions DisplayOptions => Result?.Visualization ?? defaults;
+    private IReadOnlyList<AnalysisQuerySeries> visibleSeries = [];
+
+    protected override void OnParametersSet() =>
+        visibleSeries = Result?.Series.Where(series =>
+            AnalysisVisualization.Column(DisplayOptions, series.Dimension ?? series.Name)?.Hidden != true).ToArray() ?? [];
+
+    private string SeriesLabel(AnalysisQuerySeries series) =>
+        string.IsNullOrWhiteSpace(series.Dimension)
+            ? $"{AnalysisVisualization.Column(DisplayOptions, series.Name)?.DisplayName ?? series.Name} · {series.Workspace}"
+            : $"{series.Name} · {AnalysisVisualization.Column(DisplayOptions, series.Dimension)?.DisplayName ?? series.Dimension} · {series.Workspace}";
+
+    private static string ChartDescription(AnalysisQueryResponse response) =>
+        $"{response.Name}, {response.Series.Count} series from {response.From:u} to {response.To:u}";
+
+    private string SeriesColor(int index)
+    {
+        var series = visibleSeries[index];
+        var point = series.Points.MaxBy(point => point.Timestamp);
+        return AnalysisVisualization.Color(DisplayOptions,
+            point?.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), series.Dimension ?? series.Name)
+            ?? new[] { "#157a6e", "#d05a3a", "#3f6fb6", "#9b6bb0", "#b38b20", "#2787a5", "#7f8c3a", "#ba4773" }[index % 8];
+    }
+
+}

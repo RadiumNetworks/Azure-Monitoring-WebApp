@@ -1,0 +1,19 @@
+{
+  "key": "ad-storage-gauge",
+  "name": "DC disk free capacity",
+  "description": "Latest LogicalDisk % Free Space per DC and disk instance in the requested range. Disk instances remain separate and _Total is excluded; low free capacity is red, high free capacity green.",
+  "category": "Active Directory",
+  "kql": "Perf\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| where ObjectName == 'LogicalDisk' and CounterName == '% Free Space' and InstanceName != '_Total'\n| summarize arg_max(TimeGenerated, CounterValue) by Computer, InstanceName\n| project Timestamp = TimeGenerated, Series = Computer, Dimension = InstanceName, Value = round(CounterValue, 2)\n| order by Value asc",
+  "visualizationType": "BarGauge",
+  "unit": "%",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "minimum": 0, "maximum": 100, "decimals": 2,
+    "thresholds": [
+      { "value": 0, "color": "#701b1b" }, { "value": 10, "color": "red" }, { "value": 30, "color": "orange" }, { "value": 40, "color": "yellow" }, { "value": 60, "color": "teal" }, { "value": 80, "color": "green" }
+    ]
+  }
+}

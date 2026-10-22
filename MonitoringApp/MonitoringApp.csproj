@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="AnalysisQueries\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="AlertDefinitions\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Database\**\*.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="DemoData\**\*.json" CopyToOutputDirectory="PreserveNewest" />

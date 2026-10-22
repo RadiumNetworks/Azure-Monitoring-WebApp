@@ -10,7 +10,7 @@ public static class InventoryRoleRuleMatcher
     public static string? FindRole(AlertRecord alert, IEnumerable<AlertRule> rules)
     {
         var queryResultType = ReadQueryResultType(alert.RawJson);
-        return rules
+        var role = rules
             .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
             .OrderBy(rule => rule.Priority)
             .FirstOrDefault(rule =>
@@ -19,7 +19,14 @@ public static class InventoryRoleRuleMatcher
                 (string.IsNullOrWhiteSpace(rule.QueryResultType) ||
                     queryResultType.Equals(rule.QueryResultType, StringComparison.OrdinalIgnoreCase)))
             ?.InventoryRole;
+        return NormalizeRole(role);
     }
+
+    public static string? NormalizeRole(string? role) =>
+        role?.Trim().Equals("domaincontrollers", StringComparison.OrdinalIgnoreCase) == true ||
+        role?.Trim().Equals("Domain Controller", StringComparison.OrdinalIgnoreCase) == true
+            ? "Domain Controller"
+            : role;
 
     internal static string ReadQueryResultType(string rawJson)
     {

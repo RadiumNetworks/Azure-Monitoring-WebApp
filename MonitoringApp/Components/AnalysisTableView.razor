@@ -1,0 +1,48 @@
+@foreach (var table in Tables)
+{
+    var visible = table.Columns.Select((column, index) => (Column: column, Index: index))
+        .Where(item => !item.Column.Name.EndsWith("__Status", StringComparison.Ordinal) &&
+            AnalysisVisualization.Column(Options, item.Column.Name)?.Hidden != true)
+        .OrderBy(item => Options.Columns.FindIndex(column => column.Name == item.Column.Name) is var order && order >= 0
+            ? order : Options.Columns.Count + item.Index).ToArray();
+    <div class="analysis-result-table" tabindex="0" role="region" aria-label="@($"Query result: {table.Workspace}")">
+        <table>
+            <caption>@Name · @table.Workspace</caption>
+            <thead><tr>
+                @foreach (var column in visible)
+                {
+                    var display = AnalysisVisualization.Column(Options, column.Column.Name);
+                    <th scope="col" style="@(display?.Width is int width ? $"min-width:{width}px;max-width:{width}px;" : null)">@(display?.DisplayName ?? column.Column.Name)</th>
+                }
+            </tr></thead>
+            <tbody>
+                @foreach (var row in table.Rows)
+                {
+                    <tr>
+                        @foreach (var column in visible)
+                        {
+                            var statusIndex = table.Columns.ToList().FindIndex(item => item.Name == $"{column.Column.Name}__Status");
+                            var isStatus = column.Column.Name == "Status";
+                            var value = row[column.Index];
+                            <td style="@AnalysisVisualization.CellStyle(Options, value, column.Column.Name)">
+                                @if (statusIndex >= 0 || isStatus)
+                                {
+                                    var status = AnalysisResultFormatting.Status(statusIndex >= 0 ? row[statusIndex] : value);
+                                    <span class="analysis-status analysis-status-@status" aria-label="@status" title="@status">@AnalysisResultFormatting.StatusSymbol(status)</span>
+                                }
+                                @AnalysisVisualization.TableText(Options, value, column.Column.Name)
+                                @(AnalysisVisualization.Unit(Options, column.Column.Name) is string unit ? $" {unit}" : "")
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AnalysisQueryTable> Tables { get; set; } = [];
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public AnalysisVisualizationOptions Options { get; set; } = new();
+}

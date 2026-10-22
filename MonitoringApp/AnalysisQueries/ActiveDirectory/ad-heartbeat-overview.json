@@ -1,0 +1,25 @@
+{
+  "key": "ad-heartbeat-overview",
+  "name": "DC heartbeat overview",
+  "description": "Selected-system baseline with latest heartbeat in the requested range. Older than 15 minutes is stale; missing telemetry remains unknown rather than healthy.",
+  "category": "Active Directory",
+  "kql": "let Observed = Heartbeat\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated > ago(_TimePeriod)\n| summarize LastHeartbeat = max(TimeGenerated) by ComputerKey = tolower(Computer);\nprint Selected = _SelectedSystems\n| mv-expand Computer = Selected to typeof(string)\n| extend ComputerKey = tolower(Computer)\n| join kind=leftouter Observed on ComputerKey\n| extend AgeMinutes = datetime_diff('minute', now(), LastHeartbeat)\n| extend Status = case(isnull(LastHeartbeat), 'No telemetry', AgeMinutes > 15, 'Failed', 'Passed')\n| project Computer, Status, LastHeartbeat, AgeMinutes\n| order by Computer asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "columns": [
+      { "name": "Computer", "width": 180 },
+      { "name": "Status", "width": 130, "cellDisplay": "ColorBackground", "valueMappings": [
+        { "value": "Passed", "text": "Connected", "color": "green" },
+        { "value": "Failed", "text": "Stale", "color": "red" },
+        { "value": "No telemetry", "color": "gray" }
+      ] },
+      { "name": "LastHeartbeat", "displayName": "Last heartbeat (UTC)", "unit": "datetime", "width": 190 },
+      { "name": "AgeMinutes", "displayName": "Heartbeat age", "unit": "min", "decimals": 0 }
+    ]
+  }
+}

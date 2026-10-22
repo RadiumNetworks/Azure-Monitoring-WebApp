@@ -1,0 +1,47 @@
+@if (Result.Tables?.Any(table => table.Rows.Count > 0) != true)
+{
+    <div class="admin-message admin-message-warning">The query returned no statistics. No data is not an OK status.</div>
+}
+else
+{
+    <div class="analysis-stats" role="list" aria-label="@Result.Name">
+        @foreach (var table in Result.Tables)
+        {
+            var names = table.Columns.Select(column => column.Name).ToList();
+            var seriesIndex = names.IndexOf("Series");
+            var valueIndex = names.IndexOf("Value");
+            var dimensionIndex = names.IndexOf("Dimension");
+            var unitIndex = names.IndexOf("Unit");
+            if (seriesIndex < 0 || valueIndex < 0)
+            {
+                <div class="admin-message admin-message-error">Statistics require Series and Value columns.</div>
+                continue;
+            }
+            @foreach (var row in table.Rows)
+            {
+                var field = (dimensionIndex >= 0 ? row[dimensionIndex] : null) ?? row[seriesIndex]!;
+                var column = AnalysisVisualization.Column(Options, field);
+                if (column?.Hidden == true) { continue; }
+                var value = row[valueIndex];
+                var color = AnalysisVisualization.Color(Options, value, field);
+                <article class="analysis-stat" role="listitem" style="@(color is null ? null : $"border-color:{color};")">
+                    <strong style="@(Options.StatTitleFontSize is int titleSize ? $"font-size:{titleSize}px;" : null)">@row[seriesIndex] @(dimensionIndex >= 0 ? $"· {column?.DisplayName ?? field}" : "")</strong>
+                    <span class="analysis-stat-value" style="@ValueStyle(color)">
+                        @AnalysisVisualization.Text(Options, value, field)
+                        <small>@AnalysisVisualization.Unit(Options, field, unitIndex >= 0 ? row[unitIndex] : Result.Unit)</small>
+                    </span>
+                    <span class="cell-secondary">@table.Workspace</span>
+                </article>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AnalysisQueryResponse Result { get; set; } = default!;
+    private readonly AnalysisVisualizationOptions defaults = new();
+    private AnalysisVisualizationOptions Options => Result.Visualization ?? defaults;
+    private string ValueStyle(string? color) =>
+        (color is null ? "" : $"color:{color};") +
+        (Options.StatValueFontSize is int size ? $"font-size:{size}px;--analysis-stat-unit-font-size:0.5em;" : "");
+}

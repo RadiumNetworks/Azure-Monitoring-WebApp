@@ -1,0 +1,1109 @@
+@page "/analysis"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@implements IAsyncDisposable
+@attribute [Authorize(Policy = "OperatorAccess")]
+@inject AnalysisQueryRegistry Registry
+@inject AnalysisQueryExecutionService Execution
+@inject AnalysisQueryRunner QueryRunner
+@inject AlertStore AlertStore
+@inject CrossTenantLogAnalyticsOptions Options
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject CurrentUserIdentity CurrentUserIdentity
+@inject AnalysisDashboardState Dashboard
+@inject AnalysisDashboardRepository DashboardRepository
+@inject AnalysisDashboardPublishing Publishing
+@inject IJSRuntime JS
+
+<PageTitle>Live Analysis</PageTitle>
+
+<section class="query-heading">
+    <div>
+        <p class="eyebrow">Live Log Analytics</p>
+        <h1>System analysis</h1>
+        <p class="subtitle">Run approved, versioned queries against automatically routed workspaces.</p>
+    </div>
+    <div class="admin-heading-actions analysis-personal-actions" hidden="@(selectedPublishedDashboard is not null)">
+        <label class="inbox-edit-toggle"><input type="checkbox" disabled="@PersonalActionsBlocked" @bind="dashboardEditMode" /><span>Edit grid</span></label>
+        <label class="inbox-edit-toggle">
+            <input type="checkbox" checked="@Dashboard.Document.AutoRefreshEnabled" disabled="@(!Options.Enabled || PersonalActionsBlocked)"
+                   @onchange="AutoRefreshChangedAsync" />
+            <span>Auto-refresh (30 seconds)</span>
+        </label>
+        <button class="admin-primary" type="button" disabled="@(!CanRunDashboard)" @onclick="RunDashboardAsync">
+            @(isDashboardRunning ? "Running dashboard..." : "Run dashboard")
+        </button>
+        <button class="admin-secondary" type="button" disabled="@(!Dashboard.CanUndo || DashboardBusy)" @onclick="UndoDashboard">Undo</button>
+        <button class="admin-secondary" type="button" disabled="@(!Dashboard.CanRedo || DashboardBusy)" @onclick="RedoDashboard">Redo</button>
+        <button class="admin-primary" type="button" disabled="@PersonalActionsBlocked" @onclick="SaveDashboardAsync">Save dashboard</button>
+    </div>
+</section>
+
+<section class="analysis-dashboard-tabs" aria-label="Shared dashboards">
+    <div class="admin-heading-actions">
+        <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReturnToPersonalDashboard">My dashboards</button>
+        <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReloadPublicationsAsync">Refresh published dashboards</button>
+        @foreach (var publication in publishedDashboards)
+        {
+            <button class="@(selectedPublishedDashboard == publication.Id ? "admin-primary" : "admin-secondary")"
+                    type="button" disabled="@DashboardBusy" @onclick="() => OpenPublishedDashboardAsync(publication.Id)">
+                @publication.Name · @publication.Owner · v@(publication.Version)
+            </button>
+        }
+    </div>
+    @if (canPublishDashboard && selectedPublishedDashboard is null)
+    {
+        <div class="admin-heading-actions">
+            <button class="admin-primary" type="button" disabled="@DashboardBusy" @onclick="PublishDashboardAsync">
+                @(OwnPublication is null ? "Publish dashboard for everyone" : "Publish updated dashboard")
+            </button>
+            @if (OwnPublication is not null)
+            {
+                <span>Published v@(OwnPublication.Version) · personal edits remain private until republished.</span>
+                <button class="admin-danger" type="button" disabled="@DashboardBusy" @onclick="() => confirmWithdrawDashboard = true">Withdraw dashboard</button>
+            }
+        </div>
+        @if (confirmWithdrawDashboard)
+        {
+            <div class="admin-message admin-message-warning" role="alertdialog" aria-label="Withdraw dashboard">
+                <p>Withdraw this dashboard for everyone? Your personal dashboard will be retained.</p>
+                <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="() => confirmWithdrawDashboard = false">Cancel</button>
+                <button class="admin-danger" type="button" disabled="@DashboardBusy" @onclick="WithdrawDashboardAsync">Confirm withdrawal</button>
+            </div>
+        }
+    }
+    @if (publicationMessage is not null)
+    {
+        <p role="status">@publicationMessage</p>
+    }
+    @if (publicationError is not null)
+    {
+        <div class="admin-message admin-message-error" role="alert">@publicationError</div>
+    }
+</section>
+@if (selectedPublishedDashboard is Guid publishedId)
+{
+    <PublishedAnalysisDashboardView @key="publishedId" DashboardId="publishedId" />
+}
+<div class="analysis-personal-dashboard" hidden="@(selectedPublishedDashboard is not null)">
+<p class="inbox-save-status" role="status"><i></i>@dashboardStatus</p>
+<AnalysisDashboardTabs Collection="dashboardCollection" Disabled="@DashboardBusy"
+    Selected="SelectDashboardAsync" Created="CreateDashboardAsync" Renamed="RenameDashboardAsync" Deleted="DeleteDashboardAsync" />
+<AnalysisDashboardExecutionControls TimeRangeMinutes="Dashboard.Document.TimeRangeMinutesOverride"
+    BinMinutes="Dashboard.Document.BinMinutesOverride" Disabled="@(DashboardBusy || PersonalActionsBlocked)"
+    Changed="DashboardExecutionSettingsChangedAsync" />
+<fieldset class="analysis-dashboard-content" disabled="@PersonalActionsBlocked">
+@if (dashboardEditMode)
+{
+    <AnalysisGridControls Document="Dashboard.Document" Disabled="@(isRunning || isDashboardRunning)" SizeChanged="ResizeGridAsync" />
+}
+
+@if (!Options.Enabled)
+{
+    <div class="admin-message admin-message-warning">
+        <strong>Live Log Analytics is disabled.</strong>
+        Enable the validated cross-tenant configuration before running analysis queries.
+    </div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
+
+<section class="analysis-controls" aria-label="Analysis controls">
+    <label>
+        <span>Domain</span>
+        <select @bind="domainFilter">
+            <option value="">All domains</option>
+            @foreach (var domain in inventory.Select(item => item.Domain).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
+            {
+                <option value="@domain">@domain</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Site</span>
+        <select @bind="siteFilter">
+            <option value="">All sites</option>
+            @foreach (var site in FilteredByDomain.Select(item => item.Site).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
+            {
+                <option value="@site">@site</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Role</span>
+        <select @bind="roleFilter">
+            <option value="">All roles</option>
+            @foreach (var role in FilteredBySite.Select(item => item.Role).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
+            {
+                <option value="@role">@role</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Published query</span>
+        <select @bind="selectedQueryId" @bind:after="QueryChanged">
+            <option value="@Guid.Empty">Select a query</option>
+            @foreach (var query in VisibleLibraryQueries)
+            {
+                <option value="@query.Id">@query.Category · @query.Name · v@(query.Version)@(query.Scope == AnalysisQueryScopes.Workspace ? " · Workspace-wide" : "")</option>
+            }
+            @if (SelectedQuery is { } openedQuery && Dashboard.Document.HiddenQueryIds.Contains(openedQuery.Id))
+            {
+                <option value="@openedQuery.Id">@openedQuery.Name · Opened from dashboard</option>
+            }
+        </select>
+    </label>
+    @if (SelectedQuery?.Scope == AnalysisQueryScopes.Workspace)
+    {
+        <div class="admin-message admin-message-warning" role="status">
+            Workspace-wide query: selected systems choose the workspaces only. Results can include all systems/domains in those workspaces.
+        </div>
+    }
+    <AnalysisExecutionSelections @bind-TimeRangeMinutes="timeRangeMinutes" @bind-BinMinutes="binMinutes"
+        @bind-GroupBy="groupBy" MaxTimeRangeMinutes="@(SelectedQuery?.MaxTimeRangeMinutes ?? 43200)"
+        ShowGrouping="@(SelectedQuery?.Kql.Contains("_GroupBy", StringComparison.Ordinal) == true)"
+        Disabled="@(isRunning || isDashboardRunning)" Changed="SelectionsChanged" />
+    <button class="admin-primary" type="button" disabled="@(!CanRun)" @onclick="RunAsync">
+        @(isRunning ? "Running..." : "Run query")
+    </button>
+    @if (openedWidgetId is not null && SelectedQuery is not null)
+    {
+        <button class="admin-secondary" type="button" disabled="@(isRunning || isDashboardRunning)" @onclick="ApplyWidgetSettingsAsync">Apply settings to opened widget</button>
+    }
+</section>
+
+<div class="analysis-workspace" @ref="dashboardRoot">
+<div class="analysis-selection-panels">
+<section class="analysis-system-picker analysis-resizable-panel" aria-labelledby="analysis-systems"
+         data-analysis-panel="systems" style="@PanelStyle(Dashboard.Document.SystemsPanel)">
+    <div class="admin-section-heading">
+        <div><h2 id="analysis-systems">Systems</h2><span>@selectedSystems.Count / 100 selected</span></div>
+        <div class="admin-card-actions">
+            <button class="admin-secondary" type="button" @onclick="SelectVisible">Select visible</button>
+            <button class="admin-secondary" type="button" @onclick="ClearSelection">Clear</button>
+        </div>
+    </div>
+    <div class="analysis-system-grid">
+        @foreach (var system in VisibleSystems)
+        {
+            var key = SystemKey(system);
+            <label class="admin-check">
+                <input type="checkbox" checked="@selectedSystems.Contains(key)"
+                       disabled="@(!selectedSystems.Contains(key) && selectedSystems.Count >= 100)"
+                       @onchange="eventArgs => ToggleSystem(key, eventArgs)" />
+                <span><strong>@system.Computer</strong><small>@system.Domain · @system.Site · @system.Role</small></span>
+            </label>
+        }
+    </div>
+    <button class="analysis-panel-resize-handle" type="button" data-analysis-panel-resize
+            aria-label="Resize Systems" title="Drag to resize Systems; use arrow keys for fine adjustments"></button>
+</section>
+
+<section class="analysis-query-library analysis-resizable-panel" aria-labelledby="analysis-query-library"
+         data-analysis-panel="queries" style="@PanelStyle(Dashboard.Document.QueryLibraryPanel)">
+    <div class="admin-section-heading">
+        <div>
+            <h2 id="analysis-query-library">Query library</h2>
+            <span>Drag a query onto the dashboard. Drag again to reposition it. Enter adds it to the first free position.</span>
+        </div>
+        <button class="admin-secondary" type="button" disabled="@(DashboardBusy || isRefreshingLibrary)"
+                @onclick="RefreshLibraryAsync">Refresh library</button>
+    </div>
+    <AnalysisQueryCategoryTree Nodes="LibraryCategories" QueryListClass="analysis-query-library-grid">
+        <QueryContent Context="query">
+        @{
+            var existing = Dashboard.Document.Widgets.FirstOrDefault(widget => widget.QueryDefinitionId == query.Id);
+            var canPlace = existing is not null || Dashboard.Document.Widgets.Count < 12;
+        }
+            <div class="analysis-query-library-item" @key="query.Id">
+            <article draggable="@(canPlace ? "true" : "false")" tabindex="@(canPlace ? 0 : -1)" role="button"
+                     aria-disabled="@(!canPlace)" aria-label="@($"Drag {query.Name} onto the dashboard or press Enter")"
+                     data-analysis-query-id="@query.Id" data-column-span="@(existing?.ColumnSpan ?? 2)"
+                     data-row-span="@(existing?.RowSpan ?? 4)" title="@query.Description">
+                <span>@query.Category</span>
+                <h3>@query.Name</h3>
+                <small>@query.Unit · v@(query.Version) @(existing is not null ? "· On dashboard" : null)</small>
+            </article>
+            <button class="admin-secondary" type="button" disabled="@(isRunning || isDashboardRunning)"
+                    aria-label="@($"Remove {query.Name} from my library")" @onclick="() => HideQueryAsync(query.Id)">
+                Remove from my library
+            </button>
+            </div>
+        </QueryContent>
+    </AnalysisQueryCategoryTree>
+    @if (HiddenLibraryQueries.Any())
+    {
+        <details class="analysis-hidden-queries">
+            <summary>Removed from my library (@HiddenLibraryQueries.Count())</summary>
+            @foreach (var hiddenQuery in HiddenLibraryQueries)
+            {
+                <div class="admin-card-actions">
+                    <span>@hiddenQuery.Name</span>
+                    <button class="admin-secondary" type="button" @onclick="() => RestoreQueryAsync(hiddenQuery.Id)">Restore</button>
+                </div>
+            }
+        </details>
+    }
+    <button class="analysis-panel-resize-handle" type="button" data-analysis-panel-resize
+            aria-label="Resize Query library" title="Drag to resize Query library; use arrow keys for fine adjustments"></button>
+</section>
+</div>
+
+<section class="analysis-dashboard-canvas" aria-label="Analysis dashboard">
+    @if (Dashboard.Document.Widgets.Count == 0)
+    {
+        <p class="admin-empty">Drag a published query from the library onto a dashboard cell.</p>
+    }
+        <div class="inbox-dashboard-grid analysis-dashboard-grid @(dashboardEditMode ? "show-grid" : null)"
+             data-inbox-dashboard-grid
+             data-columns="@Dashboard.Document.Columns"
+             data-rows="@Dashboard.Document.Rows"
+             data-row-height="@Dashboard.Document.RowHeight"
+             style="--columns:@Dashboard.Document.Columns;--rows:@Dashboard.Document.Rows;--row-height:@(Dashboard.Document.RowHeight)px">
+                @for (var row = 1; row <= Dashboard.Document.Rows; row++)
+                {
+                    @for (var column = 1; column <= Dashboard.Document.Columns; column++)
+                    {
+                        <div class="inbox-drop-cell" aria-hidden="true" style="grid-column:@column;grid-row:@row;pointer-events:none">
+                            <span>@column / @row</span>
+                        </div>
+                }
+            }
+            @foreach (var widget in Dashboard.Document.Widgets)
+            {
+                widgetResults.TryGetValue(widget.Id, out var widgetResult);
+                widgetErrors.TryGetValue(widget.Id, out var widgetError);
+                <article @key="widget.Id" class="inbox-dashboard-widget analysis-dashboard-widget accent-@widget.Accent @(dashboardEditMode ? "edit-enabled" : null)"
+                         data-inbox-widget-id="@widget.Id"
+                         data-analysis-widget-query-id="@widget.QueryDefinitionId"
+                         data-column-span="@widget.ColumnSpan"
+                         data-row-span="@widget.RowSpan"
+                         style="@DashboardWidgetStyle(widget)">
+                    <header class="inbox-widget-header" data-inbox-drag-handle="@(dashboardEditMode ? string.Empty : null)" title="Drag header to move">
+                        <span aria-hidden="true">⠿</span>
+                        <div><strong>@widget.Title</strong><small>@AnalysisQuerySelections.TimeRangeLabel(Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @(Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? availableQueries.FirstOrDefault(query => query.Id == widget.QueryDefinitionId)?.DefaultBinMinutes) min · @widget.GroupBy</small></div>
+                        <button class="inbox-widget-menu" type="button" @onclick="() => OpenWidget(widget)">Open</button>
+                    </header>
+                    @if (dashboardEditMode)
+                    {
+                        <div class="analysis-widget-actions">
+                            <button type="button" @onclick="() => RemoveWidget(widget.Id)">Remove</button>
+                        </div>
+                    }
+                    <div class="inbox-widget-body analysis-widget-body">
+                        @if (!string.IsNullOrWhiteSpace(widgetError))
+                        {
+                            <div class="admin-message admin-message-error">@widgetError</div>
+                        }
+                        else
+                        {
+                            <AnalysisResultView Result="widgetResult" />
+                        }
+                    </div>
+                    <button class="inbox-resize-handle"
+                            data-inbox-resize-handle="@(dashboardEditMode ? string.Empty : null)"
+                            type="button"
+                            title="Drag to resize @widget.Title"></button>
+                </article>
+            }
+        </div>
+</section>
+</div>
+
+@if (SelectedQuery is not null)
+{
+    <section class="analysis-execution-preview" aria-labelledby="analysis-execution-preview">
+        <div class="admin-section-heading">
+            <div>
+                <h2 id="analysis-execution-preview">Execution preview</h2>
+                <span>Effective server-generated query plan; credentials and Azure resource IDs are not displayed.</span>
+            </div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(previewError))
+        {
+            <div class="admin-message admin-message-warning">@previewError</div>
+        }
+        else if (executionPreviews.Count == 0)
+        {
+            <p class="admin-empty">Select at least one system to see workspace routing and effective KQL.</p>
+        }
+        else
+        {
+            <div class="analysis-execution-preview-grid">
+                @foreach (var preview in executionPreviews)
+                {
+                    <article class="analysis-execution-preview-card">
+                        <header>
+                            <div><span>Workspace</span><strong>@preview.WorkspaceDisplayName</strong></div>
+                            <code>@preview.WorkspaceKey</code>
+                        </header>
+                        <p><strong>Systems:</strong> @string.Join(", ", preview.Systems)</p>
+                        <details open>
+                            <summary>Effective KQL</summary>
+                            <pre>@preview.EffectiveKql</pre>
+                        </details>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+}
+
+@if (result is not null)
+{
+    <section class="analysis-result" aria-labelledby="analysis-result-title">
+        <div class="admin-section-heading">
+            <div>
+                <h2 id="analysis-result-title">@result.Name</h2>
+                <span>Version @result.Version · @result.From.ToString("u") to @result.To.ToString("u") · @result.DurationMilliseconds ms</span>
+            </div>
+        </div>
+        <AnalysisResultView Result="result" AllowTableView="true" @bind-ShowTable="showResultTable" />
+    </section>
+}
+
+</fieldset>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private IReadOnlyList<ComputerInventoryEntry> inventory = [];
+    private IReadOnlyList<AnalysisQueryDefinition> availableQueries = [];
+    private IReadOnlyList<AnalysisQueryCategoryNode> LibraryCategories => AnalysisQueryCategories.Build(VisibleLibraryQueries);
+    private bool isRefreshingLibrary;
+    private readonly HashSet<string> selectedSystems = new(StringComparer.OrdinalIgnoreCase);
+    private string domainFilter = string.Empty;
+    private string siteFilter = string.Empty;
+    private string roleFilter = string.Empty;
+    private Guid selectedQueryId;
+    private int timeRangeMinutes = 1440;
+    private int binMinutes = 15;
+    private string groupBy = "SourceDSA";
+    private string? openedWidgetId;
+    private bool isRunning;
+    private string? errorMessage;
+    private AnalysisQueryResponse? result;
+    private bool showResultTable;
+    private bool hasDetailRequest;
+    private IReadOnlyList<AnalysisQueryExecutionPreview> executionPreviews = [];
+    private string? previewError;
+    private string dashboardOwnerKey = "open-access";
+    private int dashboardRevision;
+    private AnalysisDashboardCollection dashboardCollection = AnalysisDashboardCollection.Create();
+    private bool isChangingDashboard;
+    private bool isSavingDashboard;
+    private bool isPublishingDashboard;
+    private bool canPublishDashboard;
+    private bool confirmWithdrawDashboard;
+    private Guid? selectedPublishedDashboard;
+    private IReadOnlyList<PublishedAnalysisDashboard> publishedDashboards = [];
+    private string? publicationError;
+    private string? publicationMessage;
+    private bool DashboardBusy => isRunning || isDashboardRunning || isChangingDashboard || isSavingDashboard || isPublishingDashboard;
+    private bool PersonalActionsBlocked => selectedPublishedDashboard is not null || isChangingDashboard || isSavingDashboard || isPublishingDashboard;
+    private PublishedAnalysisDashboard? OwnPublication => publishedDashboards.FirstOrDefault(item =>
+        item.Id == dashboardCollection.ActiveDashboardId && item.Owner.Equals(dashboardOwnerKey, StringComparison.OrdinalIgnoreCase));
+    private string dashboardStatus = "Dashboard not saved";
+    private readonly Dictionary<string, AnalysisQueryResponse> widgetResults = [];
+    private readonly Dictionary<string, string> widgetErrors = [];
+    private bool dashboardEditMode = true;
+    private bool isDashboardRunning;
+    private readonly CancellationTokenSource refreshCancellation = new();
+    private Task? refreshTask;
+    private ElementReference dashboardRoot;
+    private IJSObjectReference? dashboardModule;
+    private DotNetObjectReference<Analysis>? dashboardReference;
+
+    private IEnumerable<ComputerInventoryEntry> FilteredByDomain => inventory.Where(item =>
+        string.IsNullOrWhiteSpace(domainFilter) || string.Equals(item.Domain, domainFilter, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<ComputerInventoryEntry> FilteredBySite => FilteredByDomain.Where(item =>
+        string.IsNullOrWhiteSpace(siteFilter) || string.Equals(item.Site, siteFilter, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<ComputerInventoryEntry> VisibleSystems => FilteredBySite.Where(item =>
+        string.IsNullOrWhiteSpace(roleFilter) || string.Equals(item.Role, roleFilter, StringComparison.OrdinalIgnoreCase));
+    private AnalysisQueryDefinition? SelectedQuery => availableQueries.FirstOrDefault(query => query.Id == selectedQueryId);
+    private IEnumerable<AnalysisQueryDefinition> VisibleLibraryQueries =>
+        availableQueries.Where(query => !Dashboard.Document.HiddenQueryIds.Contains(query.Id));
+    private IEnumerable<AnalysisQueryDefinition> HiddenLibraryQueries =>
+        availableQueries.Where(query => Dashboard.Document.HiddenQueryIds.Contains(query.Id));
+    private bool CanRun => Options.Enabled && !isRunning && !isDashboardRunning && !PersonalActionsBlocked &&
+        !refreshCancellation.IsCancellationRequested && SelectedQuery is not null && selectedSystems.Count > 0;
+    private bool CanRunDashboard =>
+        Options.Enabled &&
+        !isDashboardRunning &&
+        !isRunning &&
+        !PersonalActionsBlocked &&
+        !refreshCancellation.IsCancellationRequested &&
+        Dashboard.Document.Widgets.Count > 0 &&
+        selectedSystems.Count > 0;
+
+    private async Task LoadLibraryAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        availableQueries = (await Registry.ListPublishedAsync())
+            .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
+            .ToArray();
+    }
+
+    private async Task RefreshLibraryAsync()
+    {
+        isRefreshingLibrary = true;
+        errorMessage = null;
+        try { await LoadLibraryAsync(); }
+        catch (Exception exception) { errorMessage = $"Could not refresh the query library: {exception.Message}"; }
+        finally { isRefreshingLibrary = false; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        dashboardOwnerKey = CurrentUserIdentity.GetActor(user, AuthenticationOptions.IsOpen);
+        canPublishDashboard = await Publishing.CanPublishAsync(user);
+        await ReloadPublicationsAsync();
+        inventory = await AlertStore.GetComputerInventoryAsync();
+        await LoadLibraryAsync();
+        var stored = await DashboardRepository.LoadAsync(dashboardOwnerKey);
+        dashboardRevision = stored.Revision;
+        dashboardCollection = stored.Collection ?? AnalysisDashboardCollection.Create();
+        Dashboard.Load(dashboardCollection.OpenActive());
+        if (stored.Collection is not null)
+        {
+            foreach (var saved in Dashboard.Document.Systems)
+            {
+                selectedSystems.Add($"{saved.SubscriptionId}\u001f{saved.Computer}");
+            }
+            dashboardStatus = $"Dashboard restored · revision {dashboardRevision}";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (dashboardModule is not null)
+            return;
+        dashboardModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/analysis-dashboard.js");
+        dashboardReference = DotNetObjectReference.Create(this);
+        await dashboardModule.InvokeVoidAsync("initialize", dashboardReference, dashboardRoot);
+        refreshTask = RefreshClockAsync(refreshCancellation.Token);
+    }
+
+    private async Task ResizeGridAsync((int Columns, int Rows, int RowHeight) size)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.ResizeGrid(size.Columns, size.Rows, size.RowHeight);
+        await SaveDashboardAsync();
+    }
+
+    private async Task AutoRefreshChangedAsync(ChangeEventArgs args)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.UpdateWorkspace(document =>
+        {
+            document.AutoRefreshEnabled = args.Value is true;
+            document.RefreshSeconds = 30;
+        });
+        await SaveDashboardAsync();
+    }
+
+    private async Task DashboardExecutionSettingsChangedAsync((int? TimeRangeMinutes, int? BinMinutes) settings)
+    {
+        if (DashboardBusy || PersonalActionsBlocked)
+            return;
+        Dashboard.SetExecutionOverrides(settings.TimeRangeMinutes, settings.BinMinutes);
+        widgetResults.Clear();
+        widgetErrors.Clear();
+        var opened = Dashboard.Document.Widgets.FirstOrDefault(widget => widget.Id == openedWidgetId);
+        if (opened is not null)
+            OpenWidget(opened);
+        await SaveDashboardAsync();
+    }
+
+    private async Task RefreshClockAsync(CancellationToken cancellationToken)
+    {
+        await AnalysisRefreshLoop.RunAsync(() =>
+            InvokeAsync(async () =>
+                {
+                    if (!Dashboard.Document.AutoRefreshEnabled || isRunning || isDashboardRunning || PersonalActionsBlocked)
+                        return;
+                    var refreshedDashboard = CanRunDashboard;
+                    if (refreshedDashboard)
+                        await RunDashboardAsync();
+                    if (hasDetailRequest && CanRun && Dashboard.Document.AutoRefreshEnabled)
+                    {
+                        var matchingWidget = refreshedDashboard ? Dashboard.Document.Widgets.FirstOrDefault(widget =>
+                            widget.QueryDefinitionId == selectedQueryId &&
+                            (Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) == timeRangeMinutes &&
+                            (Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? SelectedQuery?.DefaultBinMinutes) == binMinutes &&
+                            widget.GroupBy == groupBy) : null;
+                        if (matchingWidget is not null && widgetErrors.TryGetValue(matchingWidget.Id, out var refreshError))
+                        {
+                            result = null;
+                            errorMessage = refreshError;
+                        }
+                        else if (matchingWidget is not null && widgetResults.TryGetValue(matchingWidget.Id, out var refreshed))
+                            result = refreshed;
+                        else
+                            await RunAsync();
+                    }
+                    StateHasChanged();
+                }), cancellationToken);
+    }
+
+    private void QueryChanged()
+    {
+        openedWidgetId = null;
+        result = null;
+        hasDetailRequest = false;
+        if (SelectedQuery is { } query)
+        {
+            timeRangeMinutes = query.DefaultTimeRangeMinutes;
+            binMinutes = query.DefaultBinMinutes;
+            groupBy = "SourceDSA";
+        }
+        RefreshExecutionPreview();
+    }
+
+    private void SelectVisible()
+    {
+        if (PersonalActionsBlocked)
+            return;
+        var additional = VisibleSystems.Select(SystemKey).Where(key => !selectedSystems.Contains(key)).ToArray();
+        var capacity = Math.Max(0, 100 - selectedSystems.Count);
+        foreach (var key in additional.Take(capacity))
+            selectedSystems.Add(key);
+        errorMessage = additional.Length > capacity
+            ? "The selection is limited to 100 systems. Narrow the filters or clear the selection to select other systems."
+            : null;
+        SyncDashboardSystems();
+        RefreshExecutionPreview();
+    }
+
+    private void ClearSelection()
+    {
+        if (PersonalActionsBlocked)
+            return;
+        selectedSystems.Clear();
+        SyncDashboardSystems();
+        RefreshExecutionPreview();
+    }
+
+    private void ToggleSystem(string key, ChangeEventArgs eventArgs)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        if (eventArgs.Value is true)
+        {
+            if (!selectedSystems.Contains(key) && selectedSystems.Count >= 100)
+            {
+                errorMessage = "Select at most 100 systems.";
+                return;
+            }
+            selectedSystems.Add(key);
+        }
+        else
+            selectedSystems.Remove(key);
+        SyncDashboardSystems();
+        RefreshExecutionPreview();
+    }
+
+    private async Task HideQueryAsync(Guid queryId)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.HideQuery(queryId);
+        if (selectedQueryId == queryId)
+        {
+            selectedQueryId = Guid.Empty;
+            QueryChanged();
+        }
+        await SaveDashboardAsync();
+    }
+
+    private async Task RestoreQueryAsync(Guid queryId)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.RestoreQuery(queryId);
+        await SaveDashboardAsync();
+    }
+
+    private void SyncDashboardSystems()
+    {
+        result = null;
+        hasDetailRequest = false;
+        widgetResults.Clear();
+        widgetErrors.Clear();
+        var systems = inventory
+            .Where(item => selectedSystems.Contains(SystemKey(item)))
+            .Select(item => new AnalysisDashboardSystem
+            {
+                SubscriptionId = item.SubscriptionId,
+                Computer = item.Computer
+            })
+            .ToList();
+        Dashboard.UpdateWorkspace(document => document.Systems = systems);
+    }
+
+    [JSInvokable]
+    public async Task PlaceDashboardQuery(string queryId, int column, int row)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        errorMessage = null;
+        var query = availableQueries.FirstOrDefault(item => item.Id.ToString().Equals(queryId, StringComparison.OrdinalIgnoreCase));
+        if (query is null)
+        {
+            errorMessage = "The published query is no longer available.";
+        }
+        else
+        {
+            var existing = Dashboard.Document.Widgets.FirstOrDefault(widget => widget.QueryDefinitionId == query.Id);
+            if (existing is not null)
+                Dashboard.MoveWidget(existing.Id, column, row);
+            else if (Dashboard.Document.Widgets.Count >= 12)
+                errorMessage = "An analysis dashboard may contain at most 12 widgets.";
+            else
+            {
+                var added = Dashboard.AddWidget(query.Id, query.Name, query.DefaultTimeRangeMinutes, column, row);
+                added.BinMinutes = query.DefaultBinMinutes;
+            }
+            if (errorMessage is null)
+            {
+                dashboardEditMode = true;
+                await SaveDashboardAsync();
+            }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task CommitAnalysisPanelResize(string panel, int width, int height)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        if (panel is not ("systems" or "queries"))
+        {
+            errorMessage = "The selected analysis panel does not exist.";
+        }
+        else
+        {
+            Dashboard.UpdateWorkspace(document =>
+            {
+                var layout = panel == "systems" ? document.SystemsPanel : document.QueryLibraryPanel;
+                layout.Width = width;
+                layout.Height = height;
+            });
+            await SaveDashboardAsync();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OpenWidget(AnalysisDashboardWidget widget)
+    {
+        openedWidgetId = widget.Id;
+        selectedQueryId = widget.QueryDefinitionId;
+        timeRangeMinutes = Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes;
+        binMinutes = Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? SelectedQuery?.DefaultBinMinutes ?? 15;
+        groupBy = widget.GroupBy;
+        result = null;
+        hasDetailRequest = false;
+        RefreshExecutionPreview();
+    }
+
+    private void SelectionsChanged()
+    {
+        result = null;
+        hasDetailRequest = false;
+        RefreshExecutionPreview();
+    }
+
+    private async Task ApplyWidgetSettingsAsync()
+    {
+        if (PersonalActionsBlocked || openedWidgetId is null)
+            return;
+        Dashboard.UpdateWidget(openedWidgetId, widget =>
+        {
+            widget.TimeRangeMinutes = timeRangeMinutes;
+            widget.BinMinutes = binMinutes;
+            widget.GroupBy = groupBy;
+        });
+        widgetResults.Remove(openedWidgetId);
+        widgetErrors.Remove(openedWidgetId);
+        await SaveDashboardAsync();
+    }
+
+    private void RemoveWidget(string id)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.RemoveWidget(id);
+        if (openedWidgetId == id)
+            openedWidgetId = null;
+        widgetResults.Remove(id);
+        widgetErrors.Remove(id);
+        dashboardStatus = "Unsaved widget changes";
+    }
+
+    private async Task RunDashboardAsync()
+    {
+        if (!CanRunDashboard)
+            return;
+        isDashboardRunning = true;
+        errorMessage = null;
+        widgetErrors.Clear();
+        StateHasChanged();
+        var systems = inventory
+            .Where(item => selectedSystems.Contains(SystemKey(item)))
+            .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
+            .ToArray();
+        using var concurrency = new SemaphoreSlim(3, 3);
+        var unique = new Dictionary<string, Task<AnalysisQueryResponse>>(StringComparer.Ordinal);
+        var jobs = new List<(AnalysisDashboardWidget Widget, Task<AnalysisQueryResponse> Task)>();
+        foreach (var widget in Dashboard.Document.Widgets)
+        {
+            var query = availableQueries.FirstOrDefault(item => item.Id == widget.QueryDefinitionId);
+            if (query is null)
+            {
+                widgetErrors[widget.Id] = "The published query is no longer available.";
+                continue;
+            }
+            var request = Dashboard.Document.CreateExecutionRequest(widget, systems);
+            var key = $"{query.Id:N}|{query.Version}|{request.TimeRangeMinutes}|{request.BinMinutes ?? query.DefaultBinMinutes}|{request.GroupBy}";
+            if (!unique.TryGetValue(key, out var task))
+            {
+                task = ExecuteDashboardRequestAsync(
+                    request,
+                    concurrency);
+                unique.Add(key, task);
+            }
+            jobs.Add((widget, task));
+        }
+
+        await Task.WhenAll(jobs.Select(async job =>
+        {
+            try
+            {
+                var response = await job.Task;
+                if (Dashboard.Document.Widgets.Any(widget => widget.Id == job.Widget.Id))
+                {
+                    widgetResults[job.Widget.Id] = response;
+                    widgetErrors.Remove(job.Widget.Id);
+                }
+            }
+            catch (Exception exception)
+            {
+                if (Dashboard.Document.Widgets.Any(widget => widget.Id == job.Widget.Id))
+                    widgetErrors[job.Widget.Id] = exception.Message;
+            }
+        }));
+        dashboardStatus = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u} · {unique.Count} unique request(s)";
+        isDashboardRunning = false;
+    }
+
+    private async Task<AnalysisQueryResponse> ExecuteDashboardRequestAsync(
+        AnalysisQueryRequest request,
+        SemaphoreSlim concurrency)
+    {
+        var cancellationToken = refreshCancellation.Token;
+        await concurrency.WaitAsync(cancellationToken);
+        try
+        {
+            return await Execution.ExecuteAsync(request, cancellationToken);
+        }
+        finally
+        {
+            concurrency.Release();
+        }
+    }
+
+    private void UndoDashboard()
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.Undo();
+        RestoreDashboardSystems();
+        dashboardStatus = "Unsaved undo";
+    }
+
+    private void RedoDashboard()
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.Redo();
+        RestoreDashboardSystems();
+        dashboardStatus = "Unsaved redo";
+    }
+
+    private void RestoreDashboardSystems()
+    {
+        widgetResults.Clear();
+        widgetErrors.Clear();
+        hasDetailRequest = false;
+        selectedSystems.Clear();
+        foreach (var saved in Dashboard.Document.Systems)
+            selectedSystems.Add($"{saved.SubscriptionId}\u001f{saved.Computer}");
+        var opened = Dashboard.Document.Widgets.FirstOrDefault(widget => widget.Id == openedWidgetId);
+        if (opened is not null)
+            OpenWidget(opened);
+        else
+        {
+            openedWidgetId = null;
+            result = null;
+            RefreshExecutionPreview();
+        }
+    }
+
+    private async Task ReloadPublicationsAsync()
+    {
+        try
+        {
+            publishedDashboards = await Publishing.ListAsync((await AuthenticationStateTask).User, refreshCancellation.Token);
+            publicationError = null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            publicationError = $"Published dashboards could not be loaded: {exception.Message}";
+        }
+    }
+
+    private async Task OpenPublishedDashboardAsync(Guid id)
+    {
+        if (DashboardBusy)
+            return;
+        if (selectedPublishedDashboard is null && !await TrySaveDashboardAsync())
+            return;
+        selectedPublishedDashboard = id;
+        confirmWithdrawDashboard = false;
+    }
+
+    private void ReturnToPersonalDashboard()
+    {
+        if (!DashboardBusy)
+            selectedPublishedDashboard = null;
+    }
+
+    private async Task PublishDashboardAsync()
+    {
+        if (DashboardBusy || selectedPublishedDashboard is not null)
+            return;
+        isPublishingDashboard = true;
+        publicationError = publicationMessage = null;
+        try
+        {
+            if (!await TrySaveDashboardAsync())
+                return;
+            var publication = await Publishing.PublishAsync(dashboardCollection.ActiveDashboardId, dashboardRevision,
+                (await AuthenticationStateTask).User, refreshCancellation.Token);
+            dashboardRevision++;
+            dashboardStatus = $"Dashboard saved · revision {dashboardRevision}";
+            publicationMessage = $"Published {publication.Name} v{publication.Version} for everyone.";
+            await ReloadPublicationsAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            publicationError = $"The dashboard could not be published: {exception.Message}";
+        }
+        finally
+        {
+            isPublishingDashboard = false;
+        }
+    }
+
+    private async Task WithdrawDashboardAsync()
+    {
+        if (DashboardBusy || selectedPublishedDashboard is not null)
+            return;
+        isPublishingDashboard = true;
+        publicationError = publicationMessage = null;
+        try
+        {
+            await Publishing.WithdrawAsync(dashboardCollection.ActiveDashboardId,
+                (await AuthenticationStateTask).User, refreshCancellation.Token);
+            confirmWithdrawDashboard = false;
+            publicationMessage = "Dashboard withdrawn. It is now private to you.";
+            await ReloadPublicationsAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            publicationError = $"The dashboard could not be withdrawn: {exception.Message}";
+        }
+        finally
+        {
+            isPublishingDashboard = false;
+        }
+    }
+
+    private Task SelectDashboardAsync(Guid id) => ChangeDashboardAsync(collection => collection.Select(id));
+    private Task CreateDashboardAsync(string name) => ChangeDashboardAsync(collection => collection.Add(name));
+    private Task RenameDashboardAsync(string name) => ChangeDashboardAsync(collection => collection.RenameActive(name));
+    private Task DeleteDashboardAsync() => ChangeDashboardAsync(collection => collection.DeleteActive());
+
+    private async Task ChangeDashboardAsync(Action<AnalysisDashboardCollection> change)
+    {
+        if (isRunning || isDashboardRunning || PersonalActionsBlocked)
+            return;
+        isChangingDashboard = true;
+        errorMessage = null;
+        try
+        {
+            if (!await TrySaveDashboardAsync())
+                return;
+            var candidate = dashboardCollection.Copy();
+            change(candidate);
+            var saved = await DashboardRepository.SaveAsync(dashboardOwnerKey, candidate, dashboardRevision);
+            dashboardRevision = saved.Revision;
+            dashboardCollection = candidate;
+            Dashboard.Load(candidate.OpenActive());
+            confirmWithdrawDashboard = false;
+            selectedQueryId = Guid.Empty;
+            openedWidgetId = null;
+            domainFilter = siteFilter = roleFilter = string.Empty;
+            RestoreDashboardSystems();
+            dashboardStatus = $"{Dashboard.Document.Name} · saved revision {dashboardRevision}";
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            errorMessage = "The dashboards were changed in another session. Reload the page before trying again.";
+        }
+        catch (Exception exception) when (exception is DbUpdateException or InvalidOperationException)
+        {
+            errorMessage = $"The dashboard change could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            isChangingDashboard = false;
+        }
+    }
+
+    private async Task SaveDashboardAsync() => await TrySaveDashboardAsync();
+
+    private async Task<bool> TrySaveDashboardAsync()
+    {
+        if (selectedPublishedDashboard is not null)
+        {
+            publicationError = "Published dashboards are read-only. Return to My dashboards to make changes.";
+            return false;
+        }
+        if (isSavingDashboard)
+        {
+            errorMessage = "A dashboard save is already in progress. Retry after it completes.";
+            return false;
+        }
+        isSavingDashboard = true;
+        try
+        {
+            dashboardCollection.CaptureActive(Dashboard.Document);
+            var snapshot = dashboardCollection.Copy();
+            var saved = await DashboardRepository.SaveAsync(
+                dashboardOwnerKey,
+                snapshot,
+                dashboardRevision);
+            dashboardRevision = saved.Revision;
+            dashboardStatus = $"Dashboard saved · revision {dashboardRevision}";
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            errorMessage = "The dashboard was changed in another session. Reload the page before saving again.";
+            return false;
+        }
+        catch (DbUpdateException)
+        {
+            errorMessage = "The dashboard could not be saved. Your changes remain on this page; retry Save dashboard.";
+            return false;
+        }
+        finally { isSavingDashboard = false; }
+    }
+
+    [JSInvokable]
+    public async Task CommitDashboardMove(string id, int column, int row)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.MoveWidget(id, column, row);
+        await SaveDashboardAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task CommitDashboardResize(string id, int columnSpan, int rowSpan)
+    {
+        if (PersonalActionsBlocked)
+            return;
+        Dashboard.ResizeWidget(id, columnSpan, rowSpan);
+        await SaveDashboardAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string DashboardWidgetStyle(AnalysisDashboardWidget widget) =>
+        $"grid-column:{widget.Column}/span {widget.ColumnSpan};grid-row:{widget.Row}/span {widget.RowSpan};";
+
+    private static string PanelStyle(AnalysisDashboardPanelLayout panel) =>
+        $"width:{(panel.Width == 0 ? "100%" : $"{panel.Width}px")};height:{panel.Height}px;";
+
+    private async Task RunAsync()
+    {
+        if (!CanRun)
+            return;
+        isRunning = true;
+        hasDetailRequest = true;
+        errorMessage = null;
+        result = null;
+        StateHasChanged();
+        try
+        {
+            var systems = inventory
+                .Where(item => selectedSystems.Contains(SystemKey(item)))
+                .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
+                .ToArray();
+            var request = new AnalysisQueryRequest(selectedQueryId, systems, timeRangeMinutes, binMinutes, groupBy);
+            var response = await Execution.ExecuteAsync(request, refreshCancellation.Token);
+            if (hasDetailRequest && request.QueryDefinitionId == selectedQueryId &&
+                request.TimeRangeMinutes == timeRangeMinutes && request.BinMinutes == binMinutes && request.GroupBy == groupBy)
+                result = response;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isRunning = false;
+        }
+    }
+
+    private static string SystemKey(ComputerInventoryEntry entry) => $"{entry.SubscriptionId}\u001f{entry.Computer}";
+
+    private void RefreshExecutionPreview()
+    {
+        previewError = null;
+        executionPreviews = [];
+        if (SelectedQuery is null || selectedSystems.Count == 0)
+            return;
+        try
+        {
+            var systems = inventory.Where(item => selectedSystems.Contains(SystemKey(item))).ToArray();
+            executionPreviews = QueryRunner.CreateExecutionPreviews(SelectedQuery, systems, timeRangeMinutes, binMinutes, groupBy);
+        }
+        catch (InvalidOperationException exception)
+        {
+            previewError = exception.Message;
+        }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await refreshCancellation.CancelAsync();
+        if (refreshTask is not null)
+            await refreshTask;
+        refreshCancellation.Dispose();
+        if (dashboardModule is not null)
+        {
+            try { await dashboardModule.InvokeVoidAsync("dispose", dashboardRoot); }
+            catch (JSDisconnectedException) { }
+            await dashboardModule.DisposeAsync();
+        }
+        dashboardReference?.Dispose();
+    }
+}

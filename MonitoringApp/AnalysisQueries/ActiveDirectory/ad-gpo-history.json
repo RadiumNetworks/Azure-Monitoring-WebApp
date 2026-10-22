@@ -1,0 +1,27 @@
+{
+  "key": "ad-gpo-history",
+  "name": "GPO and SYSVOL status history",
+  "description": "Workspace-wide history per Environment (domain) using the execution bin interval: maximum observed counts/sizes, with derived percentages. Selected systems route workspaces only. Gaps/missing metrics are not healthy zeros; colors are illustrative, not alert rules.",
+  "scope": "Workspace",
+  "category": "Active Directory",
+  "kql": "SysvolStats_CL\n| where TimeGenerated > ago(_TimePeriod)\n| extend Environment = tostring(Environment)\n| summarize LargeGPOs = max(todouble(LargeGPOs)), UnlinkedGPOs = max(todouble(UnlinkedGPOs)), LargeUnlinkedGPOs = max(todouble(LargeUnlinkedGPOs)), OrphanedGPOFolders = max(todouble(OrphanedGPOFolders)), GPODiscSizeBytes = max(todouble(GPODiscSize)), LargeGPODiscBytes = max(todouble(LargeGPODiscSize)) by Environment, Timestamp = bin(TimeGenerated, _BinSize)\n| extend GPODiscSizeGiB = GPODiscSizeBytes / 1073741824.0, LargeGPODiscGiB = LargeGPODiscBytes / 1073741824.0, LargePct = iff(GPODiscSizeBytes > 0, 100.0 * LargeGPODiscBytes / GPODiscSizeBytes, real(null)), LargeUnlinkedPctOfUnlinked = iff(UnlinkedGPOs > 0, 100.0 * LargeUnlinkedGPOs / UnlinkedGPOs, real(null))\n| extend Metrics = bag_pack('LargeGPOs', LargeGPOs, 'UnlinkedGPOs', UnlinkedGPOs, 'LargeUnlinkedGPOs', LargeUnlinkedGPOs, 'OrphanedGPOFolders', OrphanedGPOFolders, 'GPODiscSizeGiB', GPODiscSizeGiB, 'LargeGPODiscGiB', LargeGPODiscGiB, 'LargePct', LargePct, 'LargeUnlinkedPctOfUnlinked', LargeUnlinkedPctOfUnlinked)\n| mv-expand Dimension = bag_keys(Metrics) to typeof(string)\n| extend Value = todouble(Metrics[Dimension])\n| where isnotnull(Value)\n| project Timestamp, Series = iff(isempty(Environment), 'Unknown environment', Environment), Dimension, Value\n| order by Timestamp asc",
+  "visualizationType": "StatusHistory",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator",
+  "visualization": {
+    "decimals": 0,
+    "columns": [
+      { "name": "LargeGPOs", "displayName": "Large GPOs", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 20, "color": "orange" }, { "value": 50, "color": "red" }] },
+      { "name": "UnlinkedGPOs", "displayName": "Unlinked GPOs", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 20, "color": "orange" }, { "value": 50, "color": "red" }] },
+      { "name": "LargeUnlinkedGPOs", "displayName": "Large unlinked GPOs", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 20, "color": "orange" }, { "value": 50, "color": "red" }] },
+      { "name": "OrphanedGPOFolders", "displayName": "Orphaned GPO folders", "thresholds": [{ "value": 0, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 20, "color": "orange" }, { "value": 50, "color": "red" }] },
+      { "name": "GPODiscSizeGiB", "displayName": "Total GPO size", "unit": "GiB", "decimals": 2, "color": "blue" },
+      { "name": "LargeGPODiscGiB", "displayName": "Large GPO size", "unit": "GiB", "decimals": 2, "color": "purple" },
+      { "name": "LargePct", "displayName": "Large GPO size share", "unit": "%", "decimals": 1, "thresholds": [{ "value": 0, "color": "green" }, { "value": 25, "color": "yellow" }, { "value": 50, "color": "orange" }, { "value": 75, "color": "red" }] },
+      { "name": "LargeUnlinkedPctOfUnlinked", "displayName": "Large share of unlinked GPOs", "unit": "%", "decimals": 1, "thresholds": [{ "value": 0, "color": "green" }, { "value": 25, "color": "yellow" }, { "value": 50, "color": "orange" }, { "value": 75, "color": "red" }] }
+    ]
+  }
+}

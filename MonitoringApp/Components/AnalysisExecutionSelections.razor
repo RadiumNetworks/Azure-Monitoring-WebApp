@@ -1,0 +1,61 @@
+<label class="admin-field">
+    <span>Time range</span>
+    <select value="@TimeRangeMinutes" disabled="@Disabled" @onchange="ChangeTimeRange">
+        @foreach (var minutes in AnalysisQuerySelections.TimeRanges.Append(TimeRangeMinutes).Distinct().Order())
+        {
+            <option value="@minutes" disabled="@(minutes > MaxTimeRangeMinutes)">@AnalysisQuerySelections.TimeRangeLabel(minutes)</option>
+        }
+    </select>
+</label>
+<label class="admin-field">
+    <span>Averaging interval</span>
+    <select value="@BinMinutes" disabled="@Disabled" @onchange="ChangeBin">
+        @foreach (var minutes in AnalysisQuerySelections.BinSizes.Append(BinMinutes).Distinct().Order())
+        {
+            <option value="@minutes">@(minutes == 60 ? "1h" : $"{minutes} min")</option>
+        }
+    </select>
+</label>
+@if (ShowGrouping)
+{
+    <label class="admin-field">
+        <span>Replication grouping</span>
+        <select value="@GroupBy" disabled="@Disabled" @onchange="ChangeGrouping">
+            @foreach (var grouping in AnalysisQuerySelections.Groupings)
+            {
+                <option value="@grouping.Key">@grouping.Value</option>
+            }
+        </select>
+    </label>
+}
+
+@code {
+    [Parameter] public int TimeRangeMinutes { get; set; } = 1440;
+    [Parameter] public EventCallback<int> TimeRangeMinutesChanged { get; set; }
+    [Parameter] public int BinMinutes { get; set; } = 15;
+    [Parameter] public EventCallback<int> BinMinutesChanged { get; set; }
+    [Parameter] public string GroupBy { get; set; } = "SourceDSA";
+    [Parameter] public EventCallback<string> GroupByChanged { get; set; }
+    [Parameter] public int MaxTimeRangeMinutes { get; set; } = 43200;
+    [Parameter] public bool ShowGrouping { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private async Task ChangeTimeRange(ChangeEventArgs args)
+    {
+        await TimeRangeMinutesChanged.InvokeAsync(int.Parse(args.Value?.ToString() ?? "", System.Globalization.CultureInfo.InvariantCulture));
+        await Changed.InvokeAsync();
+    }
+
+    private async Task ChangeBin(ChangeEventArgs args)
+    {
+        await BinMinutesChanged.InvokeAsync(int.Parse(args.Value?.ToString() ?? "", System.Globalization.CultureInfo.InvariantCulture));
+        await Changed.InvokeAsync();
+    }
+
+    private async Task ChangeGrouping(ChangeEventArgs args)
+    {
+        await GroupByChanged.InvokeAsync(args.Value?.ToString() ?? "");
+        await Changed.InvokeAsync();
+    }
+}

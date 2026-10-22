@@ -1,6 +1,15 @@
 @MonitoringApp_HostAddress = http://localhost:5078
 @AlertAccessToken = replace-with-logic-app-uami-access-token
 
+### Export saved query drafts (requires an authenticated AdminAccess session)
+# In SQL authentication mode, use a valid administrator session cookie.
+# Empty registry or invalid saved visualization options: 409 Problem Details.
+# A signed-in operator without AdminAccess: 403.
+GET {{MonitoringApp_HostAddress}}/api/admin/analysis-queries/export
+Accept: application/zip
+
+###
+
 # Remove the Authorization header while AlertIngestionAuthentication is disabled.
 POST {{MonitoringApp_HostAddress}}/api/alerts
 Authorization: Bearer {{AlertAccessToken}}
