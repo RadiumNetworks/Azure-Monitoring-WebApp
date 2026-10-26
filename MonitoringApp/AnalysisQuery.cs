@@ -134,7 +134,9 @@ public sealed record AnalysisQueryRequest(
     IReadOnlyList<AnalysisQuerySystem> Systems,
     int TimeRangeMinutes,
     int? BinMinutes = null,
-    string GroupBy = "SourceDSA");
+    string GroupBy = "SourceDSA",
+    string? WorkspaceKey = null,
+    string? Domain = null);
 
 public sealed record AnalysisQueryPoint(
     DateTimeOffset Timestamp,

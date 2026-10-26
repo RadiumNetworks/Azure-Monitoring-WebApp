@@ -196,26 +196,104 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .graph-easter-egg-pirate { background: linear-gradient(115deg, #171411, #403324); }
 .graph-easter-egg-haunted { background: radial-gradient(circle at 16% 50%, rgba(238, 114, 24, .16), transparent 24%), linear-gradient(115deg, #190f22, #352044); }
 .graph-easter-egg-newyear { background: radial-gradient(circle at 78% 30%, rgba(255, 210, 74, .2), transparent 18%), linear-gradient(115deg, #071a28, #143c50); }
+.graph-easter-egg-tolkien { background: linear-gradient(115deg, #152b22, #354728); }
+.graph-easter-egg-alien { background: linear-gradient(115deg, #0e1f19, #25382a); }
+.graph-easter-egg-towel { background: linear-gradient(115deg, #162d42, #33465a); }
+.graph-easter-egg-duke { background: linear-gradient(115deg, #302611, #4c3d20); }
+.graph-easter-egg-quake { background: linear-gradient(115deg, #211b28, #3b2d48); }
+.graph-easter-egg-warhammer { background: linear-gradient(115deg, #1a251f, #394535); }
+.graph-easter-egg-half-life { background: linear-gradient(115deg, #2a2116, #4f3a22); }
+.graph-easter-egg-doom { background: linear-gradient(115deg, #260f13, #4a2424); }
+.graph-easter-egg-independence, .graph-easter-egg-star-trek, .graph-easter-egg-spaceflight, .graph-easter-egg-science-fiction { background: linear-gradient(115deg, #101a30, #263d59); }
 .graph-offworld-heading { flex: 0 0 auto; color: #9fb8d2; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; }
+.graph-offworld-note { display: block; max-width: 180px; margin-top: 4px; color: #c4d7ea; font-size: .62rem; font-weight: 500; line-height: 1.4; letter-spacing: normal; text-transform: none; }
 .graph-offworld-site-list { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px 22px; }
 .graph-offworld-site { display: inline-flex; align-items: center; gap: 8px; font-size: .74rem; }
-.graph-offworld-site i { width: 15px; height: 15px; border: 2px solid rgba(255, 255, 255, .8); border-radius: 50%; background: #8fa7ba; box-shadow: 0 0 12px rgba(143, 167, 186, .7); }
-.graph-offworld-site-desert i { background: #d9a84d; box-shadow: 0 0 12px rgba(217, 168, 77, .75); }
-.graph-offworld-site-water i { background: #48a6c7; box-shadow: 0 0 12px rgba(72, 166, 199, .75); }
-.graph-offworld-site-city i { background: #a69bd3; box-shadow: 0 0 12px rgba(166, 155, 211, .75); }
-.graph-offworld-site-gold i, .graph-offworld-site-historic i { background: #e7b94f; box-shadow: 0 0 12px rgba(231, 185, 79, .8); }
-.graph-offworld-site-phantom i { border-style: dashed; background: rgba(164, 199, 187, .25); box-shadow: 0 0 12px rgba(164, 199, 187, .55); }
-.graph-offworld-site-classified i { background: #718096; box-shadow: inset 0 0 0 3px #26313d, 0 0 12px rgba(113, 128, 150, .7); }
-.graph-offworld-site-missing i { border-style: dashed; background: transparent; box-shadow: none; opacity: .65; }
-.graph-offworld-site-moon i { background: #bac3ca; box-shadow: inset -4px -3px 0 rgba(69, 79, 88, .28), 0 0 12px rgba(220, 229, 235, .7); }
-.graph-offworld-site-cat i { border-radius: 50% 50% 45% 45%; background: #d99bd8; box-shadow: 0 0 12px rgba(217, 155, 216, .75); }
-.graph-offworld-site-pirate i { background: #b48a49; box-shadow: inset 0 0 0 3px #2d251a, 0 0 12px rgba(180, 138, 73, .75); }
-.graph-offworld-site-spooky i { background: #8155a6; box-shadow: 0 0 12px rgba(151, 88, 194, .85); }
-.graph-offworld-site-pumpkin i { background: #ed731d; box-shadow: 0 0 12px rgba(237, 115, 29, .9); }
-.graph-offworld-site-celebration i { background: #e7d34f; box-shadow: 0 0 5px #fff, 0 0 14px rgba(231, 211, 79, .95); }
-.graph-offworld-site-danger { color: #ffb4ae; }
-.graph-offworld-site-danger i { border-color: #ffd7d4; background: #e3261f; box-shadow: 0 0 0 5px rgba(227, 38, 31, .16), 0 0 16px rgba(255, 62, 52, .95); }
+.graph-offworld-site .easter-egg-icon { flex: 0 0 22px; color: var(--easter-icon, #c4d7ea); }
+.graph-offworld-site-desert { --easter-icon: #d9a84d; }
+.graph-offworld-site-water, .graph-offworld-site-towel { --easter-icon: #8adef5; }
+.graph-offworld-site-city { --easter-icon: #a69bd3; }
+.graph-offworld-site-gold, .graph-offworld-site-historic, .graph-offworld-site-answer, .graph-offworld-site-sun { --easter-icon: #e7b94f; }
+.graph-offworld-site-phantom, .graph-offworld-site-hobbit-door, .graph-offworld-site-leaf { --easter-icon: #a4c7bb; }
+.graph-offworld-site-classified { --easter-icon: #a8b7cd; }
+.graph-offworld-site-missing { --easter-icon: #98a7b5; }
+.graph-offworld-site-moon, .graph-offworld-site-white-city { --easter-icon: #e2e8ee; }
+.graph-offworld-site-cat { --easter-icon: #d99bd8; }
+.graph-offworld-site-pirate { --easter-icon: #cfa86a; }
+.graph-offworld-site-spooky { --easter-icon: #bb96d9; }
+.graph-offworld-site-pumpkin, .graph-offworld-site-volcano, .graph-offworld-site-rocket { --easter-icon: #ffad6e; }
+.graph-offworld-site-alien { --easter-icon: #b5e088; }
+.graph-offworld-site-celebration { --easter-icon: #e7d34f; }
+.graph-offworld-site-sunglasses, .graph-offworld-site-gear { --easter-icon: #e7b94f; }
+.graph-offworld-site-portal { --easter-icon: #c3a6f0; }
+.graph-offworld-site-rune, .graph-offworld-site-helmet { --easter-icon: #bcd7a5; }
+.graph-offworld-site-lab { --easter-icon: #ffbf78; }
+.graph-easter-egg-half-life .graph-offworld-site-portal { --easter-icon: #a8e888; }
+.graph-easter-egg-doom .graph-offworld-site-portal { --easter-icon: #ff9b94; }
+.graph-offworld-site-portal .easter-egg-icon { animation: graph-portal-pulse 3s ease-in-out infinite; }
+.graph-offworld-site-rune .easter-egg-icon { animation: graph-rune-drift 4s ease-in-out infinite; }
+.graph-offworld-site-danger { color: #ffb4ae; --easter-icon: #ff9b94; }
 .graph-site-map-svg { display: block; width: 100%; height: auto; max-height: 440px; }
+.graph-easter-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; font-size: .75rem; }
+.graph-easter-preview > span { color: var(--muted); }
+.graph-easter-preview a[aria-current="page"] { font-weight: 800; text-decoration-thickness: 2px; }
+.graph-site-map-bodies { display: grid; align-items: center; }
+.graph-site-map-bodies.has-moon, .graph-site-map-bodies.has-mars { grid-template-columns: minmax(0, 1fr) minmax(260px, 330px); gap: 12px; padding: 16px; background: #07111c; }
+.has-moon .graph-site-map-svg, .has-mars .graph-site-map-svg { border-radius: 4px; background: #f7faf9; }
+.graph-earth-easter-site, .graph-moon-site, .graph-mars-site { color: #f6ddb0; cursor: help; }
+.graph-easter-marker-spooky { color: #dec0ff; }
+.graph-easter-marker-pumpkin { color: #ffa64d; }
+.graph-easter-marker-gold, .graph-easter-marker-historic, .graph-easter-marker-gear { color: #ffe190; }
+.graph-easter-marker-cat { color: #f1b4ed; }
+.graph-easter-marker-water { color: #8adef5; }
+.graph-easter-marker-celebration { color: #fff197; }
+.graph-easter-marker-ufo { color: #214f6a; }
+.graph-easter-leader { stroke: #665334; stroke-width: 4px; }
+.graph-easter-anchor { fill: #fff5d9; stroke: #152232; stroke-width: 3px; }
+.graph-easter-disc { fill: #101923; fill-opacity: .94; stroke: currentColor; stroke-width: 3px; }
+.graph-earth-easter-site:focus, .graph-moon-site:focus, .graph-mars-site:focus { outline: none; }
+.graph-earth-easter-site:focus .graph-easter-disc, .graph-earth-easter-site:hover .graph-easter-disc,
+.graph-moon-site:focus .graph-easter-disc, .graph-moon-site:hover .graph-easter-disc,
+.graph-mars-site:focus .graph-easter-disc, .graph-mars-site:hover .graph-easter-disc { stroke-width: 6px; fill: #29374a; }
+.graph-earth-easter-site:focus .graph-easter-hovering { filter: drop-shadow(0 0 8px #247ab3); }
+.graph-easter-hovering { animation: graph-easter-hover 4s ease-in-out infinite; }
+.graph-easter-orbit { color: #efc478; pointer-events: none; }
+.graph-orbit-path { fill: none; stroke: #57758c; stroke-width: 3px; stroke-dasharray: 12 16; opacity: .65; }
+.graph-orbiting-site { offset-path: path("M1378 89 A1250 610 0 1 1 1378 1309 A1250 610 0 1 1 1378 89"); offset-rotate: auto; animation: graph-easter-orbit-motion 36s linear infinite; }
+@keyframes graph-easter-hover {
+    0%, 100% { transform: translateY(-8px); }
+    50% { transform: translateY(8px); }
+}
+@keyframes graph-easter-orbit-motion {
+    from { offset-distance: 0%; }
+    to { offset-distance: 100%; }
+}
+@keyframes graph-portal-pulse {
+    0%, 100% { opacity: .65; filter: drop-shadow(0 0 1px currentColor); }
+    50% { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
+}
+@keyframes graph-rune-drift {
+    0%, 100% { transform: translateY(-2px); }
+    50% { transform: translateY(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .graph-easter-hovering, .graph-orbiting-site,
+    .graph-offworld-site-portal .easter-egg-icon,
+    .graph-offworld-site-rune .easter-egg-icon { animation: none; }
+    .graph-orbiting-site { offset-distance: 12%; }
+}
+.graph-moon-panel, .graph-mars-panel { min-width: 0; color: #e5edf5; }
+.graph-moon-panel h3, .graph-mars-panel h3 { margin: 0 0 8px; font-size: .85rem; }
+.graph-moon-svg, .graph-mars-svg { display: block; width: 100%; height: auto; }
+.graph-moon-marker-number { fill: #fff4ce; stroke: #07111c; stroke-width: 6px; paint-order: stroke; font: 700 34px sans-serif; }
+.graph-moon-site-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; margin: 10px 0; padding-left: 22px; font-size: .68rem; }
+.graph-mars-render { position: relative; }
+.graph-mars-property { position: absolute; right: 10px; bottom: 10px; left: 10px; margin: 0; padding: 6px 8px; border: 1px solid #665334; border-radius: 3px; background: rgba(4, 10, 16, .85); color: #ffe190; font-size: .65rem; line-height: 1.4; text-align: center; }
+.graph-mars-site-legend { margin: 10px 0; padding-left: 22px; font-size: .68rem; }
+@media (max-width: 720px) {
+    .graph-site-map-bodies.has-moon, .graph-site-map-bodies.has-mars { grid-template-columns: minmax(0, 1fr); }
+    .graph-moon-panel, .graph-mars-panel { width: min(100%, 330px); justify-self: center; }
+}
 .graph-solar-overlay { pointer-events: none; }
 .graph-solar-overlay path { shape-rendering: crispEdges; }
 .graph-map-night { fill: #07172b; fill-opacity: .44; stroke: none; }
@@ -421,6 +499,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .admin-diagnostics-section { padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfb; }
 .admin-diagnostics-section h2 { margin: 0 0 4px; font-size: 1rem; }
 .admin-diagnostics-section > code { display: block; margin-bottom: 14px; color: var(--muted); font-size: .7rem; }
+.ingestion-diagnostic-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.ingestion-diagnostic-fields dt { color: var(--muted); font-size: .75rem; }
+.ingestion-diagnostic-fields dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.ingestion-diagnostic-card { min-width: 0; overflow-wrap: anywhere; }
+.ingestion-diagnostic-card .admin-section-heading { flex-wrap: wrap; }
+.ingestion-diagnostic-card details { margin-top: 12px; }
+.ingestion-diagnostic-card summary { cursor: pointer; font-weight: 600; }
+.ingestion-diagnostic-blocked { color: #9d352b; }
 .admin-diagnostic-step { margin-top: 10px; padding: 12px; border-left: 4px solid #9aa6a2; background: #f3f6f5; }
 .admin-diagnostic-step > div { display: flex; justify-content: space-between; gap: 12px; }
 .admin-diagnostic-step p { margin: 5px 0; font-size: .76rem; }
@@ -446,6 +532,30 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .admin-rule-cards { display: grid; gap: 10px; }
 .admin-rule-card { padding: 15px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .admin-rule-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 122, 100, .1); }
+.rca-workspace { grid-template-columns: minmax(280px, .6fr) minmax(0, 1.4fr); gap: 24px; }
+.rca-workspace > .admin-editor { padding-left: 24px; }
+.rca-group-heading, .rca-closed-group > summary { margin: 0 0 10px; font-size: .85rem; font-weight: 700; }
+.rca-case-list { display: grid; gap: 6px; }
+.rca-case { display: grid; width: 100%; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-left: 4px solid var(--rca-color); border-radius: 5px; background: color-mix(in srgb, var(--rca-color) 8%, var(--surface)); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.rca-case:hover { background: color-mix(in srgb, var(--rca-color) 14%, var(--surface)); }
+.rca-case.selected { border-color: var(--rca-color); box-shadow: 0 0 0 1px var(--rca-color); }
+.rca-case:focus-visible { outline: 2px solid var(--rca-color); outline-offset: 2px; }
+.rca-case:disabled { cursor: wait; opacity: .65; }
+.rca-case-heading, .rca-case-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.rca-case-heading strong { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.rca-case-status { flex-shrink: 0; color: var(--rca-color); font-size: .7rem; font-weight: 700; }
+.rca-case-meta, .rca-case time { color: var(--muted); font-size: .67rem; }
+.rca-case-meta > span:first-child { flex-shrink: 0; }
+.rca-case-assignee { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rca-closed-group { margin-top: 18px; }
+.rca-closed-group > summary { cursor: pointer; }
+.rca-linked-alerts { margin: 16px 0 22px; }
+.rca-linked-alerts h3 { margin-bottom: 6px; font-size: .9rem; }
+.rca-linked-alerts > p { color: var(--muted); font-size: .75rem; }
+.rca-alert-scroll { overflow-x: auto; }
+.rca-alert-table { width: 100%; }
+.rca-alert-table th, .rca-alert-table td { padding: 7px 8px; font-size: .72rem; vertical-align: top; }
+.rca-alert-table details p { overflow-wrap: anywhere; }
 .admin-rule-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .admin-rule-card-heading h3 { margin: 7px 0 0; font-size: .9rem; }
 .admin-status { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: .62rem; font-weight: 700; text-transform: uppercase; }
@@ -974,6 +1084,7 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .agent-review-actions, .agent-review > .agent-copy-status, .agent-review-log { grid-column: auto; }
     .agent-alert-list { max-height: 390px; }
     .admin-workspace { grid-template-columns: 1fr; gap: 28px; }
+    .rca-workspace > .admin-editor { padding-left: 0; }
     .admin-editor { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
     .inventory-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .inbox-command-bar { align-items: stretch; flex-wrap: wrap; }

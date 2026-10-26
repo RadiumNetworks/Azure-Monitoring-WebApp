@@ -17,19 +17,25 @@
             <div>
                 <h2>@snapshot.Publication.Name</h2>
                 <p>Published by @snapshot.Publication.Owner · version @snapshot.Publication.Version · read-only</p>
-                <p>Systems: @string.Join(", ", snapshot.Document.Systems.Select(system => system.Computer))</p>
+                <p>Selected systems (workspace/domain filters apply to system-based widgets only): @string.Join(", ", snapshot.Document.Systems.Select(system => system.Computer))</p>
             </div>
-            <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>Auto-refresh (30 seconds)</span></label>
-            <button class="admin-primary" type="button" disabled="@(running || !Options.Enabled)" @onclick="RunAsync">@(running ? "Running dashboard..." : "Run dashboard")</button>
+            @if (ShowControls)
+            {
+                <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>Auto-refresh (30 seconds)</span></label>
+                <button class="admin-primary" type="button" disabled="@(running || !Options.Enabled)" @onclick="RunAsync">@(running ? "Running dashboard..." : "Run dashboard")</button>
+            }
         </div>
+        @if (ShowControls)
+        {
         <AnalysisDashboardExecutionControls TimeRangeMinutes="snapshot.Document.TimeRangeMinutesOverride"
             BinMinutes="snapshot.Document.BinMinutesOverride" Disabled="@running" SessionOnly="true"
             Changed="ExecutionSettingsChanged" />
+        }
         @if (!Options.Enabled)
         {
             <div class="admin-message admin-message-warning">Live Log Analytics is disabled.</div>
         }
-        @if (status is not null)
+        @if (ShowControls && status is not null)
         {
             <p role="status">@status</p>
         }
@@ -39,6 +45,10 @@
 
 @code {
     [Parameter] public Guid DashboardId { get; set; }
+    [Parameter] public string? WorkspaceKey { get; set; }
+    [Parameter] public string? Domain { get; set; }
+    [Parameter] public bool ShowControls { get; set; } = true;
+    [Parameter] public bool AutoRunOnOpen { get; set; }
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
     private PublishedAnalysisDashboardSnapshot? snapshot;
     private readonly Dictionary<string, AnalysisQueryResponse> results = [];
@@ -48,6 +58,7 @@
     private Task? executionTask;
     private bool running;
     private bool autoRefresh;
+    private bool wasAutoRunEnabled;
     private string? errorMessage;
     private string? status;
     private System.Security.Claims.ClaimsPrincipal user = new();
@@ -66,6 +77,17 @@
                 await RunAsync();
             StateHasChanged();
         }), cancellation.Token, Clock);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var shouldRun = AutoRunOnOpen && !wasAutoRunEnabled;
+        wasAutoRunEnabled = AutoRunOnOpen;
+        if (shouldRun)
+        {
+            await RunAsync();
+            StateHasChanged();
+        }
     }
 
     private async Task<bool> ReloadAsync()
@@ -150,7 +172,8 @@
                 try
                 {
                     results[widget.Id] = await Execution.ExecuteAsync(
-                        executing.Document.CreateExecutionRequest(widget, systems), cancellation.Token);
+                        executing.Document.CreateExecutionRequest(widget, systems)
+                            with { WorkspaceKey = WorkspaceKey, Domain = Domain }, cancellation.Token);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {

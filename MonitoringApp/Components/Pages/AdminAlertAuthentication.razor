@@ -1,0 +1,183 @@
+@page "/admin/alert-authentication"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminAccess")]
+@inject AlertIngestionAuthenticationOptions Options
+@inject ApplicationAuthenticationOptions ApplicationAuthentication
+@inject IAlertIngestionDiagnostics Diagnostics
+
+<PageTitle>Alert Authentication Diagnostics</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Alert authentication</h1>
+        <p class="subtitle">Inspect ingestion configuration and selected identity metadata without retaining tokens or alert content.</p>
+    </div>
+    <button class="admin-secondary" type="button" @onclick="Refresh">Refresh requests</button>
+</section>
+
+@if (!Options.Enabled)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        <strong>Application-level ingestion authentication is disabled.</strong>
+        Incoming JWT claims are decoded only, not verified. Signatures, audience and lifetime are not validated.
+        Matching claims do not prove the caller's identity or permission.
+        Existing Azure front-end controls may still reject requests.
+    </div>
+}
+@if (ApplicationAuthentication.IsOpen)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        Application access is <code>open</code>: the AdminAccess policy does not require an application login.
+        Protect the administration UI with Easy Auth or <code>sql</code> authentication.
+    </div>
+}
+
+<section class="admin-diagnostics-section" aria-labelledby="ingestion-configuration">
+    <h2 id="ingestion-configuration">Effective configuration</h2>
+    <dl class="ingestion-diagnostic-fields">
+        <div><dt>Ingestion authentication</dt><dd>@(Options.Enabled ? "Enabled" : "Disabled")</dd></div>
+        <div><dt>Expected audience (API client ID)</dt><dd><code>@Display(Options.Audience)</code></dd></div>
+        <div><dt>Required application role</dt><dd><code>@Options.RequiredRole</code></dd></div>
+        <div><dt>Application instance</dt><dd><code>@instanceId</code></dd></div>
+    </dl>
+    @if (configurationErrors.Count > 0)
+    {
+        <p><strong>The configuration is not ready to enable ingestion authentication:</strong></p>
+        <ul>
+            @foreach (var error in configurationErrors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    }
+    <h3>Allowed tenant / UAMI pairs</h3>
+    @if (Options.Sources.Count == 0)
+    {
+        <p>No source pairs configured.</p>
+    }
+    @foreach (var source in Options.Sources)
+    {
+        <dl class="ingestion-diagnostic-fields">
+            <div><dt>Tenant ID</dt><dd><code>@source.TenantId</code></dd></div>
+            <div><dt>UAMI client ID (not object ID)</dt><dd><code>@source.ClientId</code></dd></div>
+        </dl>
+    }
+    <p>
+        Observed endpoints: <code>POST /api/alerts</code>,
+        <code>GET /api/alert-query-refresh-targets</code> and
+        <code>PUT /api/alerts/{id}/query-result</code>.
+        The current policy requires v2 claims, including <code>azp</code> and <code>idtyp=app</code>.
+        The Entra application role <code>@Options.RequiredRole</code> is distinct from Azure RBAC.
+    </p>
+</section>
+
+<section aria-labelledby="ingestion-requests">
+    <div class="admin-section-heading">
+        <div>
+            <h2 id="ingestion-requests">Recent requests (@requests.Count)</h2>
+            <span>Last @AlertIngestionDiagnostics.Capacity completed requests, at most 24 hours, on this application instance only. Refresh to update.</span>
+        </div>
+    </div>
+    <p>
+        History is lost on restart and is not shared between instances.
+        No raw tokens, cookies, arbitrary headers, query strings or alert bodies are retained.
+        Claims are limited to 256 characters per value; role and audience lists are bounded.
+        A request rejected by Easy Auth, a proxy or IIS before reaching this middleware cannot appear here.
+        For those failures, inspect Azure authentication/access logs.
+    </p>
+    @if (requests.Count == 0)
+    {
+        <p class="admin-empty">No completed ingestion requests recorded on this instance in the last 24 hours.</p>
+    }
+    <div class="admin-rule-cards">
+        @foreach (var request in requests)
+        {
+            <article class="admin-rule-card ingestion-diagnostic-card">
+                <div class="admin-section-heading">
+                    <strong><code>@request.Method @request.Endpoint</code></strong>
+                    <span>@request.RecordedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+                    @if (request.AuthenticationBlocked)
+                    {
+                        <strong class="ingestion-diagnostic-blocked">Blocked - HTTP @request.StatusCode</strong>
+                    }
+                    else
+                    {
+                        <span>HTTP @request.StatusCode</span>
+                    }
+                </div>
+                <p><strong>@request.AuthenticationStatus</strong></p>
+                <dl class="ingestion-diagnostic-fields">
+                    <div><dt>Tenant ID (tid)</dt><dd><code>@Display(request.TenantId)</code></dd></div>
+                    <div><dt>Reported UAMI client ID (azp, otherwise appid)</dt><dd><code>@Display(request.UamiClientId)</code></dd></div>
+                    <div><dt>Required role: @Options.RequiredRole</dt><dd>@RoleStatus(request)</dd></div>
+                </dl>
+                <details>
+                    <summary>Token and policy details</summary>
+                    <p>@request.InspectionStatus</p>
+                    @if (!request.TokenValidated)
+                    {
+                        <p><strong>Unverified claims: these checks do not establish authenticity or grant access.</strong></p>
+                    }
+                    <dl class="ingestion-diagnostic-fields">
+                        <div><dt>Authorized party (azp, used by policy)</dt><dd><code>@Display(request.AuthorizedParty)</code></dd></div>
+                        <div><dt>Application ID (appid, v1 fallback for display only)</dt><dd><code>@Display(request.ApplicationId)</code></dd></div>
+                        <div><dt>Object / principal ID (oid)</dt><dd><code>@Display(request.ObjectId)</code></dd></div>
+                        <div><dt>Token version (ver)</dt><dd>@Display(request.TokenVersion)</dd></div>
+                        <div><dt>Identity type (idtyp)</dt><dd>@Display(request.IdentityType)</dd></div>
+                        <div><dt>Issuer (iss)</dt><dd><code>@Display(request.Issuer)</code></dd></div>
+                        <div><dt>Audience (aud)</dt><dd><code>@List(request.Audiences)</code></dd></div>
+                        <div><dt>Application roles (roles)</dt><dd><code>@List(request.Roles)</code></dd></div>
+                        <div><dt>Expiry claim (exp), UTC</dt><dd>@(request.ExpiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Missing or invalid")</dd></div>
+                        <div><dt>Request trace ID</dt><dd><code>@request.TraceId</code></dd></div>
+                        <div><dt>Authentication required for this request</dt><dd>@(request.AuthenticationRequired ? "Yes" : "No")</dd></div>
+                    </dl>
+                    @if (request.ListsTruncated)
+                    {
+                        <p><strong>Some role/audience values were omitted or shortened for diagnostic limits.</strong></p>
+                    }
+                    @if (request.PolicyChecks.Count == 0)
+                    {
+                        <p>No readable identity claims; policy claim checks could not be run.</p>
+                    }
+                    else
+                    {
+                        <ul>
+                            @foreach (var check in request.PolicyChecks)
+                            {
+                                <li><strong>@(check.Passed ? "PASS" : "FAIL"): @check.Name.</strong> @check.Detail</li>
+                            }
+                        </ul>
+                    }
+                    <p>
+                        A role claim shows what this token contains, not the current Entra role assignment.
+                        Without a freshly issued, validated token this page cannot confirm that an assignment exists in Entra.
+                    </p>
+                </details>
+            </article>
+        }
+    </div>
+</section>
+
+@code {
+    private readonly string instanceId =
+        Environment.GetEnvironmentVariable("WEBSITE_INSTANCE_ID") ?? Environment.MachineName;
+    private IReadOnlyList<string> configurationErrors = [];
+    private IReadOnlyList<AlertIngestionRequestDiagnostic> requests = [];
+
+    protected override void OnInitialized()
+    {
+        configurationErrors = Options.ValidateConfiguration();
+        Refresh();
+    }
+
+    private void Refresh() => requests = Diagnostics.GetRecent();
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Missing" : value;
+    private static string List(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+    private static string RoleStatus(AlertIngestionRequestDiagnostic request) => request.RequiredRolePresent switch
+    {
+        true => request.TokenValidated ? "Present in validated token" : "Present (unverified claim)",
+        false => request.TokenValidated ? "Missing from validated token" : "Missing (unverified claims)",
+        null => "Unknown - no readable token"
+    };
+}

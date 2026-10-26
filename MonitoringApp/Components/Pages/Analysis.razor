@@ -15,14 +15,20 @@
 @inject AnalysisDashboardPublishing Publishing
 @inject IJSRuntime JS
 
-<PageTitle>Live Analysis</PageTitle>
+<PageTitle>Dashboards</PageTitle>
 
 <section class="query-heading">
     <div>
         <p class="eyebrow">Live Log Analytics</p>
-        <h1>System analysis</h1>
+        <h1>Dashboards</h1>
         <p class="subtitle">Run approved, versioned queries against automatically routed workspaces.</p>
     </div>
+    <label class="inbox-edit-toggle">
+        <input type="checkbox" disabled="@DashboardBusy" @bind="editMode" @bind:after="EditModeChangedAsync" />
+        <span>Edit</span>
+    </label>
+    @if (editMode)
+    {
     <div class="admin-heading-actions analysis-personal-actions" hidden="@(selectedPublishedDashboard is not null)">
         <label class="inbox-edit-toggle"><input type="checkbox" disabled="@PersonalActionsBlocked" @bind="dashboardEditMode" /><span>Edit grid</span></label>
         <label class="inbox-edit-toggle">
@@ -37,12 +43,46 @@
         <button class="admin-secondary" type="button" disabled="@(!Dashboard.CanRedo || DashboardBusy)" @onclick="RedoDashboard">Redo</button>
         <button class="admin-primary" type="button" disabled="@PersonalActionsBlocked" @onclick="SaveDashboardAsync">Save dashboard</button>
     </div>
+    }
+</section>
+
+<section class="analysis-controls" aria-label="Dashboard workspace">
+    <label>
+        <span>Workspace</span>
+        <select disabled="@DashboardBusy" @bind="workspaceFilter" @bind:after="WorkspaceChangedAsync">
+            <option value="">All workspaces</option>
+            @foreach (var workspace in Options.Workspaces.OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+            {
+                <option value="@workspace.Key">@workspace.DisplayName</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Domain</span>
+        <select disabled="@DashboardBusy" @bind="dashboardDomainFilter" @bind:after="DashboardFiltersChangedAsync">
+            <option value="">All domains</option>
+            @foreach (var workspace in Options.Workspaces
+                .Where(item => workspaceFilter.Length == 0 || item.Key.Equals(workspaceFilter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+            {
+                @foreach (var domain in workspace.Domains.OrderBy(workspace.GetDomainDisplayName, StringComparer.OrdinalIgnoreCase))
+                {
+                    <option value="@CrossTenantLogAnalyticsOptions.NormalizeDomain(domain)">@(workspaceFilter.Length == 0 ? $"{workspace.GetDomainDisplayName(domain)} · {workspace.DisplayName}" : workspace.GetDomainDisplayName(domain))</option>
+                }
+            }
+        </select>
+    </label>
+    <p>Applies to system-based widgets in personal and published dashboards. Selected systems remain unchanged.
+        Workspace-wide widgets ignore both filters and use the workspaces of all selected systems.</p>
 </section>
 
 <section class="analysis-dashboard-tabs" aria-label="Shared dashboards">
     <div class="admin-heading-actions">
         <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReturnToPersonalDashboard">My dashboards</button>
-        <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReloadPublicationsAsync">Refresh published dashboards</button>
+        @if (editMode)
+        {
+            <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReloadPublicationsAsync">Refresh published dashboards</button>
+        }
         @foreach (var publication in publishedDashboards)
         {
             <button class="@(selectedPublishedDashboard == publication.Id ? "admin-primary" : "admin-secondary")"
@@ -51,7 +91,7 @@
             </button>
         }
     </div>
-    @if (canPublishDashboard && selectedPublishedDashboard is null)
+    @if (editMode && canPublishDashboard && selectedPublishedDashboard is null)
     {
         <div class="admin-heading-actions">
             <button class="admin-primary" type="button" disabled="@DashboardBusy" @onclick="PublishDashboardAsync">
@@ -83,17 +123,25 @@
 </section>
 @if (selectedPublishedDashboard is Guid publishedId)
 {
-    <PublishedAnalysisDashboardView @key="publishedId" DashboardId="publishedId" />
+    <PublishedAnalysisDashboardView @key="(publishedId, workspaceFilter, dashboardDomainFilter)" DashboardId="publishedId"
+        WorkspaceKey="@workspaceFilter" Domain="@dashboardDomainFilter"
+        ShowControls="@editMode" AutoRunOnOpen="@(!editMode || runPublishedOnWorkspaceChange)" />
 }
 <div class="analysis-personal-dashboard" hidden="@(selectedPublishedDashboard is not null)">
-<p class="inbox-save-status" role="status"><i></i>@dashboardStatus</p>
-<AnalysisDashboardTabs Collection="dashboardCollection" Disabled="@DashboardBusy"
+@if (editMode)
+{
+    <p class="inbox-save-status" role="status"><i></i>@dashboardStatus</p>
+}
+<AnalysisDashboardTabs Collection="dashboardCollection" Disabled="@DashboardBusy" EditMode="@editMode"
     Selected="SelectDashboardAsync" Created="CreateDashboardAsync" Renamed="RenameDashboardAsync" Deleted="DeleteDashboardAsync" />
+@if (editMode)
+{
 <AnalysisDashboardExecutionControls TimeRangeMinutes="Dashboard.Document.TimeRangeMinutesOverride"
     BinMinutes="Dashboard.Document.BinMinutesOverride" Disabled="@(DashboardBusy || PersonalActionsBlocked)"
     Changed="DashboardExecutionSettingsChangedAsync" />
+}
 <fieldset class="analysis-dashboard-content" disabled="@PersonalActionsBlocked">
-@if (dashboardEditMode)
+@if (CanEditGrid)
 {
     <AnalysisGridControls Document="Dashboard.Document" Disabled="@(isRunning || isDashboardRunning)" SizeChanged="ResizeGridAsync" />
 }
@@ -141,6 +189,8 @@
             }
         </select>
     </label>
+    @if (editMode)
+    {
     <label>
         <span>Published query</span>
         <select @bind="selectedQueryId" @bind:after="QueryChanged">
@@ -172,6 +222,7 @@
     {
         <button class="admin-secondary" type="button" disabled="@(isRunning || isDashboardRunning)" @onclick="ApplyWidgetSettingsAsync">Apply settings to opened widget</button>
     }
+    }
 </section>
 
 <div class="analysis-workspace" @ref="dashboardRoot">
@@ -181,8 +232,8 @@
     <div class="admin-section-heading">
         <div><h2 id="analysis-systems">Systems</h2><span>@selectedSystems.Count / 100 selected</span></div>
         <div class="admin-card-actions">
-            <button class="admin-secondary" type="button" @onclick="SelectVisible">Select visible</button>
-            <button class="admin-secondary" type="button" @onclick="ClearSelection">Clear</button>
+            <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="SelectVisibleAsync">Select visible</button>
+            <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ClearSelectionAsync">Clear</button>
         </div>
     </div>
     <div class="analysis-system-grid">
@@ -191,16 +242,21 @@
             var key = SystemKey(system);
             <label class="admin-check">
                 <input type="checkbox" checked="@selectedSystems.Contains(key)"
-                       disabled="@(!selectedSystems.Contains(key) && selectedSystems.Count >= 100)"
-                       @onchange="eventArgs => ToggleSystem(key, eventArgs)" />
+                       disabled="@(DashboardBusy || (!selectedSystems.Contains(key) && selectedSystems.Count >= 100))"
+                       @onchange="eventArgs => ToggleSystemAsync(key, eventArgs)" />
                 <span><strong>@system.Computer</strong><small>@system.Domain · @system.Site · @system.Role</small></span>
             </label>
         }
     </div>
+    @if (editMode)
+    {
     <button class="analysis-panel-resize-handle" type="button" data-analysis-panel-resize
             aria-label="Resize Systems" title="Drag to resize Systems; use arrow keys for fine adjustments"></button>
+    }
 </section>
 
+@if (editMode)
+{
 <section class="analysis-query-library analysis-resizable-panel" aria-labelledby="analysis-query-library"
          data-analysis-panel="queries" style="@PanelStyle(Dashboard.Document.QueryLibraryPanel)">
     <div class="admin-section-heading">
@@ -249,14 +305,15 @@
     <button class="analysis-panel-resize-handle" type="button" data-analysis-panel-resize
             aria-label="Resize Query library" title="Drag to resize Query library; use arrow keys for fine adjustments"></button>
 </section>
+}
 </div>
 
 <section class="analysis-dashboard-canvas" aria-label="Analysis dashboard">
     @if (Dashboard.Document.Widgets.Count == 0)
     {
-        <p class="admin-empty">Drag a published query from the library onto a dashboard cell.</p>
+        <p class="admin-empty">@(editMode ? "Drag a published query from the library onto a dashboard cell." : "This dashboard has no widgets. Enable Edit to add queries.")</p>
     }
-        <div class="inbox-dashboard-grid analysis-dashboard-grid @(dashboardEditMode ? "show-grid" : null)"
+        <div class="inbox-dashboard-grid analysis-dashboard-grid @(CanEditGrid ? "show-grid" : null)"
              data-inbox-dashboard-grid
              data-columns="@Dashboard.Document.Columns"
              data-rows="@Dashboard.Document.Rows"
@@ -275,18 +332,24 @@
             {
                 widgetResults.TryGetValue(widget.Id, out var widgetResult);
                 widgetErrors.TryGetValue(widget.Id, out var widgetError);
-                <article @key="widget.Id" class="inbox-dashboard-widget analysis-dashboard-widget accent-@widget.Accent @(dashboardEditMode ? "edit-enabled" : null)"
+                <article @key="widget.Id" class="inbox-dashboard-widget analysis-dashboard-widget accent-@widget.Accent @(CanEditGrid ? "edit-enabled" : null)"
                          data-inbox-widget-id="@widget.Id"
                          data-analysis-widget-query-id="@widget.QueryDefinitionId"
                          data-column-span="@widget.ColumnSpan"
                          data-row-span="@widget.RowSpan"
                          style="@DashboardWidgetStyle(widget)">
-                    <header class="inbox-widget-header" data-inbox-drag-handle="@(dashboardEditMode ? string.Empty : null)" title="Drag header to move">
-                        <span aria-hidden="true">⠿</span>
+                    <header class="inbox-widget-header" data-inbox-drag-handle="@(CanEditGrid ? string.Empty : null)" title="@(CanEditGrid ? "Drag header to move" : null)">
+                        @if (CanEditGrid)
+                        {
+                            <span aria-hidden="true">⠿</span>
+                        }
                         <div><strong>@widget.Title</strong><small>@AnalysisQuerySelections.TimeRangeLabel(Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @(Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? availableQueries.FirstOrDefault(query => query.Id == widget.QueryDefinitionId)?.DefaultBinMinutes) min · @widget.GroupBy</small></div>
-                        <button class="inbox-widget-menu" type="button" @onclick="() => OpenWidget(widget)">Open</button>
+                        @if (editMode)
+                        {
+                            <button class="inbox-widget-menu" type="button" @onclick="() => OpenWidget(widget)">Open</button>
+                        }
                     </header>
-                    @if (dashboardEditMode)
+                    @if (CanEditGrid)
                     {
                         <div class="analysis-widget-actions">
                             <button type="button" @onclick="() => RemoveWidget(widget.Id)">Remove</button>
@@ -302,17 +365,20 @@
                             <AnalysisResultView Result="widgetResult" />
                         }
                     </div>
+                    @if (CanEditGrid)
+                    {
                     <button class="inbox-resize-handle"
-                            data-inbox-resize-handle="@(dashboardEditMode ? string.Empty : null)"
+                            data-inbox-resize-handle
                             type="button"
                             title="Drag to resize @widget.Title"></button>
+                    }
                 </article>
             }
         </div>
 </section>
 </div>
 
-@if (SelectedQuery is not null)
+@if (editMode && SelectedQuery is not null)
 {
     <section class="analysis-execution-preview" aria-labelledby="analysis-execution-preview">
         <div class="admin-section-heading">
@@ -351,7 +417,7 @@
     </section>
 }
 
-@if (result is not null)
+@if (editMode && result is not null)
 {
     <section class="analysis-result" aria-labelledby="analysis-result-title">
         <div class="admin-section-heading">
@@ -377,6 +443,9 @@
     private string domainFilter = string.Empty;
     private string siteFilter = string.Empty;
     private string roleFilter = string.Empty;
+    private string workspaceFilter = string.Empty;
+    private string dashboardDomainFilter = string.Empty;
+    private bool runPublishedOnWorkspaceChange;
     private Guid selectedQueryId;
     private int timeRangeMinutes = 1440;
     private int binMinutes = 15;
@@ -409,6 +478,8 @@
     private readonly Dictionary<string, AnalysisQueryResponse> widgetResults = [];
     private readonly Dictionary<string, string> widgetErrors = [];
     private bool dashboardEditMode = true;
+    private bool editMode;
+    private bool CanEditGrid => editMode && dashboardEditMode;
     private bool isDashboardRunning;
     private readonly CancellationTokenSource refreshCancellation = new();
     private Task? refreshTask;
@@ -485,6 +556,40 @@
         dashboardReference = DotNetObjectReference.Create(this);
         await dashboardModule.InvokeVoidAsync("initialize", dashboardReference, dashboardRoot);
         refreshTask = RefreshClockAsync(refreshCancellation.Token);
+        if (!editMode)
+        {
+            await RunDashboardAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task EditModeChangedAsync()
+    {
+        confirmWithdrawDashboard = false;
+        if (!editMode)
+        {
+            hasDetailRequest = false;
+            await RunDashboardAsync();
+        }
+    }
+
+    private async Task WorkspaceChangedAsync()
+    {
+        dashboardDomainFilter = string.Empty;
+        await DashboardFiltersChangedAsync();
+    }
+
+    private async Task DashboardFiltersChangedAsync()
+    {
+        widgetResults.Clear();
+        widgetErrors.Clear();
+        result = null;
+        errorMessage = null;
+        hasDetailRequest = false;
+        RefreshExecutionPreview();
+        runPublishedOnWorkspaceChange = selectedPublishedDashboard is not null;
+        if (selectedPublishedDashboard is null)
+            await RunDashboardAsync();
     }
 
     private async Task ResizeGridAsync((int Columns, int Rows, int RowHeight) size)
@@ -565,9 +670,9 @@
         RefreshExecutionPreview();
     }
 
-    private void SelectVisible()
+    private async Task SelectVisibleAsync()
     {
-        if (PersonalActionsBlocked)
+        if (PersonalActionsBlocked || DashboardBusy)
             return;
         var additional = VisibleSystems.Select(SystemKey).Where(key => !selectedSystems.Contains(key)).ToArray();
         var capacity = Math.Max(0, 100 - selectedSystems.Count);
@@ -576,22 +681,20 @@
         errorMessage = additional.Length > capacity
             ? "The selection is limited to 100 systems. Narrow the filters or clear the selection to select other systems."
             : null;
-        SyncDashboardSystems();
-        RefreshExecutionPreview();
+        await RefreshSelectedSystemsAsync();
     }
 
-    private void ClearSelection()
+    private async Task ClearSelectionAsync()
     {
-        if (PersonalActionsBlocked)
+        if (PersonalActionsBlocked || DashboardBusy)
             return;
         selectedSystems.Clear();
-        SyncDashboardSystems();
-        RefreshExecutionPreview();
+        await RefreshSelectedSystemsAsync();
     }
 
-    private void ToggleSystem(string key, ChangeEventArgs eventArgs)
+    private async Task ToggleSystemAsync(string key, ChangeEventArgs eventArgs)
     {
-        if (PersonalActionsBlocked)
+        if (PersonalActionsBlocked || DashboardBusy)
             return;
         if (eventArgs.Value is true)
         {
@@ -604,8 +707,15 @@
         }
         else
             selectedSystems.Remove(key);
+        await RefreshSelectedSystemsAsync();
+    }
+
+    private async Task RefreshSelectedSystemsAsync()
+    {
         SyncDashboardSystems();
         RefreshExecutionPreview();
+        if (!editMode)
+            await RunDashboardAsync();
     }
 
     private async Task HideQueryAsync(Guid queryId)
@@ -649,7 +759,7 @@
     [JSInvokable]
     public async Task PlaceDashboardQuery(string queryId, int column, int row)
     {
-        if (PersonalActionsBlocked)
+        if (!editMode || PersonalActionsBlocked)
             return;
         errorMessage = null;
         var query = availableQueries.FirstOrDefault(item => item.Id.ToString().Equals(queryId, StringComparison.OrdinalIgnoreCase));
@@ -681,7 +791,7 @@
     [JSInvokable]
     public async Task CommitAnalysisPanelResize(string panel, int width, int height)
     {
-        if (PersonalActionsBlocked)
+        if (!editMode || PersonalActionsBlocked)
             return;
         if (panel is not ("systems" or "queries"))
         {
@@ -769,7 +879,8 @@
                 widgetErrors[widget.Id] = "The published query is no longer available.";
                 continue;
             }
-            var request = Dashboard.Document.CreateExecutionRequest(widget, systems);
+            var request = Dashboard.Document.CreateExecutionRequest(widget, systems)
+                with { WorkspaceKey = workspaceFilter, Domain = dashboardDomainFilter };
             var key = $"{query.Id:N}|{query.Version}|{request.TimeRangeMinutes}|{request.BinMinutes ?? query.DefaultBinMinutes}|{request.GroupBy}";
             if (!unique.TryGetValue(key, out var task))
             {
@@ -875,13 +986,18 @@
         if (selectedPublishedDashboard is null && !await TrySaveDashboardAsync())
             return;
         selectedPublishedDashboard = id;
+        runPublishedOnWorkspaceChange = false;
         confirmWithdrawDashboard = false;
     }
 
-    private void ReturnToPersonalDashboard()
+    private async Task ReturnToPersonalDashboard()
     {
         if (!DashboardBusy)
+        {
             selectedPublishedDashboard = null;
+            if (!editMode)
+                await RunDashboardAsync();
+        }
     }
 
     private async Task PublishDashboardAsync()
@@ -935,7 +1051,12 @@
         }
     }
 
-    private Task SelectDashboardAsync(Guid id) => ChangeDashboardAsync(collection => collection.Select(id));
+    private async Task SelectDashboardAsync(Guid id)
+    {
+        await ChangeDashboardAsync(collection => collection.Select(id));
+        if (!editMode && errorMessage is null)
+            await RunDashboardAsync();
+    }
     private Task CreateDashboardAsync(string name) => ChangeDashboardAsync(collection => collection.Add(name));
     private Task RenameDashboardAsync(string name) => ChangeDashboardAsync(collection => collection.RenameActive(name));
     private Task DeleteDashboardAsync() => ChangeDashboardAsync(collection => collection.DeleteActive());
@@ -1020,7 +1141,7 @@
     [JSInvokable]
     public async Task CommitDashboardMove(string id, int column, int row)
     {
-        if (PersonalActionsBlocked)
+        if (!CanEditGrid || PersonalActionsBlocked)
             return;
         Dashboard.MoveWidget(id, column, row);
         await SaveDashboardAsync();
@@ -1030,7 +1151,7 @@
     [JSInvokable]
     public async Task CommitDashboardResize(string id, int columnSpan, int rowSpan)
     {
-        if (PersonalActionsBlocked)
+        if (!CanEditGrid || PersonalActionsBlocked)
             return;
         Dashboard.ResizeWidget(id, columnSpan, rowSpan);
         await SaveDashboardAsync();
@@ -1058,7 +1179,8 @@
                 .Where(item => selectedSystems.Contains(SystemKey(item)))
                 .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
                 .ToArray();
-            var request = new AnalysisQueryRequest(selectedQueryId, systems, timeRangeMinutes, binMinutes, groupBy);
+            var request = new AnalysisQueryRequest(selectedQueryId, systems, timeRangeMinutes, binMinutes, groupBy,
+                workspaceFilter, dashboardDomainFilter);
             var response = await Execution.ExecuteAsync(request, refreshCancellation.Token);
             if (hasDetailRequest && request.QueryDefinitionId == selectedQueryId &&
                 request.TimeRangeMinutes == timeRangeMinutes && request.BinMinutes == binMinutes && request.GroupBy == groupBy)
@@ -1085,7 +1207,8 @@
         try
         {
             var systems = inventory.Where(item => selectedSystems.Contains(SystemKey(item))).ToArray();
-            executionPreviews = QueryRunner.CreateExecutionPreviews(SelectedQuery, systems, timeRangeMinutes, binMinutes, groupBy);
+            executionPreviews = QueryRunner.CreateExecutionPreviews(SelectedQuery, systems, timeRangeMinutes, binMinutes, groupBy,
+                workspaceFilter, dashboardDomainFilter);
         }
         catch (InvalidOperationException exception)
         {

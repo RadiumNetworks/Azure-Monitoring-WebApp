@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MonitoringApp;
 using MonitoringApp.Components;
+using MonitoringApp.Middleware;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -100,6 +101,7 @@ var alertHistory = databaseSettings.AlertHistory;
 var alertGraph = databaseSettings.AlertGraph;
 var alertSeverityDisplay = databaseSettings.AlertSeverityDisplay;
 var inboxTargetOutputDisplay = databaseSettings.InboxTargetOutputDisplay;
+var rcaDisplay = databaseSettings.RcaDisplay;
 var agentAnalysisContext = databaseSettings.AgentAnalysisContext;
 var agentAnalysisExecution = databaseSettings.AgentAnalysisExecution;
 var agentAnalysisProfiles = builder.Configuration
@@ -154,6 +156,13 @@ if (inboxTargetOutputDisplayErrors.Count > 0)
         $"Invalid database setting '{DatabaseSettingsLoader.InboxTargetOutputDisplay}': {string.Join(" ", inboxTargetOutputDisplayErrors)}");
 }
 
+var rcaDisplayErrors = rcaDisplay.Validate();
+if (rcaDisplayErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.RcaDisplay}': {string.Join(" ", rcaDisplayErrors)}");
+}
+
 var agentAnalysisExecutionState = AgentAnalysisExecutionState.Create(
     agentAnalysisExecution,
     agentAnalysisProfiles,
@@ -189,6 +198,7 @@ builder.Services.AddSingleton(applicationAuthentication);
 builder.Services.AddSingleton(alertHistory);
 builder.Services.AddSingleton(alertSeverityDisplay);
 builder.Services.AddSingleton(inboxTargetOutputDisplay);
+builder.Services.AddSingleton(rcaDisplay);
 builder.Services.AddSingleton(alertGraph);
 builder.Services.AddSingleton(agentAnalysisContext);
 builder.Services.AddSingleton(agentAnalysisProfiles);
@@ -206,6 +216,7 @@ builder.Services.AddSingleton<IAnalysisQueryExportService, AnalysisQueryExportSe
 builder.Services.AddSingleton<AnalysisQueryExecutionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(ingestionAuthentication);
+builder.Services.AddSingleton<IAlertIngestionDiagnostics, AlertIngestionDiagnostics>();
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = SqlCookieScheme;
@@ -258,7 +269,7 @@ if (applicationAuthentication.IsSql)
 }
 
 authorization
-    .AddPolicy("LogicAppAlertWriter", policy =>
+    .AddPolicy(AlertIngestionAuthorization.PolicyName, policy =>
     {
         if (AlertIngestionAuthorization.IsAuthenticationRequired(ingestionAuthentication))
         {
@@ -297,7 +308,10 @@ builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
 builder.Services.AddSingleton<SqlAuthenticationService>();
 builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddScoped<RcaService>();
+builder.Services.AddHostedService<RcaWorker>();
 builder.Services.AddScoped<DatabaseResetService>();
+builder.Services.AddScoped<LegacyAlertResolutionService>();
 builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
@@ -370,6 +384,7 @@ app.Use(async (context, next) =>
 
     await next();
 });
+app.UseMiddleware<AlertIngestionDiagnosticsMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
 app.MapStaticAssets().AllowAnonymous();
@@ -449,7 +464,7 @@ app.MapPost("/api/alerts", async (JsonElement payload, AlertStore store, Cancell
 })
 .WithName("IngestAlert")
 .WithSummary("Receives an Azure Monitor alert payload")
-.RequireAuthorization("LogicAppAlertWriter")
+.RequireAuthorization(AlertIngestionAuthorization.PolicyName)
 .Produces(StatusCodes.Status201Created)
 .Produces(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status401Unauthorized)
@@ -494,7 +509,7 @@ app.MapGet("/api/alert-query-refresh-targets", async (
 .WithName("GetAlertQueryRefreshTargets")
 .WithSummary("Returns active alerts that require a scheduled query refresh")
 .WithDescription("Returns supported stateful alerts whose current monitor condition is Fired.")
-.RequireAuthorization("LogicAppAlertWriter")
+.RequireAuthorization(AlertIngestionAuthorization.PolicyName)
 .Produces<IReadOnlyList<AlertQueryRefreshTargetResponse>>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status401Unauthorized)
 .Produces(StatusCodes.Status403Forbidden)
@@ -559,7 +574,7 @@ app.MapPut("/api/alerts/{id:guid}/query-result", async (
 .WithName("UpdateAlertQueryResult")
 .WithSummary("Updates the query result of an active supported alert")
 .WithDescription("Idempotently replaces only the query snapshot while preserving the stateful Azure alert identity and lifecycle.")
-.RequireAuthorization("LogicAppAlertWriter")
+.RequireAuthorization(AlertIngestionAuthorization.PolicyName)
 .Produces<UpdateAlertQueryResultResponse>(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status401Unauthorized)
 .Produces(StatusCodes.Status403Forbidden)

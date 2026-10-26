@@ -7,6 +7,30 @@ namespace MonitoringApp;
 /// </summary>
 public static class AlertInventoryLearning
 {
+    public static bool HasZeroRowCount(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty("queryResult", out var result) ||
+            result.ValueKind != JsonValueKind.Object ||
+            !result.TryGetProperty("rowCount", out var count))
+            return false;
+        return count.ValueKind == JsonValueKind.Number && count.TryGetDecimal(out var number) && number == 0 ||
+            count.ValueKind == JsonValueKind.String && count.GetString()?.Trim() == "0";
+    }
+
+    public static bool HasZeroRowCount(string rawJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(rawJson);
+            return HasZeroRowCount(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static bool IsDcPort(string rawJson) =>
         InventoryRoleRuleMatcher.ReadQueryResultType(rawJson).Equals("DCPort", StringComparison.OrdinalIgnoreCase);
 
@@ -19,7 +43,7 @@ public static class AlertInventoryLearning
 
     private static IReadOnlyList<LearnedComputerDomain> LearnSystems(string rawJson, bool requireDomain)
     {
-        if (string.IsNullOrWhiteSpace(rawJson))
+        if (string.IsNullOrWhiteSpace(rawJson) || HasZeroRowCount(rawJson))
         {
             return [];
         }

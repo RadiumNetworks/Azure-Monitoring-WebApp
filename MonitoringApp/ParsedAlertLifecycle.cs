@@ -48,7 +48,8 @@ public static class ParsedAlertLifecycle
                 directRules.Any(rule => evaluator.MatchesRule(rule, record.Alert))) ||
                 aggregateCriticalAlertIds.Contains(lifecycle.Key);
             var resolvedAt = lifecycle
-                .Where(record => record.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
+                .Where(record => record.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase) ||
+                    AlertLifecycle.IsManuallyResolved(record.Alert))
                 .Select(record => record.ResolvedAt ?? record.Alert.ReceivedAt)
                 .Cast<DateTimeOffset?>()
                 .Max();

@@ -52,21 +52,25 @@ DECLARE @Tables table
 
 INSERT INTO @Tables ([Sequence], [TableName])
 VALUES
-    (1, N'AgentAnalysisReviewEvents'),
-    (2, N'AgentAnalysisJobs'),
-    (3, N'AnalysisDashboardTemplates'),
-    (4, N'AnalysisDashboards'),
-    (5, N'InboxLayouts'),
-    (6, N'AnalysisQueryWorkspaces'),
-    (7, N'AnalysisQueryVersions'),
-    (8, N'AnalysisQueryDefinitions'),
-    (9, N'LogbookEntries'),
-    (10, N'ParsedAlerts'),
-    (11, N'AlertHistory'),
-    (12, N'Alerts'),
-    (13, N'ComputerInventory'),
-    (14, N'AlertRules'),
-    (15, N'AnalysisQueryCategories');
+    (1, N'RcaAlertLinks'),
+    (2, N'AgentAnalysisReviewEvents'),
+    (3, N'AgentAnalysisJobs'),
+    (4, N'AnalysisDashboardTemplates'),
+    (5, N'AnalysisDashboards'),
+    (6, N'InboxLayouts'),
+    (7, N'AnalysisQueryWorkspaces'),
+    (8, N'AnalysisQueryVersions'),
+    (9, N'AnalysisQueryDefinitions'),
+    (10, N'LogbookEntries'),
+    (11, N'ParsedAlerts'),
+    (12, N'AlertHistory'),
+    (13, N'Alerts'),
+    (14, N'ComputerInventory'),
+    (15, N'AlertRules'),
+    (16, N'AnalysisQueryCategories'),
+    (17, N'RcaChanges'),
+    (18, N'RcaPrompts'),
+    (19, N'RootCauseAnalyses');
 
 DECLARE @Sequence int = 1;
 DECLARE @TableName sysname;
@@ -77,7 +81,7 @@ DECLARE @Message nvarchar(2048);
 
 BEGIN TRY
     SET @Step = N'Check required tables';
-    WHILE @Sequence <= 15
+    WHILE @Sequence <= 19
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);
@@ -93,7 +97,7 @@ BEGIN TRY
     BEGIN TRANSACTION;
 
     SET @Sequence = 1;
-    WHILE @Sequence <= 15
+    WHILE @Sequence <= 19
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);
@@ -148,7 +152,7 @@ BEGIN TRY
              0, 0, N''info'', N''Domain Controller'', 0, N''None'');';
 
     SET @Sequence = 1;
-    WHILE @Sequence <= 15
+    WHILE @Sequence <= 19
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);

@@ -1,0 +1,178 @@
+<svg class="easter-egg-icon" viewBox="0 0 32 32" x="@X" y="@Y" width="@Size" height="@Size"
+     aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+    @switch (Tone)
+    {
+        case "sunglasses":
+            <rect x="2" y="11" width="11" height="9" rx="3" fill="currentColor" opacity=".5" />
+            <rect x="19" y="11" width="11" height="9" rx="3" fill="currentColor" opacity=".5" />
+            <path d="M2 11h11v5a5 5 0 0 1-10 0v-5m16 0h11v5a5 5 0 0 1-10 0v-5M13 13h6" />
+            break;
+        case "portal":
+            <ellipse cx="16" cy="16" rx="11" ry="14" />
+            <ellipse cx="16" cy="16" rx="6" ry="10" />
+            <path d="m3 5 3 3m20 16 3 3M2 16h3m22 0h3M6 25l-3 3m23-20 3-3" />
+            break;
+        case "rune":
+            <path d="M16 2v28M7 7l18 9-18 9V7M7 7l9-5 9 5m-9 23 9-5" />
+            break;
+        case "lab":
+            <path d="M11 2h10M13 2v10L4 26a2 2 0 0 0 2 4h20a2 2 0 0 0 2-4l-9-14V2M9 20h14" />
+            <circle cx="13" cy="25" r="1" fill="currentColor" />
+            <circle cx="19" cy="23" r="1" fill="currentColor" />
+            break;
+        case "helmet":
+            <path d="M4 19v-5a12 12 0 0 1 24 0v5l-5 3v6H9v-6zM4 14h24M10 18h4m4 0h4M13 24h6M16 3v8" />
+            break;
+        case "gear":
+            <circle cx="16" cy="16" r="9" />
+            <circle cx="16" cy="16" r="3" />
+            <path d="M13 7V2h6v5m6 6h5v6h-5M19 25v5h-6v-5M7 19H2v-6h5M7 9 4 6l2-2 3 3m14 0 3-3 2 2-3 3m0 14 3 3-2 2-3-3M9 25l-3 3-2-2 3-3" />
+            break;
+        case "robot":
+            <path d="M16 7V3m-3 0h6M6 9h20v17H6zM2 14h4m20 0h4M10 29v-3m12 3v-3" />
+            <circle cx="11" cy="15" r="2" fill="currentColor" />
+            <circle cx="21" cy="15" r="2" fill="currentColor" />
+            <path d="M11 22h10" />
+            break;
+        case "station":
+            <path d="M11 9h10v15H11zM2 11h6v11H2zm22 0h6v11h-6zM8 16h3m10 0h3M16 3v6m-3 20h6" />
+            <circle cx="16" cy="14" r="2" />
+            break;
+        case "relay":
+            <path d="m8 23 8-16 8 16M11 18h10M16 7V3M5 9a15 15 0 0 0 0 14M27 9a15 15 0 0 1 0 14M5 29h22" />
+            break;
+        case "planet":
+            <circle cx="16" cy="16" r="9" />
+            <ellipse cx="16" cy="16" rx="16" ry="4" transform="rotate(-25 16 16)" />
+            break;
+        case "starship":
+            <path d="m16 2 6 18 8 8-14-5-14 5 8-8zM16 8v15M12 28l-1 3m10-3 1 3" />
+            break;
+        case "alien":
+            <path d="M4 12C4-2 28-2 28 12c0 9-8 18-12 18S4 21 4 12z" />
+            <path d="M8 11c0 6 3 9 6 9-1-5-3-8-6-9zm16 0c0 6-3 9-6 9 1-5 3-8 6-9z" fill="currentColor" />
+            break;
+        case "towel":
+            <path d="M5 3h22v26H5zM5 22h22M9 3v26M23 3v26M7 29v2m5-2v2m5-2v2m5-2v2m5-2v2" />
+            break;
+        case "answer":
+            <g fill="currentColor" stroke="none">
+                <text x="16" y="24" text-anchor="middle" font-size="23" font-family="sans-serif" font-weight="700">42</text>
+            </g>
+            break;
+        case "hobbit-door":
+            <circle cx="16" cy="16" r="13" />
+            <path d="M5 12h22M4 19h24M11 4v25m10-25v25" />
+            <circle cx="20" cy="17" r="1.6" fill="currentColor" />
+            break;
+        case "leaf":
+            <path d="M27 3C6 3 1 12 7 23s20 3 20-20zM4 29 23 8M12 21v-8m5 3h7" />
+            break;
+        case "white-city":
+            <path d="M3 29h26M5 29V16h6v13m10 0V16h6v13M12 29V10h8v19M16 10V2l5 3-5 2M4 16l4-5 4 5m8 0 4-5 4 5" />
+            break;
+        case "volcano":
+            <path d="m2 29 10-18h8l10 18zM12 11l4 7 4-7M16 6V1M9 7 5 3m18 4 4-4" />
+            <path d="m12 11 4 7 4-7" stroke-width="4" />
+            break;
+        case "ufo":
+            <path d="M8 18a8 10 0 0 1 16 0" fill="#d5f6ff" />
+            <ellipse cx="16" cy="20" rx="14" ry="5" fill="currentColor" />
+            <path d="M9 27v3m7-2v3m7-4v3" />
+            <circle cx="9" cy="20" r="1.2" fill="#d5f6ff" stroke="none" />
+            <circle cx="16" cy="21" r="1.2" fill="#d5f6ff" stroke="none" />
+            <circle cx="23" cy="20" r="1.2" fill="#d5f6ff" stroke="none" />
+            break;
+        case "capsule":
+            <circle cx="16" cy="17" r="9" />
+            <circle cx="16" cy="17" r="4" />
+            <path d="M16 8V3m-4 0h8M8 24l-5 5m21-5 5 5M7 12l-5-2m23 2 5-2" />
+            break;
+        case "orbit":
+            <circle cx="16" cy="16" r="7" />
+            <ellipse cx="16" cy="16" rx="15" ry="10" transform="rotate(-30 16 16)" />
+            <circle cx="27" cy="8" r="2" fill="currentColor" />
+            break;
+        case "rocket":
+            <path d="M11 22V12c0-5 5-10 5-10s5 5 5 10v10zM11 16l-5 8h5m10-8 5 8h-5M13 26l3 5 3-5" />
+            <circle cx="16" cy="12" r="2" />
+            break;
+        case "astronaut":
+            <circle cx="16" cy="12" r="10" />
+            <path d="M9 10h14v6H9zM10 21l-2 9h16l-2-9M12 26h8" />
+            break;
+        case "sun":
+            <circle cx="16" cy="16" r="7" />
+            <path d="M16 1v4m0 22v4M1 16h4m22 0h4M5 5l3 3m16 16 3 3M5 27l3-3M24 8l3-3" />
+            break;
+        case "classified":
+            <rect x="6" y="13" width="20" height="16" rx="2" />
+            <path d="M10 13V8a6 6 0 0 1 12 0v5M16 20v4" />
+            break;
+        case "desert":
+            <path d="m1 27 9-15 6 8 5-12 10 19zM7 9h1" />
+            <circle cx="6" cy="6" r="3" />
+            break;
+        case "city":
+            <path d="M2 29h28M5 29V14h7v15m0-23h8v23m0-17h7v17M15 11h2m-2 5h2m6 2h1" />
+            break;
+        case "missing":
+            <circle cx="16" cy="16" r="12" stroke-dasharray="3 4" />
+            <path d="m10 10 12 12m0-12L10 22" />
+            break;
+        case "danger":
+            <path d="m16 2 14 27H2zM16 10v9m0 4v1" />
+            break;
+        case "pirate":
+            <path d="M6 23 26 29M6 29 26 23" />
+            <path d="M8 12a8 8 0 1 1 16 0v5l-4 2v4h-8v-4l-4-2z" fill="currentColor" stroke="none" />
+            <circle cx="12" cy="12" r="2.3" fill="#101923" stroke="none" />
+            <circle cx="20" cy="12" r="2.3" fill="#101923" stroke="none" />
+            <path d="m16 16-1 2h2z" fill="#101923" stroke="none" />
+            break;
+        case "phantom":
+        case "spooky":
+            <path d="M6 27V13a10 10 0 0 1 20 0v14l-5-3-5 3-5-3z" fill="currentColor" />
+            <ellipse cx="12" cy="12" rx="1.7" ry="2.5" fill="#101923" stroke="none" />
+            <ellipse cx="20" cy="12" rx="1.7" ry="2.5" fill="#101923" stroke="none" />
+            break;
+        case "pumpkin":
+            <path d="M16 8V3l4-1" />
+            <ellipse cx="16" cy="18" rx="13" ry="10" fill="currentColor" />
+            <path d="m8 16 4-3 1 5zm16 0-4-3-1 5zM10 22l3-1 3 2 3-2 3 1" stroke="#101923" />
+            break;
+        case "gold":
+            <path d="M4 16h24v12H4zM4 16v-4a12 8 0 0 1 24 0v4M10 6v22M22 6v22" />
+            <path d="M14 14h4v6h-4z" fill="currentColor" />
+            break;
+        case "historic":
+        case "moon":
+            <path d="M9 29V3M10 4h16l-4 6 4 6H10M5 29h10" />
+            <path d="M10 4h16l-4 6 4 6H10z" fill="currentColor" opacity=".6" />
+            break;
+        case "cat":
+            <path d="M5 15 4 3l9 6h6l9-6-1 12v6c0 10-22 10-22 0z" />
+            <path d="M10 17h1m10 0h1m-8 5 2 2 2-2M2 21l7 1m14 0 7-1" />
+            break;
+        case "celebration":
+            <path d="M16 3v7m0 12v7M3 16h7m12 0h7M6 6l5 5m10 10 5 5M6 26l5-5M21 11l5-5" />
+            <circle cx="16" cy="16" r="3" fill="currentColor" />
+            break;
+        case "water":
+            <path d="M16 3C12 10 6 15 6 21a10 10 0 0 0 20 0c0-6-6-11-10-18z" />
+            <path d="M11 21c0 3 2 5 5 5" />
+            break;
+        default:
+            <path d="M16 30S5 18 5 12a11 11 0 0 1 22 0c0 6-11 18-11 18z" />
+            <circle cx="16" cy="12" r="4" />
+            break;
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public string Tone { get; set; } = string.Empty;
+    [Parameter] public int X { get; set; }
+    [Parameter] public int Y { get; set; }
+    [Parameter] public int Size { get; set; } = 32;
+}

@@ -146,7 +146,8 @@ public sealed class AlertInventoryLearningTests
         var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
         await using (var context = factory.CreateDbContext())
         {
-            var names = new[] { "Alerts", "AlertHistory", "ParsedAlerts", "AlertRules", "ComputerInventory" };
+            var names = new[] { "Alerts", "AlertHistory", "ParsedAlerts", "AlertRules", "ComputerInventory",
+                "RootCauseAnalyses", "RcaAlertLinks", "RcaPrompts", "RcaChanges" };
             foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Where(statement => names.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
                 await context.Database.ExecuteSqlRawAsync(statement.Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal));

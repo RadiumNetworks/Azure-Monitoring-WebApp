@@ -2,11 +2,9 @@
 
 Willkommen im Grid, Chummer.
 
-Wenn überall Warnlampen blinken, braucht die Crew keine weitere Liste voller Alarmmeldungen. Sie braucht einen Überblick: **Was ist passiert? Welche Systeme sind betroffen? Was verdient jetzt Aufmerksamkeit?**
+Mehrere Tenants. Flackernde Warnlampen. Irgendwo im Datenstrom hinterlässt ein aktiver Decker seine Spuren.
 
-Die **Azure Monitoring Console** bündelt Meldungen aus Azure Monitor, macht Zusammenhänge sichtbar und bringt Analyse, Systemübersicht und Einsatznotizen in eine gemeinsame Leitstelle. Weniger Portalsprünge. Mehr Lagebewusstsein.
-
-Dabei geht es nicht nur darum, Alarme einzusammeln. Die Console verbindet die erste Warnung mit den betroffenen Systemen, weiterführenden Auswertungen und den Beobachtungen der Crew. So bleibt der Weg von „Da stimmt etwas nicht“ bis zur gemeinsamen Untersuchung nachvollziehbar.
+Die **Azure Monitoring Console** bringt Azure-Monitor-Meldungen, Inventar und Log-Analytics-Auswertungen in einen gemeinsamen Node. **Multi-Tenant-Monitoring statt Portalslalom. Neue Dashboards statt Blindflug hinter dem ICE.** Die Crew sieht, wo Systeme ausfallen, Signale zusammenlaufen und sich ein genauerer Blick lohnt.
 
 > **Straßenregel Nr. 1:** Nicht jedes Signal ist ein Infrastrukturbrand.
 >
@@ -18,23 +16,134 @@ Dabei geht es nicht nur darum, Alarme einzusammeln. Die Console verbindet die er
 
 Unter der Chromhaube läuft eine **ASP.NET Core Blazor WebApp auf .NET 10** mit **SQL Server oder Azure SQL** als Datenspeicher. Azure Monitor und Logic Apps liefern die Meldungen; die Console verbindet sie mit Inventar, Regeln und Analyse.
 
-- **Alert Inbox:** Aktive Meldungen und Ereignishistorie mit Filtern, Kategorien, Severity-Farben und anpassbarem Rasterlayout.
-- **Zeitverläufe:** Zwei 48-Stunden-Timelines für ausgelöste Meldungen und gleichzeitig aktive kritische Störungen.
-- **Regelwerk:** Zentrale Kategorisierung, Unterdrückung bekannter Meldungen, Kritikalität und automatische Rollenzuordnung im Inventar.
-- **Infrastrukturübersicht:** Konfigurierbarer dreistufiger Graph, Standortkarte und Computerinventar mit Domain, Standort und Systemrolle.
-- **Logbuch:** Persistente Einsatznotizen, Alert-Kommentare und automatische Einträge zu Beginn und Ende kritischer Störungen.
-- **Live Analysis:** Versionierte, freigegebene KQL-Abfragen mit kontrolliertem Zugriff auf Log-Analytics-Datenquellen.
-- **AD-Bibliothek:** 38 externe JSON-Vorlagen mit Abfragen und voreingestellten Visualisierungen.
-- **Abfragenverwaltung:** Verschachtelte Kategorien, Drag & Drop und ZIP-Export gespeicherter Abfragen samt Darstellung.
-- **Visualisierungen:** Tabellen, Linien- und Balkencharts, Waben, Bar-Gauges, Stat-Kacheln und Statusverläufe mit anpassbaren Farben und Beschriftungen.
-- **Dashboards:** Mehrere persönliche Analyseansichten mit gemeinsamer Zeitraumwahl, automatischer Aktualisierung und Veröffentlichung für die Crew.
-- **Zugriffsschutz:** SQL-Benutzerkonten mit sicher gespeicherten Passwörtern und serverseitig geprüften Reader-, Operator- und Admin-Rechten.
-- **Anbindungen:** Lesende REST-Schnittstellen, Kommandozeilenclient und kontrollierte Vorbereitung einer manuellen Copilot-Übergabe.
-- **Betrieb:** Zentral verwaltete Anwendungseinstellungen und optionales Anwendungsmonitoring über Azure Monitor.
+- **Multi-Tenant-Monitoring // Ein Node, mehrere Konzernnetze:** Meldungen zentral verfolgen, Log-Analytics-Abfragen automatisch zum passenden Workspace routen.
+- **NEU: Dashboards // Aktiven Deckern auf der Spur:** Persönliche Cockpits aus freigegebenen KQL-Abfragen bauen, Zeiträume vergleichen, automatisch aktualisieren und für die Crew veröffentlichen. Auffälligkeiten untersuchen statt im Lograuschen stochern.
+- **Workspace- und Domänenwechsel // Den richtigen Sektor aufschalten:** Systembezogene Widgets nach Workspace oder Domäne mit eigenen Displaynamen filtern, ohne die gespeicherte Systemauswahl anzutasten.
+- **Alert Inbox und Timelines // Das Frühwarnradar:** Aktive Meldungen, Ereignishistorie und zwei 48-Stunden-Verläufe mit Filtern, Severity-Farben und flexiblem Raster.
+- **Graph und Inventar // Die Karte hinter dem ICE:** Systeme, Domänen, Standorte und Rollen in Topologie, Standortkarte und gepflegtem Inventar verbinden.
+- **Regelwerk // Weniger Rauschen, mehr Signal:** Meldungen kategorisieren, bekannte Situationen unterdrücken und kritische Störungen hervorheben.
+- **Query Library // Das Datenarsenal:** 38 AD-Vorlagen, versionierte Abfragefreigaben, verschachtelte Kategorien, Drag & Drop und ZIP-Export.
+- **Visualisierungen // Mehr als Neon:** Tabellen, Linien, Balken, Waben, Gauges, Kennzahlen und Statusverläufe mit anpassbaren Farben und Beschriftungen.
+- **RCA und Logbuch // Keine Spur geht verloren:** Gemeinsame Untersuchungsfälle, Zuständigkeit, Status, Kommentare und Einsatzhistorie; zwei gespeicherte RCA-Prompts zur manuellen Analyse.
+- **Copilot Handoff // Mensch am Deck:** Kontext für eine bewusste, manuelle Übergabe vorbereiten. Keine automatische Jagd, kein autonomer Decker-Detektor.
+- **Zugriff und Betrieb // Wards am Eingang:** Reader-, Operator- und Admin-Rechte, zentrale Einstellungen, REST-Schnittstellen, CLI und optionales Azure-Monitor-Anwendungsmonitoring.
 
 ## Das Cockpit // Was die Crew bekommt
 
+Unter **Overview** stehen **Inbox**, **Graph** und **Dashboards** bereit.
+Die bisherige Live Analysis heißt jetzt Dashboards; ihre URL `/analysis` bleibt bestehen.
+
+Auf der Dashboard-Seite begrenzen **Workspace** und **Domain** die
+systembezogenen Abfragen und deren Ausführungsvorschau. Workspaces erscheinen
+mit ihrem **DisplayName**; Domänen können innerhalb desselben Workspace eigene
+Anzeigenamen erhalten. Dafür im jeweiligen Eintrag unter
+`CrossTenantLogAnalytics:Workspaces` optional ergänzen:
+
+```json
+"Domains": ["firma-a.local", "firma-b.local"],
+"DomainDisplayNames": {
+  "firma-a.local": "Firma A",
+  "firma-b.local": "Firma B"
+}
+```
+
+Die Schlüssel in `DomainDisplayNames` müssen zu Einträgen in `Domains` gehören
+und dürfen nach Normalisierung nicht doppelt vorkommen. Groß-/Kleinschreibung,
+umgebende Leerzeichen und ein abschließender Punkt werden beim Vergleich
+ignoriert; Anzeigenamen dürfen nicht leer sein. Ohne Zuordnung wird weiterhin
+der Domänenname angezeigt. Maßgeblich für den Filter ist die Domäne im Inventar,
+nicht der Anzeigename oder ein abgeleiteter Computername.
+Den technischen Workspace nur einmal konfigurieren: zusätzliche Anzeigenamen
+benötigen keine weiteren Keys, Subscription-Zuordnungen oder Abfragefreigaben.
+Die Konfiguration wird beim Start geladen; nach einer Änderung neu starten.
+Ein vollständiges Beispiel steht in
+[MonitoringMultiTenantOptionA.example.json](MonitoringApp/Deployment/MonitoringMultiTenantOptionA.example.json).
+
+**All workspaces** und **All domains** heben die jeweiligen Filter auf; ein
+Workspace-Wechsel setzt die Domänenauswahl zurück. Die Auswahl gilt für eigene
+und veröffentlichte Dashboards während des Seitenbesuchs. Gespeicherte
+Systemauswahl, Dashboard-Konfiguration und Veröffentlichungen bleiben
+unverändert. Beim Umschalten werden bisherige Ergebnisse entfernt und Widgets
+neu abgefragt. Ohne passende ausgewählte Systeme erscheint ein Hinweis statt
+Daten anderer Domänen.
+
+**Workspaceweite Abfragen (`Scope: Workspace`) ignorieren beide Anzeige-Filter.**
+Sie laufen weiterhin einmal pro Workspace der gesamten ausgewählten
+Systemmenge, nicht automatisch gegen alle konfigurierten Workspaces.
+Abfragefreigaben und Validierung bleiben erforderlich. Ihre Ergebnisse können
+also Daten mehrerer Domänen enthalten, auch wenn ein Domänenfilter aktiv ist.
+Inbox, Graph und Inventory werden nicht gefiltert.
+
+### Root Cause Analysis
+
+Unter **Analyze > Root cause analysis** (`/rca`) entsteht je kritischer
+Regelkategorie ein gemeinsamer Fall über alle betroffenen Systeme. Maßgeblich
+ist die gewinnende Kategorisierungsregel einschließlich ihrer Priorität, nicht
+allein die Alert-Severity. Dauerhafte Verknüpfungen in `RcaAlertLinks`
+verhindern neue RCAs allein durch Kategorienwechsel derselben Alerts, etwa
+von Domain- über Site- zu System-Outage. Neue kritische Alerts desselben
+Systems (Subscription und Computer) werden dessen ältestem noch offenen RCA
+zugeordnet, auch nach Entwarnung. Bestehende Fälle und Historien bleiben
+erhalten; bei überlappender alter Evidenz gilt der älteste RCA als Zuordnung.
+Inbox-Hinweise zeigen zusätzlich Status und Zuweisung beziehungsweise
+`Unassigned`; die RCA-Detailansicht listet die verknüpften Alert-Ereignisse
+direkt vor dem Analyseformular. Die Übersicht verwendet kompakte Einträge:
+`Open` ohne Zuweisung ist rot, `Closed` grün, alles andere orange.
+Geschlossene RCAs stehen in einer standardmäßig eingeklappten Gruppe.
+Die Farben sind unter **Admin > Settings > RCA display** konfigurierbar
+(`RcaDisplay`; Neustart erforderlich). Vor Deployment die zusätzliche
+Migration `20261022140500_AddRcaDisplaySetting` oder das aktualisierte
+SQL-Setup-Skript anwenden.
+
+Bei Alert-Eingang werden Fall und erster Raw-Prompt in derselben
+Datenbanktransaktion gespeichert. Ein Hintergrunddienst prüft zusätzlich alle
+30 Sekunden auf Regeländerungen und fällige Folge-Snapshots. Der zweite Prompt
+wird frühestens 15 Minuten nach Fallerstellung aus dem dann gespeicherten
+Datenstand erzeugt, einschließlich neuer Kategorie-Ereignisse und Fired-/Resolved-
+Historie der betroffenen Alert-Lifecycles. Die Prompts werden **nicht automatisch
+ausgeführt**; die Analyse wird manuell eingetragen.
+
+Auch bei zwischenzeitlicher Entwarnung bleibt der zweite Snapshot fällig und
+der RCA zur Bearbeitung offen. Nach App-Ausfall werden überfällige Snapshots beim
+Neustart nachgeholt; ihr Zeitstempel zeigt die tatsächliche Erstellung, keinen
+rekonstruierten 15-Minuten-Datenstand. Im App Service muss die Anwendung dauerhaft
+laufen (z. B. Always On), damit der Dienst zeitnah arbeitet.
+
+Reader und Operator können Fälle lesen; nur Administratoren dürfen Analyse,
+Zuweisung an bekannte Benutzer oder frei eingegebene E-Mail-Adressen, Status (`Open`, `InAnalysis`, `Actions`, `Closed`)
+und Kommentare speichern. Es gilt die bestehende `AdminAccess`-Policy, auch im
+offenen Authentifizierungsmodus. Änderungen enthalten Benutzer, UTC-Zeit und
+Vorher-/Nachher-Werte; konkurrierende Änderungen werden abgewiesen statt
+überschrieben. Eine manuelle Schließung erzeugt keinen neuen Fall, solange die
+bereits zugeordneten Alert-Lifecycles weiterhin kritisch sind. Neue
+Alert-Lifecycles nach Abschluss des bisherigen RCA können einen neuen Fall
+erzeugen; ein noch offener RCA desselben Systems wird dagegen weiterverwendet.
+
+**Deployment:** Vor dem Start der neuen Version die EF-Migration
+`20261022102938_AddRootCauseAnalysis` anwenden (`dotnet ef database update --project MonitoringApp`).
+Alternativ SECTION 2 des vorhandenen idempotenten SQL-Setup-Skripts
+[CreateMonitoringDatabase.template.sql](MonitoringApp/Database/CreateMonitoringDatabase.template.sql)
+gegen die Anwendungsdatenbank ausführen (Datenbank-Platzhalter ersetzen).
+Es ergänzt `RootCauseAnalyses`, `RcaPrompts` und `RcaChanges`; die App führt keine
+automatische Schemaänderung durch. Bereits aktive kritische Kategorien werden
+beim ersten Hintergrundlauf aufgenommen. Der vorhandene Datenbank-Reset löscht
+auch RCA-Fälle, Prompts und Verlauf.
+Für die E-Mail-Zuweisung bis 256 Zeichen ist zusätzlich die Migration
+`20261022113434_ExpandRcaAssigneeEmail` erforderlich; das aktualisierte
+SQL-Setup-Skript enthält dieselbe Erweiterung.
+Für die dauerhafte Alert-Zuordnung ist zusätzlich die Migration
+`20261022133544_AddRcaAlertLinks` erforderlich. Der erste Abgleich übernimmt
+die Zuordnungen aus vorhandenen Evidenz-IDs, ohne Fälle zusammenzuführen.
+
 Im laufenden Betrieb beginnt der Blick meist in der **Inbox**: Welche Meldungen sind neu, welche Störungen noch aktiv und wo steigt der Druck? Der **Infrastrukturgraph** ergänzt die Zusammenhänge zwischen Systemen und Standorten. Das **Inventar** liefert die gepflegten Angaben zu den betroffenen Computern.
+
+Unter **Admin > Settings** zeigt **Resolve legacy alerts** aktive Alerts ohne
+Inventory-Zuordnung zur bestätigten Bereinigung an. Die Aktion erfordert
+`AdminAccess`, erhält Historie und Kommentare und protokolliert jede manuelle
+Auflösung mit Benutzer und Zeit im Logbuch. Bereits zugeordnete Alerts und
+vorhandene Doppel-Inventare bleiben unverändert. Ein explizites
+`queryResult.rowCount = 0` verhindert außerdem sämtliches Inventory-Lernen
+aus diesem Ereignis, auch bei historischem Prefill und Backfill.
 
 Für die Untersuchung geht es weiter in die **Analyse**. Dort stehen freigegebene Auswertungen und persönliche Dashboards bereit. Die Abfragenbibliothek hält die passenden Werkzeuge zusammen, ohne dass jeder seine Untersuchung wieder bei null beginnen muss.
 
@@ -70,27 +179,23 @@ Diese Angaben kommen auch dem Graphen und der Systemauswahl für Analysen zugute
 
 ![Computerinventar mit Suche und Filtern](./Media/Inventory.png)
 
-## Live Analysis // Hinter das ICE schauen
+## Dashboards // Hinter das ICE schauen
 
-Eine Alarmmeldung ist oft erst der Anfang der Untersuchung. Mit freigegebenen Auswertungen lässt sich gezielt nachsehen, wie sich betroffene Systeme verhalten und ob weitere Auffälligkeiten hinzukommen. Die Auswahl nach Domain, Standort und Aufgabe grenzt den Blick auf die Systeme ein, die gerade relevant sind.
+Ein Alarm ist der Einstieg, nicht die ganze Story. Die neuen Dashboards legen freigegebene KQL-Auswertungen nebeneinander: Systemzustand, AD-Signale und zeitliche Auffälligkeiten im selben Blickfeld. Hilfreich, wenn die Crew nach Spuren aktiver Decker sucht – was tatsächlich sichtbar wird, bestimmen Datenquellen und Abfragen, nicht die Neonfarbe.
 
-Dabei arbeitet die Crew mit vorbereiteten und freigegebenen Abfragen. Nicht jede Untersuchung erfordert einen selbst geschriebenen Analyseauftrag; wiederkehrende Fragestellungen können als gemeinsame Werkzeuge bereitstehen. Welche Datenquellen und Auswertungen verfügbar sind, richtet sich nach den eingerichteten Freigaben.
+Workspace und Domäne schalten den relevanten Sektor für systembezogene Widgets auf. Eigene Domänen-Displaynamen halten auch geteilte Workspaces übersichtlich. Workspaceweite Widgets bleiben bewusst auf allen Workspaces der ausgewählten Systeme aktiv; sie ignorieren diese Anzeigefilter.
 
 ### Die passende Sicht // Nicht alles ist eine Tabellenzeile
 
-Tabellen eignen sich für Einzelwerte und genaue Vergleiche. Waben bringen viele Zustände auf einen Blick zusammen, während Balkenanzeigen Auslastung und Größenverhältnisse verdeutlichen. Liniencharts zeigen Entwicklungen über die Zeit; Kennzahlen und Statusverläufe ergänzen die Übersicht.
-
-Farben, Beschriftungen und Größen lassen sich passend zur jeweiligen Auswertung gestalten. Eine übersichtliche Darstellung soll beim Erkennen helfen, nicht mit möglichst viel Neon vom eigentlichen Problem ablenken.
+Tabellen für Details, Waben für Zustände, Linien für Zeitspuren, Balken und Gauges für Größenverhältnisse. Kennzahlen und Statusverläufe ergänzen das Lagebild. Farben und Beschriftungen dienen dem Signal, nicht der Lichtshow.
 
 ![Analyse-Dashboard mit Tabelle, Waben, Balkenanzeigen und Linienchart; synthetische Demodaten](./Media/Analysis.png)
 
 ### Dashboards // Das persönliche Cockpit
 
-Persönliche Dashboards bringen mehrere Ansichten auf einer Fläche zusammen. Abfragen lassen sich aus der Bibliothek hinzufügen und ihre Bereiche anschließend verschieben oder vergrößern. Für unterschiedliche Aufgaben können getrennte Dashboards entstehen, etwa für den täglichen Zustandscheck und eine laufende Störungsanalyse.
+Widgets aus der Bibliothek ziehen, verschieben und skalieren. Mehrere Cockpits speichern, Zeiträume und Mittelungsintervalle gemeinsam setzen, alle 30 Sekunden aktualisieren und Layoutänderungen rückgängig machen.
 
-Systemauswahl, Zeiträume und Aktualisierung gehören zur jeweiligen Übersicht. Gemeinsame Zeitvorgaben erleichtern den Vergleich mehrerer Ansichten; bei Bedarf bleiben einzelne Auswertungen unabhängig eingestellt. Änderungen am Aufbau lassen sich rückgängig machen.
-
-Admins können eigene Dashboards für die Crew veröffentlichen. Die gemeinsame Ansicht bleibt vom privaten Arbeitsstand getrennt: Weitere Umbauten werden erst mit einer erneuten Veröffentlichung übernommen. So bekommt nicht die ganze Schicht jede spontane Verschiebung im Cockpit mit.
+Admins veröffentlichen ihre Cockpits für die Crew. Private Umbauten bleiben privat, bis eine neue Version freigegeben wird. Kein Überraschungsumbau mitten im Run.
 
 ## Query Library // Ordnung im Datenarsenal
 

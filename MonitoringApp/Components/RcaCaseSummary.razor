@@ -1,0 +1,22 @@
+@inject RcaDisplayOptions Display
+
+<button class="rca-case @(Selected ? "selected" : null)" type="button"
+        style="@Display.Style(Case)" aria-pressed="@(Selected ? "true" : "false")" disabled="@Busy"
+        title="Open RCA @Case.Id" @onclick="() => OnSelected.InvokeAsync(Case)">
+    <span class="rca-case-heading">
+        <strong>@Case.CategoryName</strong>
+        <span class="rca-case-status">@RcaStatuses.Label(Case.Status)</span>
+    </span>
+    <span class="rca-case-meta">
+        <span>@(Case.IsActive ? "Critical" : "No longer critical")</span>
+        <span class="rca-case-assignee" title="@Case.AssignedTo">@(string.IsNullOrWhiteSpace(Case.AssignedTo) ? "Unassigned" : Case.AssignedTo)</span>
+    </span>
+    <time datetime="@Case.CreatedAt.ToString("O")">@Case.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'")</time>
+</button>
+
+@code {
+    [Parameter, EditorRequired] public RootCauseAnalysis Case { get; set; } = default!;
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<RootCauseAnalysis> OnSelected { get; set; }
+}

@@ -635,6 +635,13 @@ namespace MonitoringApp.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("SelectedSystems");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -656,21 +663,16 @@ namespace MonitoringApp.Migrations
                     b.Property<int>("Version")
                         .HasColumnType("int");
 
+                    b.Property<string>("VisualizationJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("{}");
+
                     b.Property<string>("VisualizationType")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("VisualizationJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)")
-                        .HasDefaultValue("{}");
-
-                    b.Property<string>("Scope")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)")
-                        .HasDefaultValue("SelectedSystems");
 
                     b.HasKey("Id");
 
@@ -963,6 +965,143 @@ namespace MonitoringApp.Migrations
                     b.ToTable("ParsedAlerts", (string)null);
                 });
 
+            modelBuilder.Entity("MonitoringApp.RcaAlertLink", b =>
+                {
+                    b.Property<Guid>("AlertEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("LinkedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("RcaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("AlertEventId");
+
+                    b.HasIndex("RcaId");
+
+                    b.ToTable("RcaAlertLinks", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.RcaChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Field")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("RcaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RcaId", "CreatedAt");
+
+                    b.ToTable("RcaChanges", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.RcaPrompt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RawPrompt")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("RcaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RcaId", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("RcaPrompts", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.RootCauseAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Analysis")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AssignedTo")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CategoryName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("CriticalEndedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("EvidenceEventIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("FollowUpDueAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RuleId");
+
+                    b.ToTable("RootCauseAnalyses", (string)null);
+                });
+
             modelBuilder.Entity("MonitoringApp.SqlAuthenticationUser", b =>
                 {
                     b.Property<string>("Username")
@@ -1031,6 +1170,41 @@ namespace MonitoringApp.Migrations
                     b.Navigation("Alert");
 
                     b.Navigation("InventoryComputerEntry");
+                });
+
+            modelBuilder.Entity("MonitoringApp.RcaAlertLink", b =>
+                {
+                    b.HasOne("MonitoringApp.AlertRecord", "Alert")
+                        .WithMany()
+                        .HasForeignKey("AlertEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.RootCauseAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("RcaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Alert");
+                });
+
+            modelBuilder.Entity("MonitoringApp.RcaChange", b =>
+                {
+                    b.HasOne("MonitoringApp.RootCauseAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("RcaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.RcaPrompt", b =>
+                {
+                    b.HasOne("MonitoringApp.RootCauseAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("RcaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MonitoringApp.AnalysisQueryDefinition", b =>

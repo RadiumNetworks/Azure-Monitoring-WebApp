@@ -111,6 +111,16 @@ public sealed class CrossTenantLogAnalyticsOptions
                 errors.Add($"{path}:Domains:{domainIndex} must not be empty.");
             }
         }
+        foreach (var (domain, displayName) in workspace.DomainDisplayNames)
+        {
+            var normalizedDomain = NormalizeDomain(domain);
+            if (normalizedDomain.Length == 0 || !workspace.Domains.Any(value => NormalizeDomain(value) == normalizedDomain))
+                errors.Add($"{path}:DomainDisplayNames key '{domain}' must match a domain in Domains.");
+            if (string.IsNullOrWhiteSpace(displayName))
+                errors.Add($"{path}:DomainDisplayNames:{domain} must not be empty.");
+        }
+        if (workspace.DomainDisplayNames.Keys.GroupBy(NormalizeDomain).Any(group => group.Count() > 1))
+            errors.Add($"{path}:DomainDisplayNames domain keys must be unique after normalization.");
     }
 
     private static void ValidateGuid(
@@ -153,4 +163,10 @@ public sealed class CrossTenantLogAnalyticsWorkspaceOptions
     public string WorkspaceId { get; init; } = string.Empty;
     public string[] SubscriptionIds { get; init; } = [];
     public string[] Domains { get; init; } = [];
+    public Dictionary<string, string> DomainDisplayNames { get; init; } = [];
+
+    public string GetDomainDisplayName(string domain) =>
+        DomainDisplayNames.FirstOrDefault(item =>
+            CrossTenantLogAnalyticsOptions.NormalizeDomain(item.Key) == CrossTenantLogAnalyticsOptions.NormalizeDomain(domain)).Value
+        ?? domain;
 }

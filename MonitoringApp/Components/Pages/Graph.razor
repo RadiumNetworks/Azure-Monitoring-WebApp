@@ -5,6 +5,7 @@
 @inject AlertGraphOptions AlertGraph
 @inject AlertHistoryOptions AlertHistory
 @inject IJSRuntime JSRuntime
+@inject IWebHostEnvironment HostEnvironment
 
 <PageTitle>Alert Graph</PageTitle>
 
@@ -14,9 +15,7 @@
         ? DnsNamespaceResolver.Resolve(alerts.Select(alert => alert.Domain))
         : null;
     var graphLayout = AlertGraphLayout.Build(navigationTree, dnsNamespaces);
-    var solarOverlay = AlertGraphSolarOverlay.Build(currentTimeUtc);
-    var siteMarkers = AlertGraphSiteMap.Build(alerts, AlertGraph.SiteLocations, currentTimeUtc);
-    var easterEgg = AlertGraphEasterEggSites.Resolve(currentTimeUtc);
+    var easterEgg = previewEasterEgg ?? AlertGraphEasterEggSites.Resolve(currentTimeUtc);
     var openCount = navigationTree.Sum(subscription => subscription.Count);
     var historyCount = navigationTree.Sum(subscription => subscription.HistoryCount);
 }
@@ -101,56 +100,23 @@
             <span><i class="graph-site-map-night" aria-hidden="true"></i>Night</span>
         </div>
     </div>
-    <div class="graph-site-map-frame">
-        @if (easterEgg is not null)
-        {
-            <aside class="graph-offworld-sites graph-easter-egg-@easterEgg.Theme" aria-label="@easterEgg.AriaLabel">
-                <span class="graph-offworld-heading">@easterEgg.Heading</span>
-                <div class="graph-offworld-site-list">
-                    @foreach (var site in easterEgg.Sites)
-                    {
-                        <div class="graph-offworld-site graph-offworld-site-@site.Tone @(site.IsDanger ? "graph-offworld-site-danger" : null)"
-                             title="@(string.IsNullOrWhiteSpace(site.Status) ? site.Name : $"{site.Name} · {site.Status}")">
-                            <i aria-hidden="true"></i>
-                            <strong>@site.Name</strong>
-                        </div>
-                    }
-                </div>
-            </aside>
-        }
-        <svg class="graph-site-map-svg"
-             viewBox="0 0 2756 1399"
-             role="img"
-             aria-label="World map showing alert status for @siteMarkers.Count configured sites">
-            <image href="/world-map-configurable.svg"
-                   x="0"
-                   y="0"
-                   width="2756"
-                   height="1399"
-                   preserveAspectRatio="xMidYMid meet" />
-            <g class="graph-solar-overlay" aria-hidden="true">
-                @foreach (var path in solarOverlay.Paths)
-                {
-                    <path class="@(path.Phase == AlertGraphSolarPhase.Night ? "graph-map-night" : "graph-map-twilight")"
-                          d="@path.Data" />
-                }
-            </g>
-            @foreach (var marker in siteMarkers)
+    @if (HostEnvironment.IsDevelopment())
+    {
+        <nav class="graph-easter-preview" aria-label="Local Easter-egg preview">
+            <span>Local preview:</span>
+            @foreach (var preview in AlertGraphEasterEggSites.Previews)
             {
-                <g class="graph-site-marker @(marker.HasOpenAlerts ? "graph-site-marker-alert" : "graph-site-marker-healthy")"
-                   transform="translate(@Coordinate(marker.X) @Coordinate(marker.Y))"
-                   role="group"
-                   aria-label="@marker.Name, @marker.StatusLabel, @marker.SolarPhaseLabel">
-                    <title>@marker.Name · @marker.StatusLabel · @marker.SolarPhaseLabel</title>
-                    <circle class="graph-site-marker-pulse" r="31" aria-hidden="true" />
-                    <circle class="graph-site-marker-point" r="18" aria-hidden="true" />
-                    <text x="@Coordinate(marker.LabelOffsetX)"
-                          y="@Coordinate(marker.LabelOffsetY)"
-                          text-anchor="@marker.TextAnchor">@marker.Name</text>
-                </g>
+                <a href="@($"/graph?easterEgg={preview.Key}")"
+                   aria-current="@(EasterEggPreview == preview.Key ? "page" : null)">@preview.Label</a>
             }
-        </svg>
-    </div>
+            <a href="/graph">Today</a>
+        </nav>
+        @if (previewError is not null)
+        {
+            <div class="admin-message admin-message-error" role="alert">@previewError</div>
+        }
+    }
+    <GraphSiteMap Records="alerts" Locations="AlertGraph.SiteLocations" TimeUtc="currentTimeUtc" EasterEgg="easterEgg" />
     <p class="graph-site-map-source">
         Map:
         <a href="https://commons.wikimedia.org/wiki/File:World_map_configurable.svg"
@@ -261,6 +227,11 @@
 </section>
 
 @code {
+    [SupplyParameterFromQuery(Name = "easterEgg")]
+    public string? EasterEggPreview { get; set; }
+
+    private AlertGraphEasterEgg? previewEasterEgg;
+    private string? previewError;
     private IReadOnlyList<AlertGraphRecord> alerts = [];
     private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private DateTimeOffset currentTimeUtc = DateTimeOffset.UtcNow;
@@ -280,6 +251,14 @@
             selectedLayer1,
             selectedLayer2,
             selectedLayer3);
+
+    protected override void OnParametersSet()
+    {
+        previewEasterEgg = null;
+        previewError = null;
+        try { previewEasterEgg = AlertGraphEasterEggSites.ResolvePreview(EasterEggPreview, HostEnvironment.IsDevelopment()); }
+        catch (ArgumentException exception) { previewError = exception.Message; }
+    }
 
     protected override async Task OnInitializedAsync()
     {

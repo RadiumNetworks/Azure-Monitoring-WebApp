@@ -68,6 +68,7 @@ public sealed class InventoryHeartbeatBatchTests
         Assert.Equal(DateTimeOffset.Parse("2026-09-14T09:55:00Z"), observation.LastHeartbeatAt);
         Assert.Equal(12.5, observation.NtdsFileSizeInGb);
         Assert.True(observation.IsDomainController);
+        Assert.Equal("Domain Controller", observation.DetectedRole);
         Assert.NotNull(observation.CertificatesJson);
         Assert.NotNull(observation.ServicesJson);
         var inventory = new ComputerInventoryEntry
@@ -144,10 +145,59 @@ public sealed class InventoryHeartbeatBatchTests
         var observation = Assert.Single(InventoryHeartbeatBatch.Parse(document.RootElement));
 
         Assert.True(observation.IsDomainController);
+        Assert.Equal("Domain Controller", observation.DetectedRole);
         Assert.Null(observation.NtdsFileSizeInGb);
         Assert.False(observation.HasNtdsFileSizeData);
         Assert.Null(observation.CertificatesJson);
         Assert.NotNull(observation.ServicesJson);
+    }
+
+    [Theory]
+    [InlineData("AzureADConnectHealthAgent", 4, false, true)]
+    [InlineData("azureadconnecthealthagent", 1, true, true)]
+    [InlineData("AZUREADCONNECTHEALTHAGENT", null, false, true)]
+    [InlineData("AzureADConnectHealthAgentUpdater", 4, true, false)]
+    [InlineData("OtherService", 4, false, false)]
+    public void DetectsEntraConnectFromExactServiceNameRegardlessOfStatus(
+        string name, int? status, bool encoded, bool expected)
+    {
+        var observation = ParseServices([new(name, status)], encoded);
+
+        Assert.Equal(expected, observation.IsEntraConnect);
+        Assert.Equal(expected ? "Entra Connect" : null, observation.DetectedRole);
+        Assert.False(observation.IsDomainController);
+    }
+
+    [Fact]
+    public void EntraConnectServiceTakesPrecedenceWhenNtdsIsAlsoReported()
+    {
+        var observation = ParseServices(
+            [new("NTDS", 4), new("AzureADConnectHealthAgent", 1)], false);
+
+        Assert.True(observation.IsDomainController);
+        Assert.True(observation.IsEntraConnect);
+        Assert.Equal("Entra Connect", observation.DetectedRole);
+    }
+
+    private static InventoryHeartbeatObservation ParseServices(InventoryService[] services, bool encoded)
+    {
+        var servicesValue = JsonSerializer.SerializeToElement(services);
+        if (encoded)
+            servicesValue = JsonSerializer.SerializeToElement(servicesValue.GetRawText());
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            queryResult = new
+            {
+                type = InventoryHeartbeatBatch.QueryResultType,
+                columns = new[]
+                {
+                    new { name = "SubscriptionId" }, new { name = "Computer" },
+                    new { name = "LastHeartbeat" }, new { name = "Services" }
+                },
+                rows = new[] { new object[] { "sub", "SERVER01", "2026-10-23T12:00:00Z", servicesValue } }
+            }
+        }));
+        return Assert.Single(InventoryHeartbeatBatch.Parse(document.RootElement));
     }
 
       private static AlertRecord CreateAlert(string name, string rawJson) => new(

@@ -24,6 +24,11 @@ public sealed class AlertIngestionAuthenticationOptions
             return [];
         }
 
+        return ValidateConfiguration();
+    }
+
+    public IReadOnlyList<string> ValidateConfiguration()
+    {
         var errors = new List<string>();
         if (!Guid.TryParse(Audience, out _))
         {
@@ -71,6 +76,8 @@ public sealed class AlertIngestionSource
 /// </summary>
 public static class AlertIngestionAuthorization
 {
+    public const string PolicyName = "LogicAppAlertWriter";
+
     public static bool IsAuthenticationRequired(AlertIngestionAuthenticationOptions options) =>
         options.Enabled;
 
@@ -79,6 +86,11 @@ public static class AlertIngestionAuthorization
     /// </summary>
     public static bool IsAuthorized(
         ClaimsPrincipal principal,
+        AlertIngestionAuthenticationOptions options) =>
+        Evaluate(principal, options).All(check => check.Passed);
+
+    public static IReadOnlyList<AlertIngestionAuthorizationCheck> Evaluate(
+        ClaimsPrincipal principal,
         AlertIngestionAuthenticationOptions options)
     {
         var tenantId = principal.FindFirstValue("tid");
@@ -86,12 +98,24 @@ public static class AlertIngestionAuthorization
         var issuer = principal.FindFirstValue("iss");
         var expectedIssuer = $"https://login.microsoftonline.com/{tenantId}/v2.0";
 
-        return principal.FindFirstValue("idtyp") == "app" &&
-            expectedIssuer.Equals(issuer, StringComparison.OrdinalIgnoreCase) &&
-            principal.Claims.Any(claim => claim.Type == "roles" && claim.Value == options.RequiredRole) &&
-            !principal.HasClaim(claim => claim.Type == "scp") &&
-            options.Sources.Any(source =>
-                source.TenantId.Equals(tenantId, StringComparison.OrdinalIgnoreCase) &&
-                source.ClientId.Equals(clientId, StringComparison.OrdinalIgnoreCase));
+        return
+        [
+            new("App-only identity", principal.FindFirstValue("idtyp") == "app",
+                "The idtyp claim must be app."),
+            new("Tenant-specific v2 issuer", expectedIssuer.Equals(issuer, StringComparison.OrdinalIgnoreCase),
+                "The issuer must be https://login.microsoftonline.com/<tid>/v2.0."),
+            new("Required application role",
+                principal.Claims.Any(claim => claim.Type == "roles" && claim.Value == options.RequiredRole),
+                $"The roles claim must include {options.RequiredRole}. This is not an Azure RBAC role."),
+            new("No delegated scopes", !principal.HasClaim(claim => claim.Type == "scp"),
+                "App-only tokens must not contain an scp claim."),
+            new("Allowed tenant / UAMI pair",
+                options.Sources.Any(source =>
+                    source.TenantId.Equals(tenantId, StringComparison.OrdinalIgnoreCase) &&
+                    source.ClientId.Equals(clientId, StringComparison.OrdinalIgnoreCase)),
+                "The tid and azp claims must match one configured pair. The current policy does not use appid or oid instead of azp.")
+        ];
     }
 }
+
+public sealed record AlertIngestionAuthorizationCheck(string Name, bool Passed, string Detail);

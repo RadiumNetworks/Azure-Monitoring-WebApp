@@ -79,6 +79,12 @@ else
         </label>
 
         <label class="admin-field admin-field-wide">
+            <span>RCA display</span>
+            <textarea rows="6" required spellcheck="false" @bind="rcaDisplayJson"></textarea>
+            <small>JSON with OpenUnassignedColor (Open and unassigned), ClosedColor, and OtherColor. Colors: red, green, orange, yellow, gray. Restart required.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
             <span>Agent analysis mode</span>
             <select required @bind="agentAnalysisMode">
                 <option value="@AgentAnalysisExecutionModes.CopilotPrompt">Copilot prompt</option>
@@ -161,6 +167,7 @@ else
     </form>
 }
 
+<LegacyAlertResolutionPanel />
 <DatabaseResetPanel />
 
 @code {
@@ -175,6 +182,7 @@ else
     private string alertGraphJson = string.Empty;
     private string alertSeverityDisplayJson = string.Empty;
     private string inboxTargetOutputDisplayJson = string.Empty;
+    private string rcaDisplayJson = string.Empty;
     private string agentAnalysisMode = AgentAnalysisExecutionModes.CopilotPrompt;
     private string teamsWorkflowProfile = string.Empty;
     private string apiProfile = string.Empty;
@@ -249,6 +257,7 @@ else
             alertGraphJson = FormatJson(settings[DatabaseSettingsLoader.AlertGraph].JsonValue);
             alertSeverityDisplayJson = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue);
             inboxTargetOutputDisplayJson = FormatJson(settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue);
+            rcaDisplayJson = FormatJson(settings[DatabaseSettingsLoader.RcaDisplay].JsonValue);
             var agentAnalysisContext = DatabaseSettingsLoader.Deserialize<AgentAnalysisContextOptions>(
                 DatabaseSettingsLoader.AgentAnalysisContext,
                 settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue);
@@ -308,6 +317,11 @@ else
                 inboxTargetOutputDisplayJson);
             EnsureValid(DatabaseSettingsLoader.InboxTargetOutputDisplay, inboxTargetOutputDisplay.Validate());
 
+            var rcaDisplay = DatabaseSettingsLoader.Deserialize<RcaDisplayOptions>(
+                DatabaseSettingsLoader.RcaDisplay,
+                rcaDisplayJson);
+            EnsureValid(DatabaseSettingsLoader.RcaDisplay, rcaDisplay.Validate());
+
             var agentAnalysisContext = new AgentAnalysisContextOptions
             {
                 InventoryCorrelationLayers = SelectedCorrelationLayers()
@@ -350,6 +364,7 @@ else
             settings[DatabaseSettingsLoader.AlertGraph].JsonValue = FormatJson(alertGraphJson);
             settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue = FormatJson(alertSeverityDisplayJson);
             settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue = FormatJson(inboxTargetOutputDisplayJson);
+            settings[DatabaseSettingsLoader.RcaDisplay].JsonValue = FormatJson(rcaDisplayJson);
             settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue =
                 JsonSerializer.Serialize(agentAnalysisContext, PrettyJson);
             settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue = JsonSerializer.Serialize(agentAnalysisExecution);
@@ -359,6 +374,7 @@ else
             alertGraphJson = settings[DatabaseSettingsLoader.AlertGraph].JsonValue;
             alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue;
             inboxTargetOutputDisplayJson = settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue;
+            rcaDisplayJson = settings[DatabaseSettingsLoader.RcaDisplay].JsonValue;
             statusMessage = "Settings saved. Restart the application to apply them.";
         }
         catch (Exception exception)

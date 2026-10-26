@@ -11,13 +11,19 @@
         <div class="header-actions">
             <nav class="view-navigation" aria-label="Primary navigation">
                 <div class="navigation-group">
-                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Analyze</button>
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Overview</button>
                     <div class="navigation-submenu">
                         <NavLink href="/" Match="NavLinkMatch.All">Inbox</NavLink>
                         <NavLink href="/graph">Graph</NavLink>
+                        <NavLink href="/analysis">Dashboards</NavLink>
+                    </div>
+                </div>
+                <div class="navigation-group">
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Analyze</button>
+                    <div class="navigation-submenu">
                         <NavLink href="/queries">Queries</NavLink>
-                        <NavLink href="/analysis">Live analysis</NavLink>
                         <NavLink href="/logbook">Logbook</NavLink>
+                        <NavLink href="/rca">Root cause analysis</NavLink>
                         <NavLink href="/prompt">Analysis workspace</NavLink>
                     </div>
                 </div>
@@ -36,6 +42,7 @@
                         <div class="navigation-submenu">
                             <NavLink href="/admin/settings">Settings</NavLink>
                             <NavLink href="/admin/log-analytics">Log Analytics</NavLink>
+                            <NavLink href="/admin/alert-authentication">Alert authentication</NavLink>
                             <NavLink href="/admin/analysis-queries">Analysis queries</NavLink>
                             <NavLink href="/admin/users">Users</NavLink>
                         </div>

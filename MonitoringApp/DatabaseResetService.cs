@@ -42,6 +42,10 @@ public sealed class DatabaseResetService(
                 await using var transaction = await context.Database.BeginTransactionAsync(
                     IsolationLevel.Serializable, cancellationToken);
 
+                await context.RcaAlertLinks.ExecuteDeleteAsync(cancellationToken);
+                await context.RcaChanges.ExecuteDeleteAsync(cancellationToken);
+                await context.RcaPrompts.ExecuteDeleteAsync(cancellationToken);
+                await context.RootCauseAnalyses.ExecuteDeleteAsync(cancellationToken);
                 await context.AgentAnalysisReviewEvents.ExecuteDeleteAsync(cancellationToken);
                 await context.AgentAnalysisJobs.ExecuteDeleteAsync(cancellationToken);
                 await context.AnalysisDashboardTemplates.ExecuteDeleteAsync(cancellationToken);
@@ -75,7 +79,7 @@ public sealed class DatabaseResetService(
         logger.LogWarning(
             "Database reset completed by {Actor}. Restored {RuleCount} default alert rules. Users and settings were preserved.",
             actor, ruleCount);
-        alertStore.NotifyDatabaseReset();
+        alertStore.NotifyDataChanged();
         return ruleCount;
     }
 }

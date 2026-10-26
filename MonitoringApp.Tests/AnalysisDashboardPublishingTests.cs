@@ -70,7 +70,7 @@ public sealed class AnalysisDashboardPublishingTests
     }
 
     [Fact]
-    public async Task AnalysisPageRendersNumericDashboardAndQueryVersions()
+    public async Task AnalysisPageDefaultsToCompactViewWithExistingDashboardsSystemsAndWidgets()
     {
         await using var fixture = await Fixture.CreateAsync();
         var collection = CreateDashboard();
@@ -127,11 +127,64 @@ public sealed class AnalysisDashboardPublishingTests
         });
         html = System.Net.WebUtility.HtmlDecode(html);
         Assert.Contains($"{publication.Name} · {publication.Owner} · v7", html);
-        Assert.Contains("Published v7 · personal edits remain private", html);
-        Assert.Contains("· v4", html);
+        Assert.Contains("<span>Edit</span>", html);
+        Assert.Contains("Select dashboard", html);
+        Assert.Contains("Systems", html);
+        Assert.Contains("LDAP latency", html);
+        Assert.DoesNotContain("Published v7 · personal edits remain private", html);
+        Assert.DoesNotContain("Query library", html);
+        Assert.DoesNotContain("Published query", html);
+        Assert.DoesNotContain("Execution preview", html);
+        Assert.DoesNotContain("Create dashboard", html);
+        Assert.DoesNotContain("Run dashboard", html);
+        Assert.DoesNotContain("Save dashboard", html);
+        Assert.DoesNotContain("Publish updated dashboard", html);
+        Assert.DoesNotContain("data-inbox-drag-handle", html);
+        Assert.DoesNotContain("data-inbox-resize-handle", html);
+        Assert.DoesNotContain("data-analysis-panel-resize", html);
         Assert.DoesNotContain("@publication.Version", html);
         Assert.DoesNotContain("@OwnPublication.Version", html);
         Assert.DoesNotContain("@query.Version", html);
+    }
+
+    [Fact]
+    public async Task CompactPublishedViewKeepsSystemsAndWidgetsWithoutExecutionControls()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var collection = CreateDashboard();
+        await fixture.Repository.SaveAsync("alice@example.com", collection, 0);
+        await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
+        var options = new CrossTenantLogAnalyticsOptions { Enabled = false };
+        var runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+        await using var services = new ServiceCollection().AddLogging()
+            .AddSingleton(fixture.Publishing)
+            .AddSingleton(new AnalysisQueryRegistry(fixture.Factory, options, runner))
+            .AddSingleton(new AnalysisQueryExecutionService(fixture.Factory, runner))
+            .AddSingleton(new ApplicationAuthenticationOptions())
+            .AddSingleton(options).AddSingleton(TimeProvider.System)
+            .BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<CascadingValue<Task<AuthenticationState>>>(
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Value"] = Task.FromResult(new AuthenticationState(Operator)),
+                    ["ChildContent"] = (RenderFragment)(builder =>
+                    {
+                        builder.OpenComponent<PublishedAnalysisDashboardView>(0);
+                        builder.AddAttribute(1, "DashboardId", collection.ActiveDashboardId);
+                        builder.AddAttribute(2, "ShowControls", false);
+                        builder.AddAttribute(3, "AutoRunOnOpen", true);
+                        builder.CloseComponent();
+                    })
+                }))).ToHtmlString());
+        Assert.Contains("LDAP latency", html);
+        Assert.Contains("DC01", html);
+        Assert.Contains("Live Log Analytics is disabled", html);
+        Assert.DoesNotContain("Run dashboard", html);
+        Assert.DoesNotContain("Auto-refresh", html);
+        Assert.DoesNotContain("Dashboard time range", html);
+        Assert.DoesNotContain("Dashboard averaging interval", html);
     }
 
     [Fact]

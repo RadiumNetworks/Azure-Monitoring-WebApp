@@ -154,6 +154,29 @@ public sealed class AnalysisDashboardCollectionTests
     }
 
     [Fact]
+    public async Task CompactTabsKeepDashboardSelectionAndHideManagement()
+    {
+        var collection = AnalysisDashboardCollection.Create();
+        collection.RenameActive("AD operations");
+        collection.Add("Replication");
+        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<AnalysisDashboardTabs>(
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Collection"] = collection, ["EditMode"] = false
+                }))).ToHtmlString());
+        Assert.Contains("AD operations", html);
+        Assert.Contains("Replication", html);
+        Assert.Contains("aria-pressed=\"true\"", html);
+        Assert.DoesNotContain("Create dashboard", html);
+        Assert.DoesNotContain("Rename", html);
+        Assert.DoesNotContain("Delete dashboard", html);
+        Assert.DoesNotContain("<form", html);
+    }
+
+    [Fact]
     public async Task PersistsMultipleDashboardsPerOwnerMigratesLegacyAndRejectsStaleSaves()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

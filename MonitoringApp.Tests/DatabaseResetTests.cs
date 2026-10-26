@@ -195,10 +195,11 @@ public sealed class DatabaseResetTests
         var tables = Regex.Matches(script, @"\(\d+, N'(?<table>[^']+)'\)")
             .Select(match => match.Groups["table"].Value).ToArray();
         Assert.Equal(
-            ["AgentAnalysisReviewEvents", "AgentAnalysisJobs", "AnalysisDashboardTemplates",
+            ["RcaAlertLinks", "AgentAnalysisReviewEvents", "AgentAnalysisJobs", "AnalysisDashboardTemplates",
              "AnalysisDashboards", "InboxLayouts", "AnalysisQueryWorkspaces", "AnalysisQueryVersions",
              "AnalysisQueryDefinitions", "LogbookEntries", "ParsedAlerts", "AlertHistory",
-             "Alerts", "ComputerInventory", "AlertRules", "AnalysisQueryCategories"], tables);
+             "Alerts", "ComputerInventory", "AlertRules", "AnalysisQueryCategories",
+             "RcaChanges", "RcaPrompts", "RootCauseAnalyses"], tables);
         Assert.Contains("DECLARE @CommitChanges bit = 0;", script);
         Assert.Contains("DECLARE @Confirmation nvarchar(32) = N'';", script);
         Assert.Contains("DB_NAME() <> @ExpectedDatabase", script);
@@ -217,6 +218,7 @@ public sealed class DatabaseResetTests
 
         Assert.Contains("Initialize / reset database...", html);
         Assert.Contains("Permanent deletion. Back up the database first.", html);
+        Assert.Contains("RCA cases with prompts, analysis, comments and changelogs", html);
         Assert.Contains("AD query templates are not installed automatically.", html);
         Assert.Contains("are preserved.", html);
         Assert.DoesNotContain("aria-modal=\"true\"", html);
@@ -248,6 +250,10 @@ public sealed class DatabaseResetTests
         Assert.Equal(count, await context.AnalysisDashboards.CountAsync());
         Assert.Equal(count, await context.AnalysisDashboardTemplates.CountAsync());
         Assert.Equal(count, await context.InboxLayouts.CountAsync());
+        Assert.Equal(count, await context.RootCauseAnalyses.CountAsync());
+        Assert.Equal(count, await context.RcaPrompts.CountAsync());
+        Assert.Equal(count, await context.RcaChanges.CountAsync());
+        Assert.Equal(count, await context.RcaAlertLinks.CountAsync());
     }
 
     private static async Task AssertOriginalDataAsync(AlertDbContext context)
@@ -345,6 +351,11 @@ public sealed class DatabaseResetTests
             context.AnalysisDashboardTemplates.Add(new() { Id = Guid.NewGuid(), Name = "Shared dashboard", Published = true, UpdatedBy = "admin" });
             context.InboxLayouts.Add(new() { OwnerKey = "admin", Name = "Custom inbox" });
             context.AuthenticationUsers.Add(new() { Username = "admin", PasswordHash = "unchanged-password-hash", Role = SqlAuthenticationRoles.Admin });
+            var rca = new RootCauseAnalysis { Id = Guid.NewGuid(), RuleId = Guid.NewGuid(), CategoryName = "Incident" };
+            context.RootCauseAnalyses.Add(rca);
+            context.RcaAlertLinks.Add(new() { RcaId = rca.Id, AlertEventId = alert.Id });
+            context.RcaPrompts.Add(new() { Id = Guid.NewGuid(), RcaId = rca.Id, RawPrompt = "Evidence" });
+            context.RcaChanges.Add(new() { Id = Guid.NewGuid(), RcaId = rca.Id, Actor = "admin", Field = "Comment", After = "Keep comment" });
             context.Settings.AddRange(
                 new DatabaseSetting { Name = "Authentication", JsonValue = "{\"Type\":\"sql\"}" },
                 new DatabaseSetting { Name = "CustomConnection", JsonValue = "{\"Workspace\":\"keep\"}" });

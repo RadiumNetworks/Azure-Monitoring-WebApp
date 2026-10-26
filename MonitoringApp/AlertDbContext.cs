@@ -8,6 +8,10 @@ namespace MonitoringApp;
 public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : DbContext(options)
 {
     public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
+    public DbSet<RootCauseAnalysis> RootCauseAnalyses => Set<RootCauseAnalysis>();
+    public DbSet<RcaPrompt> RcaPrompts => Set<RcaPrompt>();
+    public DbSet<RcaChange> RcaChanges => Set<RcaChange>();
+    public DbSet<RcaAlertLink> RcaAlertLinks => Set<RcaAlertLink>();
     public DbSet<AlertHistoryRecord> AlertHistory => Set<AlertHistoryRecord>();
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<ComputerInventoryEntry> ComputerInventory => Set<ComputerInventoryEntry>();
@@ -30,6 +34,36 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     /// </summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var rca = modelBuilder.Entity<RootCauseAnalysis>();
+        rca.ToTable("RootCauseAnalyses");
+        rca.HasKey(entry => entry.Id);
+        rca.Property(entry => entry.CategoryName).HasMaxLength(256);
+        rca.Property(entry => entry.AssignedTo).HasMaxLength(256);
+        rca.Property(entry => entry.Status).HasMaxLength(32);
+        rca.Property(entry => entry.Revision).IsConcurrencyToken();
+        rca.HasIndex(entry => entry.RuleId);
+        var rcaAlertLink = modelBuilder.Entity<RcaAlertLink>();
+        rcaAlertLink.ToTable("RcaAlertLinks");
+        rcaAlertLink.HasKey(entry => entry.AlertEventId);
+        rcaAlertLink.HasIndex(entry => entry.RcaId);
+        rcaAlertLink.HasOne<RootCauseAnalysis>().WithMany().HasForeignKey(entry => entry.RcaId)
+            .OnDelete(DeleteBehavior.Cascade);
+        rcaAlertLink.HasOne(entry => entry.Alert).WithMany().HasForeignKey(entry => entry.AlertEventId)
+            .OnDelete(DeleteBehavior.Cascade);
+        var rcaPrompt = modelBuilder.Entity<RcaPrompt>();
+        rcaPrompt.ToTable("RcaPrompts");
+        rcaPrompt.HasKey(entry => entry.Id);
+        rcaPrompt.HasIndex(entry => new { entry.RcaId, entry.Sequence }).IsUnique();
+        rcaPrompt.HasOne<RootCauseAnalysis>().WithMany().HasForeignKey(entry => entry.RcaId)
+            .OnDelete(DeleteBehavior.Cascade);
+        var rcaChange = modelBuilder.Entity<RcaChange>();
+        rcaChange.ToTable("RcaChanges");
+        rcaChange.HasKey(entry => entry.Id);
+        rcaChange.Property(entry => entry.Actor).HasMaxLength(256);
+        rcaChange.Property(entry => entry.Field).HasMaxLength(64);
+        rcaChange.HasIndex(entry => new { entry.RcaId, entry.CreatedAt });
+        rcaChange.HasOne<RootCauseAnalysis>().WithMany().HasForeignKey(entry => entry.RcaId)
+            .OnDelete(DeleteBehavior.Cascade);
         var alert = modelBuilder.Entity<AlertRecord>();
 
         alert.ToTable("Alerts");

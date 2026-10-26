@@ -510,8 +510,11 @@ public sealed class AnalysisQueryRunner(
         IReadOnlyList<ComputerInventoryEntry> systems,
         int requestedMinutes,
         int? binMinutes = null,
-        string groupBy = "SourceDSA")
+        string groupBy = "SourceDSA",
+        string? workspaceKey = null,
+        string? domain = null)
     {
+        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain);
         ValidateExecutionLimits(definition, systems.Count, requestedMinutes);
         AnalysisQuerySelections.Validate(binMinutes == definition.DefaultBinMinutes ? null : binMinutes, groupBy);
         return systems
@@ -536,14 +539,49 @@ public sealed class AnalysisQueryRunner(
             .ToArray();
     }
 
+    private IReadOnlyList<ComputerInventoryEntry> FilterWorkspaceSystems(
+        AnalysisQueryDefinition definition,
+        IReadOnlyList<ComputerInventoryEntry> systems, string? workspaceKey, string? domain)
+    {
+        if (definition.Scope == AnalysisQueryScopes.Workspace ||
+            (string.IsNullOrEmpty(workspaceKey) && string.IsNullOrEmpty(domain)))
+            return systems;
+        var workspace = string.IsNullOrEmpty(workspaceKey) ? null :
+            options.Workspaces.SingleOrDefault(item => item.Key.Equals(workspaceKey, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("The selected Log Analytics workspace is not configured.");
+        var normalizedDomain = CrossTenantLogAnalyticsOptions.NormalizeDomain(domain);
+        CrossTenantLogAnalyticsWorkspaceOptions? domainWorkspace = null;
+        if (!string.IsNullOrEmpty(domain))
+        {
+            domainWorkspace = options.Workspaces.SingleOrDefault(item =>
+                (workspace is null || item.Key.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase)) &&
+                item.Domains.Any(value => CrossTenantLogAnalyticsOptions.NormalizeDomain(value) == normalizedDomain))
+                ?? throw new InvalidOperationException("The selected domain is not configured for the selected workspace.");
+        }
+        var filtered = systems.Where(system =>
+            (workspace is null || WorkspaceResolver.Resolve(system.SubscriptionId, system.Domain)
+                .Workspace.Key.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase)) &&
+            (domainWorkspace is null || CrossTenantLogAnalyticsOptions.NormalizeDomain(system.Domain) == normalizedDomain)).ToArray();
+        if (filtered.Length == 0)
+        {
+            if (domainWorkspace is not null)
+                throw new InvalidOperationException($"No selected systems belong to domain '{domainWorkspace.GetDomainDisplayName(normalizedDomain)}'. Select systems from this domain or choose All domains.");
+            throw new InvalidOperationException($"No selected systems belong to workspace '{workspace!.DisplayName}'. Select systems from this workspace or choose All workspaces.");
+        }
+        return filtered;
+    }
+
     public async Task<AnalysisQueryResponse> ExecuteAsync(
         AnalysisQueryDefinition definition,
         IReadOnlyList<ComputerInventoryEntry> systems,
         int requestedMinutes,
         CancellationToken cancellationToken = default,
         int? binMinutes = null,
-        string groupBy = "SourceDSA")
+        string groupBy = "SourceDSA",
+        string? workspaceKey = null,
+        string? domain = null)
     {
+        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain);
         ValidateExecutionLimits(definition, systems.Count, requestedMinutes);
         AnalysisQuerySelections.Validate(binMinutes == definition.DefaultBinMinutes ? null : binMinutes, groupBy);
         var minutes = requestedMinutes;
@@ -806,7 +844,9 @@ public sealed class AnalysisQueryExecutionService(
             request.TimeRangeMinutes,
             cancellationToken,
             request.BinMinutes,
-            request.GroupBy);
+            request.GroupBy,
+            request.WorkspaceKey,
+            request.Domain);
     }
 
     public static bool IsRoleAllowed(string minimumRole, System.Security.Claims.ClaimsPrincipal user, bool openAuthentication)

@@ -53,6 +53,70 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[RootCauseAnalyses]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[RootCauseAnalyses]
+    (
+        [Id] uniqueidentifier NOT NULL PRIMARY KEY,
+        [RuleId] uniqueidentifier NOT NULL,
+        [CategoryName] nvarchar(256) NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [FollowUpDueAt] datetimeoffset NOT NULL,
+        [CriticalEndedAt] datetimeoffset NULL,
+        [IsActive] bit NOT NULL,
+        [EvidenceEventIdsJson] nvarchar(max) NOT NULL,
+        [Analysis] nvarchar(max) NOT NULL,
+        [AssignedTo] nvarchar(256) NOT NULL,
+        [Status] nvarchar(32) NOT NULL,
+        [Revision] int NOT NULL
+    );
+    CREATE INDEX [IX_RootCauseAnalyses_RuleId]
+        ON [dbo].[RootCauseAnalyses] ([RuleId]);
+END;
+GO
+
+IF COL_LENGTH(N'[dbo].[RootCauseAnalyses]', N'AssignedTo') < 512
+BEGIN
+    ALTER TABLE [dbo].[RootCauseAnalyses] ALTER COLUMN [AssignedTo] nvarchar(256) NOT NULL;
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[RcaPrompts]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[RcaPrompts]
+    (
+        [Id] uniqueidentifier NOT NULL PRIMARY KEY,
+        [RcaId] uniqueidentifier NOT NULL,
+        [Sequence] int NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [RawPrompt] nvarchar(max) NOT NULL,
+        CONSTRAINT [FK_RcaPrompts_RootCauseAnalyses] FOREIGN KEY ([RcaId])
+            REFERENCES [dbo].[RootCauseAnalyses] ([Id]) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX [IX_RcaPrompts_RcaId_Sequence]
+        ON [dbo].[RcaPrompts] ([RcaId], [Sequence]);
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[RcaChanges]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[RcaChanges]
+    (
+        [Id] uniqueidentifier NOT NULL PRIMARY KEY,
+        [RcaId] uniqueidentifier NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [Actor] nvarchar(256) NOT NULL,
+        [Field] nvarchar(64) NOT NULL,
+        [Before] nvarchar(max) NOT NULL,
+        [After] nvarchar(max) NOT NULL,
+        CONSTRAINT [FK_RcaChanges_RootCauseAnalyses] FOREIGN KEY ([RcaId])
+            REFERENCES [dbo].[RootCauseAnalyses] ([Id]) ON DELETE CASCADE
+    );
+    CREATE INDEX [IX_RcaChanges_RcaId_CreatedAt]
+        ON [dbo].[RcaChanges] ([RcaId], [CreatedAt]);
+END;
+GO
+
 IF OBJECT_ID(N'[dbo].[Alerts]', N'U') IS NULL
 BEGIN
     CREATE TABLE [dbo].[Alerts]
@@ -917,6 +981,13 @@ BEGIN
         N'InboxTargetOutputDisplay',
         N'{"CountColors":[{"MinimumCount":1,"Color":"yellow"},{"MinimumCount":2,"Color":"orange"},{"MinimumCount":3,"Color":"red"}],"SuppressedColor":"green","CriticalOutageAlwaysRed":true,"BoldOutageNames":true,"ShowDomain":true}'
     );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'RcaDisplay')
+BEGIN
+    INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
+    VALUES (N'RcaDisplay',
+        N'{"OpenUnassignedColor":"red","ClosedColor":"green","OtherColor":"orange"}');
 END;
 
 IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'AgentAnalysisExecution')
@@ -1915,6 +1986,80 @@ IF NOT EXISTS
 BEGIN
     INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
     VALUES (N'20261021173000_AddAnalysisQueryCategories', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261022102938_AddRootCauseAnalysis'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261022102938_AddRootCauseAnalysis', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261022113434_ExpandRcaAssigneeEmail'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261022113434_ExpandRcaAssigneeEmail', N'10.0.11');
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[RcaAlertLinks]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[RcaAlertLinks]
+    (
+        [AlertEventId] uniqueidentifier NOT NULL CONSTRAINT [PK_RcaAlertLinks] PRIMARY KEY,
+        [RcaId] uniqueidentifier NOT NULL,
+        [LinkedAt] datetimeoffset NOT NULL,
+        CONSTRAINT [FK_RcaAlertLinks_Alerts_AlertEventId] FOREIGN KEY ([AlertEventId])
+            REFERENCES [dbo].[Alerts] ([Id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_RcaAlertLinks_RootCauseAnalyses_RcaId] FOREIGN KEY ([RcaId])
+            REFERENCES [dbo].[RootCauseAnalyses] ([Id]) ON DELETE CASCADE
+    );
+    CREATE INDEX [IX_RcaAlertLinks_RcaId] ON [dbo].[RcaAlertLinks] ([RcaId]);
+END;
+GO
+
+IF EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE [object_id] = OBJECT_ID(N'[dbo].[RootCauseAnalyses]')
+        AND [name] = N'IX_RootCauseAnalyses_RuleId' AND [is_unique] = 1
+)
+BEGIN
+    DROP INDEX [IX_RootCauseAnalyses_RuleId] ON [dbo].[RootCauseAnalyses];
+    CREATE INDEX [IX_RootCauseAnalyses_RuleId] ON [dbo].[RootCauseAnalyses] ([RuleId]);
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261022133544_AddRcaAlertLinks'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261022133544_AddRcaAlertLinks', N'10.0.11');
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261022140500_AddRcaDisplaySetting'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261022140500_AddRcaDisplaySetting', N'10.0.11');
 END;
 GO
 

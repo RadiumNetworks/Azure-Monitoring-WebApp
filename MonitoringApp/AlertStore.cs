@@ -276,7 +276,7 @@ public sealed class AlertStore
 
     public event Action? Changed;
 
-    internal void NotifyDatabaseReset()
+    internal void NotifyDataChanged()
     {
         foreach (Action subscriber in Changed?.GetInvocationList() ?? [])
         {
@@ -286,7 +286,7 @@ public sealed class AlertStore
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, "Failed to notify a subscriber after the database reset.");
+                logger.LogError(exception, "Failed to notify a subscriber after an operational data change.");
             }
         }
     }
@@ -485,7 +485,8 @@ public sealed class AlertStore
         foreach (var alert in alerts)
         {
             var resolvedAlert = ResolveDisplayIdentity(alert);
-            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
+            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson) ||
+                AlertInventoryLearning.HasZeroRowCount(resolvedAlert.RawJson))
                 continue;
             var subscriptionId = resolvedAlert.SubscriptionId.Trim();
             var computer = resolvedAlert.TargetName.Trim();
@@ -1577,7 +1578,7 @@ public sealed class AlertStore
                 LogSkippedDcPortSystems(resolvedAlert,
                     AlertInventoryLearning.EnrichExistingDcPortSystems(resolvedAlert, inventoryEntries));
             }
-            else if (hasInventoryKey)
+            else if (hasInventoryKey && !AlertInventoryLearning.HasZeroRowCount(resolvedAlert.RawJson))
             {
                 var key = InventoryKey(subscriptionId, computer);
                 var site = resolvedAlert.SiteName.Trim();
@@ -1617,8 +1618,9 @@ public sealed class AlertStore
             }
 
             var parsed = ParsedAlertFactory.Create(resolvedAlert);
-            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
-                LinkDcPortInventoryTarget(parsed, resolvedAlert, inventoryEntries);
+            if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson) ||
+                AlertInventoryLearning.HasZeroRowCount(resolvedAlert.RawJson))
+                LinkInventoryTarget(parsed, resolvedAlert, inventoryByKey.Values.ToArray());
             context.ParsedAlerts.Add(parsed);
         }
 
@@ -1787,8 +1789,9 @@ public sealed class AlertStore
 
                 await UpsertComputerInventoryAsync(dbContext, resolvedAlert, cancellationToken);
                 var parsedAlert = ParsedAlertFactory.Create(resolvedAlert);
-                if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson))
-                    LinkDcPortInventoryTarget(parsedAlert, resolvedAlert,
+                if (AlertInventoryLearning.IsDcPort(resolvedAlert.RawJson) ||
+                    AlertInventoryLearning.HasZeroRowCount(resolvedAlert.RawJson))
+                    LinkInventoryTarget(parsedAlert, resolvedAlert,
                         await dbContext.ComputerInventory.ToArrayAsync(cancellationToken));
                 if (resolvedAlert.MonitorCondition.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1810,6 +1813,8 @@ public sealed class AlertStore
                     dbContext.LogbookEntries.Add(logbookEntry);
                 }
 
+                await RcaAutomation.ReconcileAsync(dbContext, alertRuleEvaluator,
+                    queryResultPresenter, DateTimeOffset.UtcNow, cancellationToken);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new AddAlertResult(alert, true);
@@ -1835,7 +1840,7 @@ public sealed class AlertStore
         CancellationToken cancellationToken)
     {
         var observations = InventoryHeartbeatBatch.Parse(payload);
-        if (observations.Count == 0)
+        if (observations.Count == 0 && !AlertInventoryLearning.HasZeroRowCount(payload))
         {
             throw new InvalidOperationException(
                 "The InventoryHeartbeat payload does not contain any valid inventory rows.");
@@ -1882,7 +1887,7 @@ public sealed class AlertStore
                             NtdsFileSizeInGb = observation.NtdsFileSizeInGb,
                             CertificatesJson = observation.CertificatesJson ?? "[]",
                             ServicesJson = observation.ServicesJson ?? "[]",
-                            Role = observation.IsDomainController ? "Domain Controller" : null
+                            Role = observation.DetectedRole
                         });
                         hasChanges = true;
                         continue;
@@ -1933,10 +1938,10 @@ public sealed class AlertStore
                         hasChanges = true;
                     }
 
-                    if (observation.IsDomainController &&
-                        !string.Equals(stored.Role, "Domain Controller", StringComparison.OrdinalIgnoreCase))
+                    if (observation.DetectedRole is { } detectedRole &&
+                        !string.Equals(stored.Role, detectedRole, StringComparison.OrdinalIgnoreCase))
                     {
-                        stored.Role = "Domain Controller";
+                        stored.Role = detectedRole;
                         hasChanges = true;
                     }
 
@@ -2021,6 +2026,13 @@ public sealed class AlertStore
         AlertRecord alert,
         CancellationToken cancellationToken)
     {
+        if (AlertInventoryLearning.HasZeroRowCount(alert.RawJson))
+        {
+            logger.LogInformation(
+                "Skipped all inventory learning for alert {AlertId} because queryResult.rowCount is zero.",
+                alert.AlertId);
+            return;
+        }
         if (AlertInventoryLearning.IsDcPort(alert.RawJson))
         {
             var inventory = await context.ComputerInventory.ToArrayAsync(cancellationToken);
@@ -2085,10 +2097,15 @@ public sealed class AlertStore
 
     }
 
-    private static void LinkDcPortInventoryTarget(
+    private static void LinkInventoryTarget(
         ParsedAlertRecord parsed, AlertRecord alert, IReadOnlyList<ComputerInventoryEntry> inventory)
     {
-        var target = AlertInventoryLearning.FindExistingDcPortTarget(alert, inventory);
+        var target = AlertInventoryLearning.IsDcPort(alert.RawJson) &&
+            !AlertInventoryLearning.HasZeroRowCount(alert.RawJson)
+            ? AlertInventoryLearning.FindExistingDcPortTarget(alert, inventory)
+            : inventory.FirstOrDefault(entry =>
+                entry.SubscriptionId.Equals(alert.SubscriptionId.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                entry.Computer.Equals(alert.TargetName.Trim(), StringComparison.OrdinalIgnoreCase));
         parsed.InventorySubscriptionId = target?.SubscriptionId;
         parsed.InventoryComputer = target?.Computer;
     }

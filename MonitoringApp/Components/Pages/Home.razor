@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @inject AlertStore AlertStore
+@inject RcaService RcaService
 @inject AlertHistoryOptions AlertHistory
 @inject AlertSeverityDisplayOptions AlertSeverityDisplay
 @inject InboxTargetOutputDisplayOptions TargetOutputDisplay
@@ -31,6 +32,23 @@
         <span>received / @HistoryWindowLabel</span>
     </div>
 </section>
+
+@if (rcaNoticeError is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@rcaNoticeError</div>
+}
+@if (openRcaNotices.Count > 0)
+{
+    <section class="admin-message admin-message-warning" role="status" aria-label="Open root cause analyses">
+        @foreach (var notice in openRcaNotices)
+        {
+            <div @key="notice.Id">
+                <a href="@($"/rca?caseId={notice.Id}")">@notice.Label</a>
+                <span> / Status: @notice.StatusLabel / Assigned: @notice.AssigneeLabel</span>
+            </div>
+        }
+    </section>
+}
 
 <details class="inbox-designer-panel">
     <summary>
@@ -586,6 +604,9 @@
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private IReadOnlyList<AlertRecord> alerts = [];
+    private IReadOnlyList<OpenRcaNotice> openRcaNotices = [];
+    private string? rcaNoticeError;
+    private DateTimeOffset lastRcaNoticeRefresh;
     private IReadOnlyList<AlertRecord> firedHistoryAlerts = [];
     private IReadOnlyList<ComputerInventoryEntry> computerInventory = [];
     private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
@@ -908,6 +929,7 @@
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
             GetChartFirstHour(),
             currentTimeUtc);
+        await RefreshRcaNoticesAsync();
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
     }
@@ -932,6 +954,10 @@
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 currentTimeUtc = DateTimeOffset.UtcNow;
+                if (currentTimeUtc - lastRcaNoticeRefresh >= TimeSpan.FromSeconds(30))
+                {
+                    await InvokeAsync(RefreshRcaNoticesAsync);
+                }
                 if (!isEditingDateTime)
                 {
                     await InvokeAsync(StateHasChanged);
@@ -946,6 +972,23 @@
     private void HandleStoreChanged()
     {
         _ = ReloadAlertsAsync();
+    }
+
+    private async Task RefreshRcaNoticesAsync()
+    {
+        lastRcaNoticeRefresh = DateTimeOffset.UtcNow;
+        try
+        {
+            openRcaNotices = await RcaService.GetOpenNoticesAsync(clockCancellation.Token);
+            rcaNoticeError = null;
+        }
+        catch (OperationCanceledException) when (clockCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            rcaNoticeError = $"Could not refresh open RCA notices: {exception.Message}";
+        }
     }
 
     private void BeginDateTimeEdit() => isEditingDateTime = true;
@@ -982,6 +1025,7 @@
         criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
             GetChartFirstHour(),
             currentTimeUtc);
+        await RefreshRcaNoticesAsync();
         await InvokeAsync(StateHasChanged);
     }
 

@@ -17,8 +17,14 @@
         ],
         "Domains": [
           "corp-a.example",
-          "CORPA"
-        ]
+          "CORPA",
+          "partner-a.example"
+        ],
+        "DomainDisplayNames": {
+          "corp-a.example": "Company A",
+          "CORPA": "Company A (NetBIOS)",
+          "partner-a.example": "Partner A"
+        }
       },
       {
         "Key": "tenant-b",

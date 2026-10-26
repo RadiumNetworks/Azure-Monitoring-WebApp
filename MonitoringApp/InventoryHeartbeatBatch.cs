@@ -14,7 +14,13 @@ public sealed record InventoryHeartbeatObservation(
     string? CertificatesJson,
     string? ServicesJson,
     bool HasNtdsFileSizeData,
-    bool IsDomainController);
+    bool IsDomainController,
+    bool IsEntraConnect = false)
+{
+    public string? DetectedRole => IsEntraConnect
+        ? "Entra Connect"
+        : IsDomainController ? "Domain Controller" : null;
+}
 
 public static class InventoryHeartbeatBatch
 {
@@ -45,6 +51,8 @@ public static class InventoryHeartbeatBatch
 
     public static IReadOnlyList<InventoryHeartbeatObservation> Parse(JsonElement payload)
     {
+        if (AlertInventoryLearning.HasZeroRowCount(payload))
+            return [];
         if (!TryGetQueryResult(payload, out var queryResult) ||
             !queryResult.TryGetProperty("columns", out var columns) ||
             columns.ValueKind != JsonValueKind.Array ||
@@ -142,7 +150,8 @@ public static class InventoryHeartbeatBatch
             servicesIndex.HasValue ? JsonSerializer.Serialize(services) : null,
             ntdsFileSizeIndex.HasValue,
             ntdsFileSizeInGb.HasValue ||
-                services.Any(service => service.Name.Equals("NTDS", StringComparison.OrdinalIgnoreCase)));
+                services.Any(service => service.Name.Equals("NTDS", StringComparison.OrdinalIgnoreCase)),
+            services.Any(service => service.Name.Equals("AzureADConnectHealthAgent", StringComparison.OrdinalIgnoreCase)));
     }
 
     private static InventoryCertificate[] ParseCertificates(params JsonElement?[] values) =>

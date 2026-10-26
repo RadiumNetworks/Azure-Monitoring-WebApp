@@ -485,6 +485,232 @@ public sealed class AnalysisQueryTests
         Assert.Contains(AnalysisQueryValidator.ValidateDefinition(query), error => error.Contains("scope", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void WorkspaceFilterLimitsPreviewAndPreservesSelectedSystems()
+    {
+        var (options, runner, systems) = DraftEnvironment();
+        var query = DraftDefinition(options);
+        options.Workspaces[1] = new()
+        {
+            Key = "tenant-b", DisplayName = "Workspace B",
+            SubscriptionIds = options.Workspaces[1].SubscriptionIds,
+            Domains = ["example.test"]
+        };
+        runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+        ComputerInventoryEntry[] selected =
+        [
+            .. systems,
+            new() { Computer = "SERVER03", Domain = "EXAMPLE.TEST." }
+        ];
+
+        var preview = Assert.Single(runner.CreateExecutionPreviews(query, selected, 60, workspaceKey: "TENANT-B"));
+
+        Assert.Equal("Workspace B", preview.WorkspaceDisplayName);
+        Assert.Equal(["SERVER03"], preview.Systems);
+        Assert.DoesNotContain("SERVER01", preview.EffectiveKql);
+        Assert.DoesNotContain("SERVER02", preview.EffectiveKql);
+        Assert.Equal(3, selected.Length);
+        Assert.Equal(2, runner.CreateExecutionPreviews(query, selected, 60).Count);
+        Assert.Equal(2, runner.CreateExecutionPreviews(query, selected, 60, workspaceKey: "").Count);
+        Assert.Equal(["SERVER01", "SERVER02"],
+            Assert.Single(runner.CreateExecutionPreviews(query, selected, 60, workspaceKey: "tenant-a")).Systems);
+    }
+
+    [Theory]
+    [InlineData("tenant-b", "No selected systems belong to workspace 'Workspace B'")]
+    [InlineData("missing", "not configured")]
+    public async Task WorkspaceFilterRejectsEmptyOrUnknownWorkspaceInPreviewAndExecution(string key, string expected)
+    {
+        var (options, runner, systems) = DraftEnvironment();
+        var query = DraftDefinition(options);
+
+        var previewError = Assert.Throws<InvalidOperationException>(() =>
+            runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: key));
+        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, systems, 60, workspaceKey: key));
+
+        Assert.Contains(expected, previewError.Message);
+        Assert.Equal(previewError.Message, executionError.Message);
+    }
+
+    [Theory]
+    [InlineData("tenant-b", null, "No selected systems belong to workspace 'Workspace B'")]
+    [InlineData("tenant-a", "beta.example", "No selected systems belong to domain 'Company B'")]
+    public async Task DashboardFiltersFlowFromExecutionRequestWithoutChangingInventoryOrSavedSystems(
+        string workspaceKey, string? domain, string expected)
+    {
+        var (options, runner, systems) = DraftEnvironment();
+        options.Workspaces[0] = new()
+        {
+            Key = "tenant-a", DisplayName = "Workspace A", SubscriptionIds = options.Workspaces[0].SubscriptionIds,
+            Domains = ["alpha.example", "beta.example"],
+            DomainDisplayNames = new() { ["beta.example"] = "Company B" }
+        };
+        foreach (var system in systems)
+            system.Domain = "alpha.example";
+        runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
+        var query = DraftDefinition(options);
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), QueryDefinitionId = query.Id, Version = 1,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+        };
+        query.PublishedVersionId = version.Id;
+        query.Versions.Add(version);
+        await using (var context = factory.CreateDbContext())
+        {
+            var names = new[] { "AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "ComputerInventory" };
+            foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Where(statement => names.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
+            {
+                await context.Database.ExecuteSqlRawAsync(statement
+                    .Replace("{}", "{{}}", StringComparison.Ordinal)
+                    .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal));
+            }
+            context.AnalysisQueryDefinitions.Add(query);
+            context.ComputerInventory.AddRange(systems);
+            await context.SaveChangesAsync();
+        }
+        var document = new AnalysisDashboardDocument
+        {
+            Systems = systems.Select(system => new AnalysisDashboardSystem
+            {
+                SubscriptionId = system.SubscriptionId, Computer = system.Computer
+            }).ToList()
+        };
+        var saved = JsonSerializer.Serialize(document);
+        var request = document.CreateExecutionRequest(
+            new() { QueryDefinitionId = query.Id },
+            systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray())
+            with { WorkspaceKey = workspaceKey, Domain = domain };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new AnalysisQueryExecutionService(factory, runner).ExecuteAsync(request));
+
+        Assert.Contains(expected, error.Message);
+        Assert.Equal(saved, JsonSerializer.Serialize(document));
+        Assert.Equal(2, request.Systems.Count);
+        await using var verification = factory.CreateDbContext();
+        Assert.Equal(2, await verification.ComputerInventory.CountAsync());
+    }
+
+    [Fact]
+    public void DomainFilterSeparatesSystemsInTheSameWorkspaceAndCanBeCleared()
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        var query = DraftDefinition(options);
+        var before = JsonSerializer.Serialize(systems);
+
+        var preview = Assert.Single(runner.CreateExecutionPreviews(query, systems, 60,
+            workspaceKey: "TENANT-A", domain: " ALPHA.EXAMPLE. "));
+
+        Assert.Equal("tenant-a", preview.WorkspaceKey);
+        Assert.Equal(["SERVER01"], preview.Systems);
+        Assert.Contains("SERVER01", preview.EffectiveKql);
+        Assert.DoesNotContain("SERVER02", preview.EffectiveKql);
+        Assert.DoesNotContain("SERVER03", preview.EffectiveKql);
+        Assert.Equal(["SERVER02"], Assert.Single(runner.CreateExecutionPreviews(query, systems, 60,
+            domain: "beta.example")).Systems);
+        Assert.Equal(["SERVER01", "SERVER02"], Assert.Single(runner.CreateExecutionPreviews(query, systems, 60,
+            workspaceKey: "tenant-a", domain: "")).Systems);
+        Assert.Equal(2, runner.CreateExecutionPreviews(query, systems, 60).Count);
+        Assert.Equal(before, JsonSerializer.Serialize(systems));
+    }
+
+    [Theory]
+    [InlineData("tenant-b", "alpha.example")]
+    [InlineData("tenant-a", "missing.example")]
+    [InlineData(null, "missing.example")]
+    [InlineData("tenant-a", " ")]
+    public async Task RejectsInvalidDomainFilterInPreviewAndExecution(string? workspaceKey, string domain)
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        var query = DraftDefinition(options);
+
+        var previewError = Assert.Throws<InvalidOperationException>(() =>
+            runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: workspaceKey, domain: domain));
+        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, systems, 60, workspaceKey: workspaceKey, domain: domain));
+
+        Assert.Contains("domain is not configured", previewError.Message);
+        Assert.Equal(previewError.Message, executionError.Message);
+    }
+
+    [Fact]
+    public async Task EmptyDomainSelectionReportsDisplayNameWithoutFallingBackToOtherSystems()
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        var query = DraftDefinition(options);
+        var selected = systems.Where(system => system.Computer != "SERVER02").ToArray();
+
+        var previewError = Assert.Throws<InvalidOperationException>(() =>
+            runner.CreateExecutionPreviews(query, selected, 60, domain: "beta.example"));
+        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, selected, 60, domain: "beta.example"));
+
+        Assert.Contains("No selected systems belong to domain 'Company B'", previewError.Message);
+        Assert.Equal(previewError.Message, executionError.Message);
+    }
+
+    [Fact]
+    public async Task WorkspaceQueriesIgnoreBothFiltersButOnlyUseWorkspacesOfSelectedSystems()
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        var query = DraftDefinition(options);
+        query.Scope = AnalysisQueryScopes.Workspace;
+        query.Kql = WorkspaceKql;
+        query.VisualizationType = AnalysisQueryVisualizationTypes.Table;
+        foreach (var workspace in query.Workspaces)
+            workspace.LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded;
+
+        var previews = runner.CreateExecutionPreviews(query, systems, 60,
+            workspaceKey: "tenant-a", domain: "alpha.example");
+
+        Assert.Equal(["tenant-a", "tenant-b"], previews.Select(preview => preview.WorkspaceKey));
+        Assert.Equal(["SERVER01", "SERVER02"], previews[0].Systems);
+        Assert.Equal(["SERVER03"], previews[1].Systems);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, systems, 60, workspaceKey: "tenant-a", domain: "alpha.example"));
+        Assert.Contains("Workspace A:", error.Message);
+        Assert.Contains("Workspace B:", error.Message);
+
+        var onlyFirstWorkspace = systems.Where(system => system.Computer != "SERVER03").ToArray();
+        Assert.Equal("tenant-a", Assert.Single(runner.CreateExecutionPreviews(query, onlyFirstWorkspace, 60,
+            workspaceKey: "tenant-b", domain: "gamma.example")).WorkspaceKey);
+        query.Workspaces.Single(workspace => workspace.WorkspaceKey == "tenant-b").LastValidationStatus = AnalysisQueryValidationStatuses.NotValidated;
+        var validationError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, systems, 60, workspaceKey: "tenant-a", domain: "alpha.example"));
+        Assert.Contains("not validated", validationError.Message);
+    }
+
+    private static (CrossTenantLogAnalyticsOptions Options, AnalysisQueryRunner Runner, ComputerInventoryEntry[] Systems) DomainEnvironment()
+    {
+        var (options, _, _) = DraftEnvironment();
+        options.Workspaces[0] = new()
+        {
+            Key = "tenant-a", DisplayName = "Workspace A",
+            SubscriptionIds = options.Workspaces[0].SubscriptionIds,
+            Domains = ["alpha.example", "beta.example"],
+            DomainDisplayNames = new() { ["alpha.example"] = "Company A", ["beta.example"] = "Company B" }
+        };
+        options.Workspaces[1] = new()
+        {
+            Key = "tenant-b", DisplayName = "Workspace B",
+            SubscriptionIds = options.Workspaces[1].SubscriptionIds, Domains = ["gamma.example"]
+        };
+        var runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+        return (options, runner,
+        [
+            new() { SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = "SERVER01", Domain = "ALPHA.EXAMPLE." },
+            new() { SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = "SERVER02", Domain = "beta.example" },
+            new() { SubscriptionId = options.Workspaces[1].SubscriptionIds[0], Computer = "SERVER03", Domain = "gamma.example" }
+        ]);
+    }
+
     private static (CrossTenantLogAnalyticsOptions Options, AnalysisQueryRunner Runner, ComputerInventoryEntry[] Systems) DraftEnvironment()
     {
         var subscription = Guid.NewGuid().ToString();

@@ -7,6 +7,8 @@
                     disabled="@Disabled" @onclick="() => Selected.InvokeAsync(entry.Id)">@entry.Document.Name</button>
         }
     </nav>
+    @if (EditMode)
+    {
     <div class="analysis-dashboard-management">
         <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
             <label><span>New dashboard name</span><input required maxlength="256" @bind="newName" disabled="@Disabled" /></label>
@@ -19,7 +21,8 @@
         <button class="admin-danger" type="button" disabled="@(Disabled || Collection.Dashboards.Count <= 1)"
                 @onclick="() => confirmDelete = true">Delete dashboard</button>
     </div>
-    @if (confirmDelete)
+    }
+    @if (EditMode && confirmDelete)
     {
         <div class="admin-message admin-message-warning" role="alertdialog" aria-labelledby="delete-dashboard-heading">
             <h2 id="delete-dashboard-heading">Delete personal dashboard?</h2>
@@ -34,6 +37,7 @@
 @code {
     [Parameter, EditorRequired] public AnalysisDashboardCollection Collection { get; set; } = default!;
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool EditMode { get; set; } = true;
     [Parameter] public EventCallback<Guid> Selected { get; set; }
     [Parameter] public EventCallback<string> Created { get; set; }
     [Parameter] public EventCallback<string> Renamed { get; set; }
@@ -46,6 +50,8 @@
 
     protected override void OnParametersSet()
     {
+        if (!EditMode)
+            confirmDelete = false;
         if (displayedId == Collection.ActiveDashboardId && displayedName == Collection.Active.Document.Name)
             return;
         displayedId = Collection.ActiveDashboardId;

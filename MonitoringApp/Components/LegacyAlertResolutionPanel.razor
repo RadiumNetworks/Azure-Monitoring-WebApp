@@ -1,0 +1,92 @@
+@inject LegacyAlertResolutionService LegacyAlerts
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<LegacyAlertResolutionPanel> Logger
+
+<section class="admin-editor" aria-labelledby="legacy-alerts-heading">
+    <div class="admin-section-heading">
+        <h2 id="legacy-alerts-heading">Resolve legacy alerts</h2>
+    </div>
+    <p>Manually resolves active alerts with no linked inventory system. Alert history, comments,
+        inventory and RCA analysis are preserved. Duplicate inventory entries and alerts already
+        assigned to an inventory system are not changed.</p>
+    @if (message is not null)
+    {
+        <div class="admin-message admin-message-success" role="status">@message</div>
+    }
+    @if (error is not null)
+    {
+        <div class="admin-message admin-message-error" role="alert">@error</div>
+    }
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="PreviewAsync">Resolve legacy alerts</button>
+</section>
+
+@if (showConfirmation)
+{
+    <div class="admin-dialog-backdrop" role="presentation">
+        <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-legacy-heading">
+            <h2 id="confirm-legacy-heading">Resolve @candidateCount legacy alerts?</h2>
+            <p>Adds the existing manual Resolved marker and records an audit entry in the logbook.
+                Eligibility is checked again when you confirm; newly assigned alerts are excluded.</p>
+            <label class="admin-field">
+                <span>Type RESOLVE to confirm</span>
+                <input autocomplete="off" spellcheck="false" disabled="@busy" @bind="confirmation" @bind:event="oninput" />
+            </label>
+            <div class="admin-form-actions">
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => showConfirmation = false">Cancel</button>
+                <button class="admin-danger" type="button" disabled="@(busy || confirmation != "RESOLVE")"
+                        @onclick="ResolveAsync">@(busy ? "Resolving..." : "Confirm resolution")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private bool busy;
+    private bool showConfirmation;
+    private int candidateCount;
+    private string confirmation = "";
+    private string? message;
+    private string? error;
+
+    private async Task PreviewAsync()
+    {
+        busy = true;
+        message = null;
+        error = null;
+        try
+        {
+            candidateCount = await LegacyAlerts.CountAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+            confirmation = "";
+            showConfirmation = candidateCount > 0;
+            if (!showConfirmation)
+                message = "No active alerts without an inventory assignment were found.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to preview legacy alert resolution.");
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task ResolveAsync()
+    {
+        busy = true;
+        message = null;
+        error = null;
+        try
+        {
+            var count = await LegacyAlerts.ResolveAsync(
+                (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User, confirmation);
+            showConfirmation = false;
+            message = $"Resolved {count} legacy alerts. Inventory and alert history were preserved.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to resolve legacy alerts.");
+            error = exception.Message;
+            showConfirmation = false;
+        }
+        finally { busy = false; confirmation = ""; }
+    }
+}

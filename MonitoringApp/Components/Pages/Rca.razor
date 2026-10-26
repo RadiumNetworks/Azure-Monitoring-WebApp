@@ -1,0 +1,286 @@
+@page "/rca"
+@rendermode InteractiveServer
+@inject RcaService RcaService
+@inject IAuthorizationService Authorization
+
+<PageTitle>Root cause analysis</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Operations</p>
+        <h1>Root cause analysis</h1>
+        <p class="subtitle">Alerts keep their RCA across category changes. New critical alerts for the same system join its oldest open RCA. Prompts are captured immediately and after 15 minutes; analysis is entered manually.</p>
+    </div>
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">Refresh</button>
+</section>
+
+@if (error is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@error</div>
+}
+@if (message is not null)
+{
+    <div class="admin-message admin-message-success" role="status">@message</div>
+}
+
+<div class="admin-workspace rca-workspace">
+    <section class="admin-rule-list" aria-label="RCA incidents">
+        @if (cases.Count == 0)
+        {
+            <p class="admin-empty">No RCA incidents have been recorded.</p>
+        }
+        @if (cases.Count > 0)
+        {
+            <h2 class="rca-group-heading">Open RCAs (@cases.Count(rca => rca.Status != RcaStatuses.Closed))</h2>
+            <div class="rca-case-list" aria-label="Open RCAs">
+                @foreach (var rca in cases.Where(rca => rca.Status != RcaStatuses.Closed))
+                {
+                    <RcaCaseSummary @key="rca.Id" Case="rca" Selected="@(selected?.Id == rca.Id)"
+                                    Busy="busy" OnSelected="SelectAsync" />
+                }
+            </div>
+            <details class="rca-closed-group">
+                <summary>Closed RCAs (@cases.Count(rca => rca.Status == RcaStatuses.Closed))</summary>
+                <div class="rca-case-list" aria-label="Closed RCAs">
+                    @foreach (var rca in cases.Where(rca => rca.Status == RcaStatuses.Closed))
+                    {
+                        <RcaCaseSummary @key="rca.Id" Case="rca" Selected="@(selected?.Id == rca.Id)"
+                                        Busy="busy" OnSelected="SelectAsync" />
+                    }
+                </div>
+            </details>
+        }
+    </section>
+
+    <section class="admin-editor" aria-label="RCA details">
+        @if (selected is { } current)
+        {
+            <h2>@current.CategoryName</h2>
+            <p>RCA ID: @current.Id / Rule ID: @current.RuleId</p>
+            <p>Follow-up due: @Utc(current.FollowUpDueAt).
+                @if (prompts.All(prompt => prompt.Sequence != 1))
+                {
+                    <span>Pending; overdue snapshots are retried by the background worker.</span>
+                }
+            </p>
+            @if (current.CriticalEndedAt is { } endedAt)
+            {
+                <p>No longer critical since @Utc(endedAt). This does not close the RCA.</p>
+            }
+            <section class="rca-linked-alerts" aria-labelledby="rca-linked-alerts-heading">
+                <h3 id="rca-linked-alerts-heading">Associated alerts (@linkedAlerts.Count)</h3>
+                @if (linkedAlerts.Count == 0)
+                {
+                    <p>No alert events are assigned to this RCA.</p>
+                }
+                else
+                {
+                    <p>Stored alert events assigned to this RCA, including older and resolved events. Expand an alert for its IDs and subscription.</p>
+                    <div class="rca-alert-scroll">
+                        <table class="rca-alert-table">
+                            <thead>
+                                <tr><th scope="col">Alert</th><th scope="col">System</th><th scope="col">Monitor condition</th><th scope="col">Received (UTC)</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var alert in linkedAlerts)
+                                {
+                                    <tr @key="alert.Id">
+                                        <td>
+                                            <details>
+                                                <summary>@alert.Name</summary>
+                                                <p>Event ID: @alert.Id<br />Alert ID: @alert.AlertId<br />Subscription: @alert.SubscriptionId</p>
+                                                @if (!string.IsNullOrWhiteSpace(alert.SearchResultsUrl))
+                                                {
+                                                    <a href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">Open alert search results</a>
+                                                }
+                                            </details>
+                                        </td>
+                                        <td>@alert.TargetName</td>
+                                        <td>@alert.MonitorCondition</td>
+                                        <td>@alert.ReceivedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+            <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <label class="admin-field">
+                    <span>Status</span>
+                    <select @bind="status" disabled="@(!canEdit || busy)">
+                        @foreach (var value in RcaStatuses.All)
+                        {
+                            <option value="@value">@RcaStatuses.Label(value)</option>
+                        }
+                    </select>
+                </label>
+                <label class="admin-field">
+                    <span>Assigned person</span>
+                    <input type="text" list="rca-assignees" maxlength="256" @bind="assignedTo"
+                           disabled="@(!canEdit || busy)" placeholder="Select or enter an email address" />
+                    <datalist id="rca-assignees">
+                        @foreach (var assignee in assignees)
+                        {
+                            <option value="@assignee"></option>
+                        }
+                    </datalist>
+                    <small>Known users and email addresses are suggested. Enter another email address or leave empty for Unassigned.</small>
+                </label>
+                <label class="admin-field admin-field-wide">
+                    <span>Analysis</span>
+                    <textarea rows="16" maxlength="100000" @bind="analysis" readonly="@(!canEdit || busy)"></textarea>
+                </label>
+                @if (canEdit)
+                {
+                    <label class="admin-field admin-field-wide">
+                        <span>Add administrator comment</span>
+                        <textarea rows="4" maxlength="4000" @bind="comment" disabled="@busy"></textarea>
+                    </label>
+                    <button class="admin-primary" type="submit" disabled="@busy">Save changes</button>
+                }
+            </form>
+
+            <h3>Raw Copilot prompts</h3>
+            @foreach (var prompt in prompts)
+            {
+                <details @key="prompt.Id">
+                    <summary>@(prompt.Sequence == 0 ? "Initial snapshot" : "15-minute follow-up") / @Utc(prompt.CreatedAt)</summary>
+                    <label class="admin-field admin-field-wide">
+                        <span>Raw prompt (read only; select and copy to Copilot)</span>
+                        <textarea rows="16" readonly value="@prompt.RawPrompt"></textarea>
+                    </label>
+                </details>
+            }
+
+            <h3>Comments and changelog</h3>
+            @foreach (var change in changes)
+            {
+                <details @key="change.Id">
+                    <summary>@Utc(change.CreatedAt) / @change.Actor / @change.Field</summary>
+                    @if (change.Field != "Comment")
+                    {
+                        <label class="admin-field admin-field-wide">
+                            <span>Before</span>
+                            <textarea rows="3" readonly value="@change.Before"></textarea>
+                        </label>
+                    }
+                    <label class="admin-field admin-field-wide">
+                        <span>@(change.Field == "Comment" ? "Comment" : "After")</span>
+                        <textarea rows="4" readonly value="@change.After"></textarea>
+                    </label>
+                </details>
+            }
+        }
+        else
+        {
+            <p class="admin-empty">Select an RCA to view its evidence, analysis and history.</p>
+        }
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "caseId")]
+    public Guid? CaseId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private IReadOnlyList<RootCauseAnalysis> cases = [];
+    private IReadOnlyList<RcaPrompt> prompts = [];
+    private IReadOnlyList<RcaChange> changes = [];
+    private IReadOnlyList<AlertRecord> linkedAlerts = [];
+    private IReadOnlyList<string> assignees = [];
+    private RootCauseAnalysis? selected;
+    private string analysis = "";
+    private string assignedTo = "";
+    private string status = RcaStatuses.Open;
+    private string comment = "";
+    private string? error;
+    private string? message;
+    private bool busy;
+    private bool canEdit;
+    private bool initialized;
+    private Guid? loadedCaseId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (initialized && loadedCaseId == CaseId)
+            return;
+        initialized = true;
+        loadedCaseId = CaseId;
+        selected = null;
+        var state = await AuthenticationStateTask;
+        canEdit = (await Authorization.AuthorizeAsync(state.User, "AdminAccess")).Succeeded;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            cases = await RcaService.ListAsync();
+            if (canEdit)
+                assignees = await RcaService.GetAssigneesAsync((await AuthenticationStateTask).User);
+            var current = cases.FirstOrDefault(rca => rca.Id == (selected?.Id ?? CaseId));
+            if (current is not null)
+                await LoadSelectionAsync(current);
+            else
+                selected = null;
+        }
+        catch (Exception exception)
+        {
+            error = $"Could not load RCAs: {exception.Message}";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task SelectAsync(RootCauseAnalysis rca)
+    {
+        busy = true;
+        error = null;
+        message = null;
+        try { await LoadSelectionAsync(rca); }
+        catch (Exception exception) { error = $"Could not load RCA: {exception.Message}"; }
+        finally { busy = false; }
+    }
+
+    private async Task LoadSelectionAsync(RootCauseAnalysis rca)
+    {
+        var promptTask = RcaService.GetPromptsAsync(rca.Id);
+        var changeTask = RcaService.GetChangesAsync(rca.Id);
+        var alertTask = RcaService.GetLinkedAlertsAsync(rca.Id);
+        await Task.WhenAll(promptTask, changeTask, alertTask);
+        prompts = await promptTask;
+        changes = await changeTask;
+        linkedAlerts = await alertTask;
+        selected = rca;
+        analysis = rca.Analysis;
+        assignedTo = rca.AssignedTo;
+        status = rca.Status;
+        comment = "";
+    }
+
+    private async Task SaveAsync()
+    {
+        if (selected is null || busy)
+            return;
+        busy = true;
+        error = null;
+        message = null;
+        try
+        {
+            var state = await AuthenticationStateTask;
+            await RcaService.SaveAsync(state.User, selected.Id, selected.Revision,
+                analysis, assignedTo, status, comment);
+            await RefreshAsync();
+            if (error is null)
+                message = "RCA changes saved.";
+        }
+        catch (Exception exception) { error = $"Could not save RCA: {exception.Message}"; }
+        finally { busy = false; }
+    }
+
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+}

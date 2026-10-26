@@ -28,8 +28,8 @@ public static class AlertLifecycle
     /// </summary>
     private static bool IsFiredAndNotManuallyResolved(AlertRecord alert) =>
         alert.MonitorCondition.Equals("Fired", StringComparison.OrdinalIgnoreCase) &&
-        !Regex.IsMatch(
-            alert.Comments,
-            @"\bResolved\b",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        !IsManuallyResolved(alert);
+
+    internal static bool IsManuallyResolved(AlertRecord alert) =>
+        Regex.IsMatch(alert.Comments, @"\bResolved\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 }
