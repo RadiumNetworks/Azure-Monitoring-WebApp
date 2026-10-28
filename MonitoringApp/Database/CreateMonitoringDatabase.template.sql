@@ -11,6 +11,12 @@
     3. Run SECTION 2 in that connection.
 
     The script is idempotent and can be executed again safely.
+
+    Updating an existing database: run SECTION 2 against that database before
+    starting the new application version. This includes the DashboardFilters
+    setting and its EF migration history entry. Existing setting values are
+    preserved. The new defaults select the first workspace and leave Domain,
+    Site and Role unrestricted until changed in Admin > Settings.
 */
 
 /* ========================================================================== */
@@ -988,6 +994,13 @@ BEGIN
     INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
     VALUES (N'RcaDisplay',
         N'{"OpenUnassignedColor":"red","ClosedColor":"green","OtherColor":"orange"}');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'DashboardFilters')
+BEGIN
+    INSERT INTO [dbo].[Settings] ([Name], [JsonValue])
+    VALUES (N'DashboardFilters',
+        N'{"Workspace":null,"Domain":null,"Site":null,"Role":null}');
 END;
 
 IF NOT EXISTS (SELECT 1 FROM [dbo].[Settings] WHERE [Name] = N'AgentAnalysisExecution')
@@ -2063,6 +2076,125 @@ BEGIN
 END;
 GO
 
+IF NOT EXISTS
+(
+    SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261027082000_AddDashboardFilterSetting'
+)
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261027082000_AddDashboardFilterSetting', N'10.0.11');
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[ScheduledQueryRules]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ScheduledQueryRules]
+    (
+        [Id] uniqueidentifier NOT NULL CONSTRAINT [PK_ScheduledQueryRules] PRIMARY KEY,
+        [Revision] int NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [Enabled] bit NOT NULL,
+        [WorkspaceKey] nvarchar(128) NOT NULL,
+        [Domain] nvarchar(256) NOT NULL,
+        [Site] nvarchar(256) NOT NULL,
+        [Role] nvarchar(256) NOT NULL,
+        [Computers] nvarchar(4000) NOT NULL,
+        [Kql] nvarchar(max) NOT NULL,
+        [IntervalMinutes] int NOT NULL,
+        [WindowMinutes] int NOT NULL,
+        [IngestionDelayMinutes] int NOT NULL,
+        [Comparison] nvarchar(8) NOT NULL,
+        [Threshold] float NOT NULL,
+        [Severity] nvarchar(16) NOT NULL,
+        [CategoryName] nvarchar(256) NOT NULL,
+        [NextRunUtc] datetime2 NOT NULL,
+        [LastRunUtc] datetime2 NULL,
+        [LastWindowEndUtc] datetime2 NULL,
+        [LastStatus] nvarchar(256) NOT NULL,
+        [LastError] nvarchar(2048) NOT NULL,
+        [LeaseId] uniqueidentifier NULL,
+        [LeaseUntilUtc] datetime2 NULL
+    );
+    CREATE UNIQUE INDEX [IX_ScheduledQueryRules_Name] ON [dbo].[ScheduledQueryRules] ([Name]);
+    CREATE INDEX [IX_ScheduledQueryRules_Enabled_NextRunUtc] ON [dbo].[ScheduledQueryRules] ([Enabled], [NextRunUtc]);
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[ScheduledQueryTargetStates]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ScheduledQueryTargetStates]
+    (
+        [RuleId] uniqueidentifier NOT NULL,
+        [SubscriptionId] nvarchar(64) NOT NULL,
+        [Computer] nvarchar(256) NOT NULL,
+        [Status] nvarchar(32) NOT NULL,
+        [Value] float NULL,
+        [CheckedUtc] datetime2 NOT NULL,
+        [ActiveAlertId] nvarchar(128) NULL,
+        [FiredUtc] datetime2 NULL,
+        CONSTRAINT [PK_ScheduledQueryTargetStates] PRIMARY KEY ([RuleId], [SubscriptionId], [Computer]),
+        CONSTRAINT [FK_ScheduledQueryTargetStates_ScheduledQueryRules_RuleId] FOREIGN KEY ([RuleId])
+            REFERENCES [dbo].[ScheduledQueryRules] ([Id]) ON DELETE CASCADE
+    );
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[ScheduledQueryNotifications]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ScheduledQueryNotifications]
+    (
+        [Id] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ScheduledQueryNotifications] PRIMARY KEY,
+        [PayloadJson] nvarchar(max) NOT NULL,
+        [CreatedUtc] datetime2 NOT NULL,
+        [DeliveredUtc] datetime2 NULL,
+        [LastError] nvarchar(2048) NOT NULL
+    );
+    CREATE INDEX [IX_ScheduledQueryNotifications_DeliveredUtc_Id] ON [dbo].[ScheduledQueryNotifications] ([DeliveredUtc], [Id]);
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'20261028121046_AddScheduledQueryAlerts')
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261028121046_AddScheduledQueryAlerts', N'10.0.11');
+END;
+GO
+
+IF COL_LENGTH(N'dbo.ScheduledQueryRules', N'WorkspaceKeysJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ScheduledQueryRules] ADD [WorkspaceKeysJson] nvarchar(max) NOT NULL
+        CONSTRAINT [DF_ScheduledQueryRules_WorkspaceKeysJson] DEFAULT N'[]';
+END;
+GO
+
+IF COL_LENGTH(N'dbo.ScheduledQueryRules', N'LastWorkspaceResultsJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ScheduledQueryRules] ADD [LastWorkspaceResultsJson] nvarchar(max) NOT NULL
+        CONSTRAINT [DF_ScheduledQueryRules_LastWorkspaceResultsJson] DEFAULT N'[]';
+END;
+GO
+
+IF COL_LENGTH(N'dbo.ScheduledQueryTargetStates', N'WorkspaceKey') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[ScheduledQueryTargetStates] ADD [WorkspaceKey] nvarchar(128) NOT NULL
+        CONSTRAINT [DF_ScheduledQueryTargetStates_WorkspaceKey] DEFAULT N'';
+END;
+GO
+
+UPDATE [dbo].[ScheduledQueryTargetStates]
+SET [WorkspaceKey] = (SELECT [WorkspaceKey] FROM [dbo].[ScheduledQueryRules]
+    WHERE [Id] = [dbo].[ScheduledQueryTargetStates].[RuleId])
+WHERE [WorkspaceKey] = N'';
+GO
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'20261028134046_AddScheduledQueryWorkspaces')
+BEGIN
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261028134046_AddScheduledQueryWorkspaces', N'10.0.11');
+END;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -2088,6 +2220,9 @@ SELECT
     OBJECT_ID(N'[dbo].[AnalysisQueryWorkspaces]', N'U') AS [AnalysisQueryWorkspacesTableObjectId],
     OBJECT_ID(N'[dbo].[AnalysisDashboards]', N'U') AS [AnalysisDashboardsTableObjectId],
     OBJECT_ID(N'[dbo].[AnalysisDashboardTemplates]', N'U') AS [AnalysisDashboardTemplatesTableObjectId],
+    OBJECT_ID(N'[dbo].[ScheduledQueryRules]', N'U') AS [ScheduledQueryRulesTableObjectId],
+    OBJECT_ID(N'[dbo].[ScheduledQueryTargetStates]', N'U') AS [ScheduledQueryTargetStatesTableObjectId],
+    OBJECT_ID(N'[dbo].[ScheduledQueryNotifications]', N'U') AS [ScheduledQueryNotificationsTableObjectId],
     (SELECT COUNT(*) FROM [dbo].[AlertRules]) AS [AlertRuleCount],
     (SELECT COUNT(*) FROM [dbo].[ComputerInventory]) AS [ComputerInventoryCount],
     (SELECT COUNT(*) FROM [dbo].[__EFMigrationsHistory]) AS [AppliedMigrations];

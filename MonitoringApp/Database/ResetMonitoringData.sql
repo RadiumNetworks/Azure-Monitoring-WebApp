@@ -70,7 +70,10 @@ VALUES
     (16, N'AnalysisQueryCategories'),
     (17, N'RcaChanges'),
     (18, N'RcaPrompts'),
-    (19, N'RootCauseAnalyses');
+    (19, N'RootCauseAnalyses'),
+    (20, N'ScheduledQueryNotifications'),
+    (21, N'ScheduledQueryTargetStates'),
+    (22, N'ScheduledQueryRules');
 
 DECLARE @Sequence int = 1;
 DECLARE @TableName sysname;
@@ -81,7 +84,7 @@ DECLARE @Message nvarchar(2048);
 
 BEGIN TRY
     SET @Step = N'Check required tables';
-    WHILE @Sequence <= 19
+    WHILE @Sequence <= 22
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);
@@ -97,7 +100,7 @@ BEGIN TRY
     BEGIN TRANSACTION;
 
     SET @Sequence = 1;
-    WHILE @Sequence <= 19
+    WHILE @Sequence <= 22
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);
@@ -152,7 +155,7 @@ BEGIN TRY
              0, 0, N''info'', N''Domain Controller'', 0, N''None'');';
 
     SET @Sequence = 1;
-    WHILE @Sequence <= 19
+    WHILE @Sequence <= 22
     BEGIN
         SELECT @TableName = [TableName] FROM @Tables WHERE [Sequence] = @Sequence;
         SET @QualifiedName = N'[dbo].' + QUOTENAME(@TableName);

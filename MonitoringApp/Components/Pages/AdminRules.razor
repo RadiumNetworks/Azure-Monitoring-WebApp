@@ -11,7 +11,10 @@
         <h1>Alert rules</h1>
         <p class="subtitle">Manage database rules that categorize or suppress inbox alerts, assign inventory roles, and configure global heartbeat freshness.</p>
     </div>
-    <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
+    <div class="admin-card-actions">
+        <a class="admin-secondary" href="admin/rules/queries">Scheduled KQL alert rules</a>
+        <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
+    </div>
 </section>
 
 @if (!string.IsNullOrWhiteSpace(statusMessage))

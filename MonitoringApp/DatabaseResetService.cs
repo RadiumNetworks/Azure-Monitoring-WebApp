@@ -42,6 +42,9 @@ public sealed class DatabaseResetService(
                 await using var transaction = await context.Database.BeginTransactionAsync(
                     IsolationLevel.Serializable, cancellationToken);
 
+                await context.ScheduledQueryNotifications.ExecuteDeleteAsync(cancellationToken);
+                await context.ScheduledQueryTargetStates.ExecuteDeleteAsync(cancellationToken);
+                await context.ScheduledQueryRules.ExecuteDeleteAsync(cancellationToken);
                 await context.RcaAlertLinks.ExecuteDeleteAsync(cancellationToken);
                 await context.RcaChanges.ExecuteDeleteAsync(cancellationToken);
                 await context.RcaPrompts.ExecuteDeleteAsync(cancellationToken);

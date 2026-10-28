@@ -18,6 +18,237 @@ public sealed class RcaTests
     private static readonly DateTimeOffset Start = new(2026, 10, 22, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task AssignableAlertsUseLatestLifecycleStateAndInclusive24HourBoundary()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("old-active", "DC01", Start.AddDays(-3));
+        await fixture.AddAlertAsync("recent-resolved", "DC02", Start.AddHours(-23), "Resolved");
+        await fixture.AddAlertAsync("boundary", "DC03", Start.AddHours(-24), "Resolved");
+        await fixture.AddAlertAsync("too-old", "DC04", Start.AddHours(-24).AddTicks(-1), "Resolved");
+        await fixture.AddAlertAsync("old-resolved", "DC05", Start.AddDays(-3));
+        await fixture.AddAlertAsync("old-resolved", "DC05", Start.AddHours(-25), "Resolved");
+        await fixture.AddAlertAsync("manual-resolved", "DC06", Start.AddDays(-2));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var alert = await context.Alerts.SingleAsync(alert => alert.AlertId == "manual-resolved");
+            context.Entry(alert).CurrentValues.SetValues(alert with { Comments = "Resolved by operator" });
+            await context.SaveChangesAsync();
+        }
+        var candidates = await fixture.Service.GetAssignableAlertsAsync(User("Admin"));
+        Assert.Equal(new[] { "boundary", "old-active", "recent-resolved" },
+            candidates.Select(candidate => candidate.Alert.AlertId).Order());
+        Assert.True(candidates.Single(candidate => candidate.Alert.AlertId == "old-active").IsActive);
+        Assert.False(candidates.Single(candidate => candidate.Alert.AlertId == "recent-resolved").IsActive);
+    }
+
+    [Fact]
+    public async Task ManualCreationAndConfirmedMovesKeepWholeLifecyclesAuditAndAutomationConsistent()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("first", "DC01", Start.AddHours(-2));
+        await fixture.AddAlertAsync("first", "DC01", Start.AddHours(-1), "Resolved");
+        await fixture.AddAlertAsync("first", "DC01", Start);
+        await fixture.AddAlertAsync("second", "DC02", Start);
+        await fixture.ReconcileAsync(Start);
+        var original = Assert.Single(await fixture.Service.ListAsync());
+        var initial = Assert.Single(await fixture.Service.GetPromptsAsync(original.Id));
+        var candidates = await fixture.Service.GetAssignableAlertsAsync(User("Admin"));
+        var first = candidates.Single(candidate => candidate.Alert.AlertId == "first").Selection;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.CreateAsync(User("Admin"), "Manual investigation", [first], false));
+        Assert.Single(await fixture.Service.ListAsync());
+
+        var id = await fixture.Service.CreateAsync(User("Admin"), " Manual investigation ", [first], true);
+        var manual = (await fixture.Service.ListAsync()).Single(rca => rca.Id == id);
+        Assert.Equal("Manual investigation", manual.CategoryName);
+        Assert.Equal(Guid.Empty, manual.RuleId);
+        Assert.Equal(Start.AddMinutes(15), manual.FollowUpDueAt);
+        Assert.True(manual.IsActive);
+        Assert.Equal(3, (await fixture.Service.GetLinkedAlertsAsync(id)).Count);
+        Assert.Equal("second", Assert.Single(await fixture.Service.GetLinkedAlertsAsync(original.Id)).AlertId);
+        var manualInitial = Assert.Single(await fixture.Service.GetPromptsAsync(id));
+        Assert.Contains("manually created", manualInitial.RawPrompt);
+        Assert.Contains("DC01", manualInitial.RawPrompt);
+        Assert.DoesNotContain("DC02", manualInitial.RawPrompt);
+        candidates = await fixture.Service.GetAssignableAlertsAsync(User("Admin"));
+        var second = candidates.Single(candidate => candidate.Alert.AlertId == "second").Selection;
+        await fixture.Service.AssignAlertsAsync(User("Admin"), id, manual.Revision, [second], true);
+        Assert.Empty(await fixture.Service.GetLinkedAlertsAsync(original.Id));
+        original = (await fixture.Service.ListAsync()).Single(rca => rca.Id == original.Id);
+        Assert.Empty(JsonSerializer.Deserialize<Guid[]>(original.EvidenceEventIdsJson)!);
+        Assert.False(original.IsActive);
+        Assert.Contains(await fixture.Service.GetChangesAsync(original.Id), change =>
+            change.Field == "AlertReassignment" && change.After.Contains(id.ToString()) && change.Actor != "System");
+        Assert.Contains(await fixture.Service.GetChangesAsync(id), change => change.Field == "AlertAssignment");
+        await fixture.ReconcileAsync(Start.AddMinutes(15));
+        await fixture.ReconcileAsync(Start.AddMinutes(16));
+        Assert.Empty(await fixture.Service.GetLinkedAlertsAsync(original.Id));
+        Assert.Equal(4, (await fixture.Service.GetLinkedAlertsAsync(id)).Count);
+        var originalPrompts = await fixture.Service.GetPromptsAsync(original.Id);
+        Assert.Equal(initial.RawPrompt, originalPrompts[0].RawPrompt);
+        Assert.Contains("No alert events are currently assigned", originalPrompts[1].RawPrompt);
+        var manualPrompts = await fixture.Service.GetPromptsAsync(id);
+        Assert.Equal(manualInitial.RawPrompt, manualPrompts[0].RawPrompt);
+        Assert.Contains("DC02", manualPrompts[1].RawPrompt);
+    }
+
+    [Fact]
+    public async Task CreationRechecksEligibilityAtSaveAndRejectsStaleAssignmentsAndTargetRevisions()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("expiring", "DC01", Start.AddHours(-24).AddSeconds(1), "Resolved");
+        var selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        ((FixedTime)fixture.Services.GetRequiredService<TimeProvider>()).Now = Start.AddSeconds(2);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.CreateAsync(User("Admin"), "Expired", [selected], false));
+        Assert.Empty(await fixture.Service.ListAsync());
+        await fixture.AddAlertAsync("first", "DC02", Start);
+        await fixture.ReconcileAsync(Start);
+        var original = Assert.Single(await fixture.Service.ListAsync());
+        selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await fixture.Service.SaveAsync(User("Admin"), original.Id, original.Revision, "New analysis", "", "Open", "");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.CreateAsync(User("Admin"), "Stale source", [selected], true));
+        selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.AssignAlertsAsync(User("Admin"), original.Id, original.Revision, [selected], true));
+        Assert.Single(await fixture.Service.ListAsync());
+        Assert.Single(await fixture.Service.GetLinkedAlertsAsync(original.Id));
+    }
+
+    [Fact]
+    public async Task ManualCaseDoesNotRequireACriticalRuleAndInitialPromptIncludesAutomaticallyJoinedAlerts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var context = fixture.Factory.CreateDbContext())
+            await context.AlertRules.ExecuteDeleteAsync();
+        await fixture.AddAlertAsync("noncritical", "DC01", Start);
+        var selection = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await fixture.Service.CreateAsync(User("Admin"), "Noncritical investigation", [selection], false);
+        Assert.False(Assert.Single(await fixture.Service.ListAsync()).IsActive);
+        await using var critical = await Fixture.CreateAsync();
+        await critical.AddAlertAsync("first-critical", "DC01", Start);
+        await critical.AddAlertAsync("second-critical", "DC01", Start);
+        selection = (await critical.Service.GetAssignableAlertsAsync(User("Admin")))
+            .Single(candidate => candidate.Alert.AlertId == "first-critical").Selection;
+        var id = await critical.Service.CreateAsync(User("Admin"), "Critical investigation", [selection], false);
+        Assert.Single(await critical.Service.ListAsync());
+        Assert.Equal(2, (await critical.Service.GetLinkedAlertsAsync(id)).Count);
+        var prompt = Assert.Single(await critical.Service.GetPromptsAsync(id));
+        Assert.Contains("Selected alerts: 2", prompt.RawPrompt);
+        Assert.Equal(2, prompt.RawPrompt.Split("- Target: DC01", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public async Task ManualCreationRollsBackCaseLinksAndAuditWhenInitialPromptCannotBeSaved()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("first", "DC01", Start);
+        var selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await using (var context = fixture.Factory.CreateDbContext())
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER FailPrompt BEFORE INSERT ON RcaPrompts BEGIN SELECT RAISE(ABORT, 'Prompt failed'); END;");
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            fixture.Service.CreateAsync(User("Admin"), "Rollback", [selected], false));
+        await using var check = fixture.Factory.CreateDbContext();
+        Assert.Empty(await check.RootCauseAnalyses.ToArrayAsync());
+        Assert.Empty(await check.RcaAlertLinks.ToArrayAsync());
+        Assert.Empty(await check.RcaChanges.ToArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("Reader")]
+    [InlineData("Operator")]
+    public async Task ManualCreationAndAssignmentAreAdministratorOnly(string role)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var user = User(role);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.GetAssignableAlertsAsync(user));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.CreateAsync(user, "Case", [], false));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.AssignAlertsAsync(user, Guid.NewGuid(), 1, [], false));
+    }
+
+    [Fact]
+    public async Task ManualCreationRequiresANameAndAlertAndClosedCasesMustBeReopened()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("first", "DC01", Start);
+        var selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.CreateAsync(User("Admin"), "", [selected], false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.CreateAsync(User("Admin"), new string('x', 257), [selected], false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.CreateAsync(User("Admin"), "Name", [], false));
+        var id = await fixture.Service.CreateAsync(User("Admin"), "Name", [selected], false);
+        var manual = Assert.Single(await fixture.Service.ListAsync());
+        await fixture.Service.SaveAsync(User("Admin"), id, manual.Revision, "", "", RcaStatuses.Closed, "");
+        manual = Assert.Single(await fixture.Service.ListAsync());
+        selected = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin"))).Selection;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.AssignAlertsAsync(User("Admin"), id, manual.Revision, [selected], false));
+    }
+
+    [Fact]
+    public async Task AdminCanCreateFromPickerAndMovingAlertsRequiresVisibleConfirmation()
+    {
+        await using var fixture = await Fixture.CreateAsync(admin: true);
+        await fixture.AddAlertAsync("old-active", "DC01", Start.AddDays(-2));
+        await fixture.AddAlertAsync("old-inactive", "DC02", Start.AddDays(-2), "Resolved");
+        await using var renderer = new StaticPageRenderer(fixture.Services, fixture.Services.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var root = renderer.BeginRenderingComponent(typeof(Rca), ParameterView.Empty);
+            await root.QuiescenceTask;
+            return root;
+        });
+        var page = fixture.Services.GetRequiredService<CapturingRcaActivator>().Page!;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var type = typeof(Rca);
+        await InvokeAsync("OpenAlertPickerAsync", true);
+        var html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Create RCA", html);
+        Assert.Contains("old-active", html);
+        Assert.DoesNotContain("old-inactive", html);
+        type.GetField("newCaseName", flags)!.SetValue(page, "Manual UI case");
+        var candidate = Assert.Single(await fixture.Service.GetAssignableAlertsAsync(User("Admin")));
+        await InvokeAsync("AlertSelectionChanged", candidate.Alert.Id, new ChangeEventArgs { Value = true });
+        await InvokeAsync("SubmitAlertAssignmentAsync");
+        html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Manual UI case", html);
+        Assert.Contains("Associated alerts (1)", html);
+        Assert.Contains("RCA and alert assignments saved", html);
+        await fixture.AddAlertAsync("recent-resolved", "DC03", Start.AddHours(-1), "Resolved");
+        await InvokeAsync("OpenAlertPickerAsync", false);
+        var addition = (await fixture.Service.GetAssignableAlertsAsync(User("Admin")))
+            .Single(candidate => candidate.Alert.AlertId == "recent-resolved");
+        await InvokeAsync("AlertSelectionChanged", addition.Alert.Id, new ChangeEventArgs { Value = true });
+        await InvokeAsync("SubmitAlertAssignmentAsync");
+        Assert.Contains("Associated alerts (2)", await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
+        await InvokeAsync("OpenAlertPickerAsync", true);
+        await InvokeAsync("AlertSelectionChanged", candidate.Alert.Id, new ChangeEventArgs { Value = true });
+        html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("I confirm moving these alerts", html);
+        Assert.Contains("Manual UI case", html);
+        Assert.Contains("Previous prompt snapshots remain unchanged", html);
+        type.GetField("newCaseName", flags)!.SetValue(page, "Confirmed UI move");
+        type.GetField("confirmReassignment", flags)!.SetValue(page, true);
+        await InvokeAsync("SubmitAlertAssignmentAsync");
+        Assert.Contains("RCA and alert assignments saved", await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
+        var cases = await fixture.Service.ListAsync();
+        Assert.Equal(2, cases.Count);
+        var moved = cases.Single(rca => rca.CategoryName == "Confirmed UI move");
+        Assert.Equal("old-active", Assert.Single(await fixture.Service.GetLinkedAlertsAsync(moved.Id)).AlertId);
+
+        async Task InvokeAsync(string method, params object?[] arguments)
+        {
+            await renderer.Dispatcher.InvokeAsync(async () =>
+            {
+                if (type.GetMethod(method, flags)!.Invoke(page, arguments) is Task task)
+                    await task;
+                typeof(ComponentBase).GetMethod("StateHasChanged", flags)!.Invoke(page, []);
+            });
+        }
+    }
+
+    [Fact]
     public async Task IngestionPersistsInitialPromptAtomicallyAndIgnoresDuplicateDelivery()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -687,6 +918,8 @@ public sealed class RcaTests
         Assert.Contains("Root cause analysis", html);
         Assert.Contains("No RCA incidents have been recorded", html);
         Assert.DoesNotContain("Save changes", html);
+        Assert.DoesNotContain("New RCA", html);
+        Assert.DoesNotContain(">Assign alerts</button>", html);
     }
 
     [Theory]
@@ -862,7 +1095,7 @@ public sealed class RcaTests
         public ServiceProvider Services => services;
         public RcaService Service => services.GetRequiredService<RcaService>();
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(bool admin = false)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -884,7 +1117,9 @@ public sealed class RcaTests
                     options.AddPolicy("AdminAccess", policy => policy.RequireRole("Admin")));
             collection.AddCascadingAuthenticationState();
             var services = collection
-                .AddSingleton<AuthenticationStateProvider, ReaderAuthenticationState>()
+                .AddSingleton<AuthenticationStateProvider>(new ReaderAuthenticationState(admin ? "Admin" : "Reader"))
+                .AddSingleton<CapturingRcaActivator>()
+                .AddSingleton<IComponentActivator>(services => services.GetRequiredService<CapturingRcaActivator>())
                 .AddSingleton<IDbContextFactory<AlertDbContext>>(factory)
                 .AddSingleton(new DatabaseConfigurationStatus(true, null, new SqlConnectionStringBuilder()))
                 .AddSingleton(new CurrentUserIdentity(new HttpContextAccessor()))
@@ -953,13 +1188,26 @@ public sealed class RcaTests
 
     private sealed class FixedTime : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => Start;
+        public DateTimeOffset Now { get; set; } = Start;
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 
-    private sealed class ReaderAuthenticationState : AuthenticationStateProvider
+    private sealed class ReaderAuthenticationState(string role) : AuthenticationStateProvider
     {
         public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
-            Task.FromResult(new AuthenticationState(User("Reader")));
+            Task.FromResult(new AuthenticationState(User(role)));
+    }
+
+    private sealed class CapturingRcaActivator : IComponentActivator
+    {
+        public Rca? Page { get; private set; }
+        public IComponent CreateInstance(Type componentType)
+        {
+            var component = (IComponent)Activator.CreateInstance(componentType)!;
+            if (component is Rca page)
+                Page = page;
+            return component;
+        }
     }
 
     private sealed class SelectedRcaPage : Rca

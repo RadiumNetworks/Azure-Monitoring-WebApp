@@ -8,6 +8,7 @@
 @inject AgentAnalysisProfilesOptions AgentAnalysisProfiles
 @inject AgentAnalysisExecutionState ActiveAgentAnalysisState
 @inject IConfiguration Configuration
+@inject CrossTenantLogAnalyticsOptions LogAnalyticsOptions
 
 <PageTitle>Application Settings</PageTitle>
 
@@ -82,6 +83,12 @@ else
             <span>RCA display</span>
             <textarea rows="6" required spellcheck="false" @bind="rcaDisplayJson"></textarea>
             <small>JSON with OpenUnassignedColor (Open and unassigned), ClosedColor, and OtherColor. Colors: red, green, orange, yellow, gray. Restart required.</small>
+        </label>
+
+        <label class="admin-field admin-field-wide">
+            <span>Dashboard filter defaults</span>
+            <textarea rows="7" required spellcheck="false" @bind="dashboardFiltersJson"></textarea>
+            <small>JSON with Workspace (configured workspace key), Domain, Site and Role. Workspace: null selects the first workspace alphabetically; "" selects All workspaces. Empty or null Domain/Site/Role selects All. Defaults apply to personal and published dashboards when opening the dashboard page; filters remain manually changeable. Restart required.</small>
         </label>
 
         <label class="admin-field admin-field-wide">
@@ -183,6 +190,7 @@ else
     private string alertSeverityDisplayJson = string.Empty;
     private string inboxTargetOutputDisplayJson = string.Empty;
     private string rcaDisplayJson = string.Empty;
+    private string dashboardFiltersJson = string.Empty;
     private string agentAnalysisMode = AgentAnalysisExecutionModes.CopilotPrompt;
     private string teamsWorkflowProfile = string.Empty;
     private string apiProfile = string.Empty;
@@ -258,6 +266,7 @@ else
             alertSeverityDisplayJson = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue);
             inboxTargetOutputDisplayJson = FormatJson(settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue);
             rcaDisplayJson = FormatJson(settings[DatabaseSettingsLoader.RcaDisplay].JsonValue);
+            dashboardFiltersJson = FormatJson(settings[DatabaseSettingsLoader.DashboardFilters].JsonValue);
             var agentAnalysisContext = DatabaseSettingsLoader.Deserialize<AgentAnalysisContextOptions>(
                 DatabaseSettingsLoader.AgentAnalysisContext,
                 settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue);
@@ -322,6 +331,11 @@ else
                 rcaDisplayJson);
             EnsureValid(DatabaseSettingsLoader.RcaDisplay, rcaDisplay.Validate());
 
+            var dashboardFilters = DatabaseSettingsLoader.Deserialize<DashboardFilterOptions>(
+                DatabaseSettingsLoader.DashboardFilters,
+                dashboardFiltersJson);
+            EnsureValid(DatabaseSettingsLoader.DashboardFilters, dashboardFilters.Validate(LogAnalyticsOptions));
+
             var agentAnalysisContext = new AgentAnalysisContextOptions
             {
                 InventoryCorrelationLayers = SelectedCorrelationLayers()
@@ -365,6 +379,7 @@ else
             settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue = FormatJson(alertSeverityDisplayJson);
             settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue = FormatJson(inboxTargetOutputDisplayJson);
             settings[DatabaseSettingsLoader.RcaDisplay].JsonValue = FormatJson(rcaDisplayJson);
+            settings[DatabaseSettingsLoader.DashboardFilters].JsonValue = FormatJson(dashboardFiltersJson);
             settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue =
                 JsonSerializer.Serialize(agentAnalysisContext, PrettyJson);
             settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue = JsonSerializer.Serialize(agentAnalysisExecution);
@@ -375,6 +390,7 @@ else
             alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue;
             inboxTargetOutputDisplayJson = settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue;
             rcaDisplayJson = settings[DatabaseSettingsLoader.RcaDisplay].JsonValue;
+            dashboardFiltersJson = settings[DatabaseSettingsLoader.DashboardFilters].JsonValue;
             statusMessage = "Settings saved. Restart the application to apply them.";
         }
         catch (Exception exception)

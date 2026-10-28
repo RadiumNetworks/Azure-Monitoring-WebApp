@@ -87,6 +87,32 @@ public sealed class AnalysisDashboardCollection
 
     public void RenameActive(string name) => Active.Document.Name = ValidateName(name);
 
+    public void AddCopy(AnalysisDashboardDocument source)
+    {
+        var sourceName = ValidateName(source.Name);
+        var document = Clone(source);
+        var number = 1;
+        string name;
+        do
+        {
+            var suffix = number == 1 ? " (copy)" : $" (copy {number})";
+            var length = Math.Min(sourceName.Length, 256 - suffix.Length);
+            if (length > 0 && char.IsHighSurrogate(sourceName[length - 1]))
+                length--;
+            name = sourceName[..length] + suffix;
+            number++;
+        } while (Dashboards.Any(entry => entry.Document.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
+        document.Name = name;
+        document.SourceTemplateId = null;
+        document.SourceTemplateVersion = null;
+        document.HiddenQueryIds = HiddenQueryIds.ToList();
+        foreach (var widget in document.Widgets)
+            widget.Id = Guid.NewGuid().ToString("N");
+        var entry = new AnalysisDashboardEntry { Document = document };
+        Dashboards.Add(entry);
+        ActiveDashboardId = entry.Id;
+    }
+
     public void DeleteActive()
     {
         if (Dashboards.Count <= 1)

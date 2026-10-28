@@ -51,6 +51,42 @@
                 <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => RunAsync(LoadAsync)">Refresh</button>
             </div>
         </div>
+        <section class="analysis-category-manager" aria-label="Assign workspaces to all queries">
+            <h3>Workspace assignment for all queries</h3>
+            <p>Enable the selected workspaces for all saved queries at once. Other workspace assignments, query content and version history are preserved. New assignments require validation; this action does not validate queries or publish new versions.</p>
+            @if (editing is not null)
+            {
+                <p>Save your changes and close the query editor before applying bulk workspace assignments.</p>
+            }
+            <fieldset class="admin-fieldset" disabled="@(isBusy || editing is not null)">
+                <legend>Target workspaces</legend>
+                @foreach (var workspace in Options.Workspaces.OrderBy(workspace => workspace.DisplayName))
+                {
+                    <label class="admin-check">
+                        <input type="checkbox" checked="@bulkWorkspaceKeys.Contains(workspace.Key)"
+                               @onchange="args => ToggleBulkWorkspace(workspace.Key, args)" />
+                        <span>@workspace.DisplayName (@workspace.Key)</span>
+                    </label>
+                }
+                @if (Options.Workspaces.Length == 0)
+                {
+                    <small>No Log Analytics workspaces are configured.</small>
+                }
+                <label class="admin-check admin-field-wide">
+                    <input type="checkbox" @bind="bulkIncludeDisabledQueries" />
+                    <span>Include disabled queries and re-enable them</span>
+                </label>
+                @if (bulkIncludeDisabledQueries)
+                {
+                    <small>Re-enabling queries can restore access to their existing published versions on previously validated workspaces.</small>
+                }
+                <div class="admin-form-actions">
+                    <button class="admin-primary" type="button"
+                            disabled="@(isBusy || editing is not null || queries.Count == 0 || bulkWorkspaceKeys.Count == 0)"
+                            @onclick="AssignWorkspacesToAllAsync">Apply to all queries</button>
+                </div>
+            </fieldset>
+        </section>
         <section class="analysis-category-manager" aria-label="Manage query categories">
             <h3>Manage categories</h3>
             <p>Use nested categories to organize both the registry and library. Move queries by dragging a card onto a category heading or using its category selection. Published queries move without republishing.</p>
@@ -269,6 +305,10 @@
             <div class="admin-section-heading">
                 <div><p class="eyebrow">Preview</p><h2 id="admin-test-execution">Test execution</h2></div>
             </div>
+            @if (testError is not null)
+            {
+                <div class="admin-message admin-message-error" role="alert">@testError</div>
+            }
             @if (testPreview is not null)
             {
                     <h3>@testPreview.WorkspaceDisplayName</h3>
@@ -327,8 +367,11 @@
     private string testGroupBy = "SourceDSA";
     private AnalysisQueryExecutionPreview? testPreview;
     private AnalysisQueryResponse? testResult;
+    private string? testError;
     private bool showTestTable;
     private bool registryCollapsed;
+    private readonly HashSet<string> bulkWorkspaceKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool bulkIncludeDisabledQueries = true;
     private bool CanTest => Options.Enabled && !isBusy && editing is not null &&
         !string.IsNullOrWhiteSpace(testWorkspaceKey) && testSystemKeys.Count > 0;
     private IEnumerable<ComputerInventoryEntry> TestSystems => inventory
@@ -504,6 +547,7 @@
     {
         testPreview = null;
         testResult = null;
+        testError = null;
     }
 
     private void TestWorkspaceChanged()
@@ -548,10 +592,18 @@
         ClearTestResult();
         var draft = editing ?? throw new InvalidOperationException("Select or create a query first.");
         var systems = TestSystems.Where(system => testSystemKeys.Contains(SystemKey(system))).ToArray();
-        testPreview = QueryRunner.CreateDraftExecutionPreview(draft, testWorkspaceKey, systems, testTimeRangeMinutes, testBinMinutes, testGroupBy);
-        testResult = await Registry.TestDraftAsync(draft, testWorkspaceKey,
-            systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray(),
-            testTimeRangeMinutes, binMinutes: testBinMinutes, groupBy: testGroupBy);
+        try
+        {
+            testPreview = QueryRunner.CreateDraftExecutionPreview(draft, testWorkspaceKey, systems, testTimeRangeMinutes, testBinMinutes, testGroupBy);
+            testResult = await Registry.TestDraftAsync(draft, testWorkspaceKey,
+                systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray(),
+                testTimeRangeMinutes, binMinutes: testBinMinutes, groupBy: testGroupBy);
+        }
+        catch (Exception exception)
+        {
+            testError = exception.Message;
+            throw;
+        }
         statusMessage = "Draft test completed. Save, validate, and publish separately to make this query available to operators.";
     });
 
@@ -568,6 +620,21 @@
         var added = await Registry.InstallActiveDirectoryLibraryAsync(actor);
         await LoadAsync();
         statusMessage = $"Added {added} AD query draft(s); existing definitions were preserved. Select workspaces, test, validate and publish before use.";
+    });
+
+    private void ToggleBulkWorkspace(string key, ChangeEventArgs args)
+    {
+        if (args.Value is true) bulkWorkspaceKeys.Add(key);
+        else bulkWorkspaceKeys.Remove(key);
+    }
+
+    private async Task AssignWorkspacesToAllAsync() => await RunAsync(async () =>
+    {
+        if (editing is not null)
+            throw new InvalidOperationException("Close the query editor before applying bulk workspace assignments.");
+        var result = await Registry.EnableWorkspacesForAllAsync(bulkWorkspaceKeys, bulkIncludeDisabledQueries, actor);
+        await LoadAsync();
+        statusMessage = $"Updated {result.UpdatedQueries} query/queries: enabled {result.EnabledAssignments} workspace assignment(s) and re-enabled {result.ReactivatedQueries} disabled query/queries. New workspace assignments require validation; no new query versions were published.";
     });
 
     private async Task ValidateAsync(Guid id) => await RunAsync(async () =>

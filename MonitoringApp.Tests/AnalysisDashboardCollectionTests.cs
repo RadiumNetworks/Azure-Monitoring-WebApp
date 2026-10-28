@@ -87,6 +87,74 @@ public sealed class AnalysisDashboardCollectionTests
     }
 
     [Fact]
+    public void DuplicatesCompleteDashboardWithoutSharingStateOrPublicationIdentity()
+    {
+        var source = new AnalysisDashboardDocument
+        {
+            Name = "AD operations", Columns = 6, Rows = 20, RowHeight = 100,
+            AutoRefreshEnabled = true, TimeRangeMinutesOverride = 10080, BinMinutesOverride = 30,
+            SourceTemplateId = Guid.NewGuid(), SourceTemplateVersion = 4,
+            HiddenQueryIds = [Guid.NewGuid()],
+            SystemsPanel = new() { Width = 600, Height = 400 },
+            Systems = [new() { SubscriptionId = "sub", Computer = "DC01" }],
+            Widgets = [new() { QueryDefinitionId = Guid.NewGuid(), Title = "LDAP", Row = 4, ColumnSpan = 3, BinMinutes = 60, GroupBy = "NC" }]
+        };
+        var collection = AnalysisDashboardCollection.Create(source);
+        var originalId = collection.ActiveDashboardId;
+        var hidden = Guid.NewGuid();
+        collection.HiddenQueryIds = [hidden];
+        collection.AddCopy(source);
+        var copyId = collection.ActiveDashboardId;
+        var copy = collection.Active.Document;
+        Assert.NotEqual(originalId, copyId);
+        Assert.Equal("AD operations (copy)", copy.Name);
+        Assert.Equal(6, copy.Columns);
+        Assert.Equal(20, copy.Rows);
+        Assert.Equal(100, copy.RowHeight);
+        Assert.True(copy.AutoRefreshEnabled);
+        Assert.Equal(10080, copy.TimeRangeMinutesOverride);
+        Assert.Equal(30, copy.BinMinutesOverride);
+        Assert.Equal(600, copy.SystemsPanel.Width);
+        Assert.Equal("DC01", Assert.Single(copy.Systems).Computer);
+        var widget = Assert.Single(copy.Widgets);
+        Assert.Equal(source.Widgets[0].QueryDefinitionId, widget.QueryDefinitionId);
+        Assert.NotEqual(source.Widgets[0].Id, widget.Id);
+        Assert.Equal(4, widget.Row);
+        Assert.Equal(3, widget.ColumnSpan);
+        Assert.Equal(60, widget.BinMinutes);
+        Assert.Equal("NC", widget.GroupBy);
+        Assert.Null(copy.SourceTemplateId);
+        Assert.Null(copy.SourceTemplateVersion);
+        Assert.Equal([hidden], copy.HiddenQueryIds);
+        widget.Title = "Changed copy";
+        copy.Systems[0].Computer = "DC02";
+        copy.SystemsPanel.Width = 800;
+        Assert.Equal("LDAP", source.Widgets[0].Title);
+        Assert.Equal("DC01", source.Systems[0].Computer);
+        Assert.Equal(600, source.SystemsPanel.Width);
+        var restored = AnalysisDashboardCollection.Deserialize(collection.Serialize());
+        Assert.Equal(copyId, restored.ActiveDashboardId);
+        Assert.Equal(2, restored.Dashboards.Count);
+        Assert.Equal("Changed copy", restored.Active.Document.Widgets[0].Title);
+    }
+
+    [Fact]
+    public void DuplicateNamesRemainDistinctAndWithinTheExistingLengthLimit()
+    {
+        var source = new AnalysisDashboardDocument { Name = new string('x', 256) };
+        var collection = AnalysisDashboardCollection.Create(source);
+        collection.AddCopy(source);
+        Assert.Equal(256, collection.Active.Document.Name.Length);
+        Assert.EndsWith(" (copy)", collection.Active.Document.Name);
+        collection.AddCopy(source);
+        Assert.Equal(256, collection.Active.Document.Name.Length);
+        Assert.EndsWith(" (copy 2)", collection.Active.Document.Name);
+        Assert.Equal(3, collection.Dashboards.Select(entry => entry.Document.Name).Distinct().Count());
+        Assert.Throws<InvalidOperationException>(() => collection.AddCopy(new() { Name = "" }));
+        Assert.Equal(3, collection.Dashboards.Count);
+    }
+
+    [Fact]
     public void RenameDeleteAndReloadRetainActiveTabAndSharedPreferences()
     {
         var collection = AnalysisDashboardCollection.Create();

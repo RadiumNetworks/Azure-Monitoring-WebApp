@@ -1,17 +1,33 @@
 @{
-    var seriesList = Result.Series.Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true).ToArray();
+    var seriesList = Result.Series
+        .Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true)
+        .Where(series => Result.VisualizationType != AnalysisQueryVisualizationTypes.Honeycomb ||
+            series.Points.Count > 0 && HasTargetSite(series))
+        .ToArray();
 }
-@if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb)
+@if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb && seriesList.Length == 0)
 {
+    <div class="admin-message admin-message-warning" role="status">No honeycomb entries with data and a complete source/target site direction remain. No data is not an OK status.</div>
+}
+else if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb)
+{
+    <div class="analysis-honeycomb-view" data-analysis-honeycomb>
+    <div class="analysis-honeycomb-controls" role="group" aria-label="Honeycomb zoom">
+        <button type="button" data-honeycomb-zoom="out" aria-label="Zoom out honeycomb">-</button>
+        <output aria-label="Honeycomb zoom level">100%</output>
+        <button type="button" data-honeycomb-zoom="in" aria-label="Zoom in honeycomb">+</button>
+        <button type="button" data-honeycomb-zoom="fit" title="Fit all cells to the widget">Fit</button>
+    </div>
     @if (Options.Thresholds.Count == 0 && Options.Color is null && Options.Columns.Count == 0 && Options.ValueMappings.Count == 0)
     {
-        <p class="cell-secondary">LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.</p>
+        <p class="cell-secondary analysis-honeycomb-description" title="LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.">LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.</p>
     }
     else
     {
-        <p class="cell-secondary">Colors use the query's published visualization settings, not alert rules.</p>
+        <p class="cell-secondary analysis-honeycomb-description" title="Colors use the query's published visualization settings, not alert rules.">Colors use the query's published visualization settings, not alert rules.</p>
     }
-    <svg class="analysis-honeycomb" viewBox="@($"0 0 500 {Math.Max(190, (int)Math.Ceiling(seriesList.Length / 4d) * 122 + 65)}")"
+    <div class="analysis-honeycomb-viewport" tabindex="0" role="region" aria-label="Honeycomb chart">
+    <svg class="analysis-honeycomb" viewBox="@($"0 0 500 {Math.Max(190, (int)Math.Ceiling(seriesList.Length / 4d) * 122 + 75)}")"
          role="img" aria-label="@($"{Result.Name}: latency by source and target site")">
         @for (var index = 0; index < seriesList.Length; index++)
         {
@@ -24,16 +40,18 @@
             var label = $"{displayName} · {series.Workspace}: {Text(series, point)} {Unit(series)}";
             var configuredColor = Color(series, point);
             var textStyle = configuredColor is null ? null : $"fill:{AnalysisVisualization.Foreground(configuredColor)};";
-            <g class="analysis-honeycomb-cell" tabindex="0" aria-label="@label">
+            <g class="analysis-honeycomb-cell" transform="@($"translate({x} {y})")" tabindex="0" aria-label="@label">
                 <title>@label</title>
-                <polygon points="@($"{x - 70},{y} {x - 35},{y - 60} {x + 35},{y - 60} {x + 70},{y} {x + 35},{y + 60} {x - 35},{y + 60}")"
+                <polygon points="-70,0 -35,-60 35,-60 70,0 35,60 -35,60"
                          fill="@(configuredColor ?? AnalysisResultFormatting.LatencyColor(point.Value))" />
-                <text x="@x" y="@(y - 10)" text-anchor="middle" style="@textStyle">@(displayName.Length > 18 ? $"{displayName[..15]}..." : displayName)</text>
-                <text x="@x" y="@(y + 14)" text-anchor="middle" style="@textStyle">@Text(series, point) @Unit(series)</text>
-                <text x="@x" y="@(y + 34)" text-anchor="middle" style="@textStyle">@series.Workspace</text>
+                <text x="0" y="-10" text-anchor="middle" style="@textStyle">@(displayName.Length > 18 ? $"{displayName[..15]}..." : displayName)</text>
+                <text x="0" y="14" text-anchor="middle" style="@textStyle">@Text(series, point) @Unit(series)</text>
+                <text x="0" y="34" text-anchor="middle" style="@textStyle">@series.Workspace</text>
             </g>
         }
     </svg>
+    </div>
+    </div>
 }
 else
 {
@@ -72,6 +90,12 @@ else
     [Parameter, EditorRequired] public AnalysisQueryResponse Result { get; set; } = default!;
     private readonly AnalysisVisualizationOptions defaults = new();
     private AnalysisVisualizationOptions Options => Result.Visualization ?? defaults;
+    private static bool HasTargetSite(AnalysisQuerySeries series)
+    {
+        var separator = series.Name.LastIndexOf("->", StringComparison.Ordinal);
+        return separator < 0 || !string.IsNullOrWhiteSpace(series.Name[(separator + 2)..]);
+    }
+
     private string? Color(AnalysisQuerySeries series, AnalysisQueryPoint point) =>
         AnalysisVisualization.Color(Options, point.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), series.Dimension ?? series.Name);
     private string Text(AnalysisQuerySeries series, AnalysisQueryPoint point) =>

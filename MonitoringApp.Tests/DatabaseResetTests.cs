@@ -199,7 +199,8 @@ public sealed class DatabaseResetTests
              "AnalysisDashboards", "InboxLayouts", "AnalysisQueryWorkspaces", "AnalysisQueryVersions",
              "AnalysisQueryDefinitions", "LogbookEntries", "ParsedAlerts", "AlertHistory",
              "Alerts", "ComputerInventory", "AlertRules", "AnalysisQueryCategories",
-             "RcaChanges", "RcaPrompts", "RootCauseAnalyses"], tables);
+             "RcaChanges", "RcaPrompts", "RootCauseAnalyses",
+             "ScheduledQueryNotifications", "ScheduledQueryTargetStates", "ScheduledQueryRules"], tables);
         Assert.Contains("DECLARE @CommitChanges bit = 0;", script);
         Assert.Contains("DECLARE @Confirmation nvarchar(32) = N'';", script);
         Assert.Contains("DB_NAME() <> @ExpectedDatabase", script);
@@ -254,6 +255,9 @@ public sealed class DatabaseResetTests
         Assert.Equal(count, await context.RcaPrompts.CountAsync());
         Assert.Equal(count, await context.RcaChanges.CountAsync());
         Assert.Equal(count, await context.RcaAlertLinks.CountAsync());
+        Assert.Equal(count, await context.ScheduledQueryRules.CountAsync());
+        Assert.Equal(count, await context.ScheduledQueryTargetStates.CountAsync());
+        Assert.Equal(count, await context.ScheduledQueryNotifications.CountAsync());
     }
 
     private static async Task AssertOriginalDataAsync(AlertDbContext context)
@@ -337,6 +341,10 @@ public sealed class DatabaseResetTests
             });
             context.LogbookEntries.Add(new() { Id = Guid.NewGuid(), AlertRecordId = alert.Id, User = "admin", Comment = "Keep logbook" });
             context.AlertRules.Add(new() { Id = Guid.NewGuid(), Name = "Custom rule" });
+            var scheduled = ScheduledQueryRule.Example(false);
+            context.ScheduledQueryRules.Add(scheduled);
+            context.ScheduledQueryTargetStates.Add(new() { RuleId = scheduled.Id, SubscriptionId = "sub", Computer = "DC01" });
+            context.ScheduledQueryNotifications.Add(new() { PayloadJson = "{}" });
             var job = new AgentAnalysisJob { Id = Guid.NewGuid(), AnalysisId = Guid.NewGuid(), IdempotencyKey = "test" };
             context.AgentAnalysisJobs.Add(job);
             context.AgentAnalysisReviewEvents.Add(new() { Id = Guid.NewGuid(), AgentAnalysisJobId = job.Id, AnalysisId = job.AnalysisId });

@@ -17,7 +17,7 @@
             <div>
                 <h2>@snapshot.Publication.Name</h2>
                 <p>Published by @snapshot.Publication.Owner · version @snapshot.Publication.Version · read-only</p>
-                <p>Selected systems (workspace/domain filters apply to system-based widgets only): @string.Join(", ", snapshot.Document.Systems.Select(system => system.Computer))</p>
+                <p>Selected systems: @string.Join(", ", DisplayedSystems.Select(system => system.Computer).DefaultIfEmpty("None"))</p>
             </div>
             @if (ShowControls)
             {
@@ -47,6 +47,9 @@
     [Parameter] public Guid DashboardId { get; set; }
     [Parameter] public string? WorkspaceKey { get; set; }
     [Parameter] public string? Domain { get; set; }
+    [Parameter] public string? Site { get; set; }
+    [Parameter] public string? Role { get; set; }
+    [Parameter] public IReadOnlyList<ComputerInventoryEntry>? FilteredSystems { get; set; }
     [Parameter] public bool ShowControls { get; set; } = true;
     [Parameter] public bool AutoRunOnOpen { get; set; }
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -62,6 +65,10 @@
     private string? errorMessage;
     private string? status;
     private System.Security.Claims.ClaimsPrincipal user = new();
+    private IEnumerable<AnalysisDashboardSystem> DisplayedSystems =>
+        snapshot?.Document.Systems.Where(system => FilteredSystems is null || FilteredSystems.Any(entry =>
+            entry.SubscriptionId.Equals(system.SubscriptionId, StringComparison.OrdinalIgnoreCase) &&
+            entry.Computer.Equals(system.Computer, StringComparison.OrdinalIgnoreCase))) ?? [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -152,33 +159,37 @@
                 errorMessage = "The creator must select systems and republish this dashboard before it can run.";
                 return;
             }
-            results.Clear();
-            errors.Clear();
             StateHasChanged();
             var systems = executing.Document.Systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray();
             var publishedQueries = (await Registry.ListPublishedAsync(cancellation.Token))
                 .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
                 .Select(query => query.Id).ToHashSet();
-            foreach (var widget in executing.Document.Widgets)
+            foreach (var widget in executing.Document.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column))
             {
                 // Recheck publication before every query, not just when opening the page.
                 if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
                     return;
-                if (!publishedQueries.Contains(widget.QueryDefinitionId))
-                {
-                    errors[widget.Id] = "The published query is unavailable or your role does not permit it.";
-                    continue;
-                }
                 try
                 {
-                    results[widget.Id] = await Execution.ExecuteAsync(
+                    if (!publishedQueries.Contains(widget.QueryDefinitionId))
+                        throw new InvalidOperationException("The published query is unavailable or your role does not permit it.");
+                    var response = await Execution.ExecuteAsync(
                         executing.Document.CreateExecutionRequest(widget, systems)
-                            with { WorkspaceKey = WorkspaceKey, Domain = Domain }, cancellation.Token);
+                            with { WorkspaceKey = WorkspaceKey, Domain = Domain, Site = Site, Role = Role }, cancellation.Token);
+                    if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                        return;
+                    results[widget.Id] = response;
+                    errors.Remove(widget.Id);
                 }
-                catch (Exception exception) when (exception is not OperationCanceledException)
+                catch (Exception exception) when (exception is not OperationCanceledException || !cancellation.IsCancellationRequested)
                 {
+                    if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                        return;
+                    results.Remove(widget.Id);
                     errors[widget.Id] = exception.Message;
                 }
+                StateHasChanged();
+                await Task.Yield();
             }
             if (await ReloadAsync() && snapshot!.Publication.Version == executing.Publication.Version)
                 status = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u}";
@@ -193,6 +204,8 @@
         finally
         {
             running = false;
+            if (!cancellation.IsCancellationRequested)
+                StateHasChanged();
         }
     }
 

@@ -74,6 +74,31 @@ public sealed class AnalysisChartTests
     }
 
     [Fact]
+    public async Task RendersSeriesLegendInsideFocusableChartWithoutMinMaxSummary()
+    {
+        var response = Response(10, 20);
+        response = response with
+        {
+            Series = [response.Series[0], new("SERVER02", "CPU0", "Workspace B", response.Series[0].Points)]
+        };
+
+        var html = await RenderAsync(response);
+
+        Assert.Contains("class=\"analysis-chart-container\" tabindex=\"0\" role=\"group\"", html);
+        Assert.Contains("role=\"list\" aria-label=\"Series legend\"", html);
+        Assert.Equal(2, Regex.Matches(html, "role=\"listitem\"").Count);
+        Assert.Contains("SERVER01", html);
+        Assert.Contains("SERVER02", html);
+        Assert.Contains("CPU0", html);
+        Assert.Contains("Workspace B", html);
+        Assert.Equal(2, Regex.Matches(html, "<polyline ").Count);
+        Assert.DoesNotContain("analysis-text-summary", html);
+        Assert.DoesNotContain("points; min", html);
+        Assert.DoesNotContain("; max", html);
+        Assert.Matches("(?s)<div class=\"analysis-chart-container\".*<div class=\"analysis-chart-legend\".*</div>\\s*<svg.*</svg>\\s*</div>", html);
+    }
+
+    [Fact]
     public async Task EmptySeriesShowsAnExplicitNoDataMessage()
     {
         var response = Response(0, 0) with

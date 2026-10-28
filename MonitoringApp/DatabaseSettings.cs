@@ -22,11 +22,12 @@ public static class DatabaseSettingsLoader
     public const string AlertSeverityDisplay = AlertSeverityDisplayOptions.SectionName;
     public const string InboxTargetOutputDisplay = InboxTargetOutputDisplayOptions.SectionName;
     public const string RcaDisplay = RcaDisplayOptions.SectionName;
+    public const string DashboardFilters = DashboardFilterOptions.SectionName;
     public const string AgentAnalysisContext = AgentAnalysisContextOptions.SectionName;
     public const string AgentAnalysisExecution = AgentAnalysisExecutionOptions.SectionName;
 
     public static readonly IReadOnlyList<string> RequiredNames =
-        [Authentication, AlertHistory, AlertGraph, AlertSeverityDisplay, InboxTargetOutputDisplay, RcaDisplay, AgentAnalysisContext, AgentAnalysisExecution];
+        [Authentication, AlertHistory, AlertGraph, AlertSeverityDisplay, InboxTargetOutputDisplay, RcaDisplay, DashboardFilters, AgentAnalysisContext, AgentAnalysisExecution];
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -44,7 +45,7 @@ public static class DatabaseSettingsLoader
             command.CommandText = """
                 SELECT [Name], [JsonValue]
                 FROM [dbo].[Settings]
-                WHERE [Name] IN (N'Authentication', N'AlertHistory', N'AlertGraph', N'AlertSeverityDisplay', N'InboxTargetOutputDisplay', N'RcaDisplay', N'AgentAnalysisContext', N'AgentAnalysisExecution');
+                WHERE [Name] IN (N'Authentication', N'AlertHistory', N'AlertGraph', N'AlertSeverityDisplay', N'InboxTargetOutputDisplay', N'RcaDisplay', N'DashboardFilters', N'AgentAnalysisContext', N'AgentAnalysisExecution');
                 """;
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -74,7 +75,8 @@ public static class DatabaseSettingsLoader
             Deserialize<AgentAnalysisContextOptions>(AgentAnalysisContext, jsonByName[AgentAnalysisContext]),
             Deserialize<AgentAnalysisExecutionOptions>(AgentAnalysisExecution, jsonByName[AgentAnalysisExecution]),
             Deserialize<InboxTargetOutputDisplayOptions>(InboxTargetOutputDisplay, jsonByName[InboxTargetOutputDisplay]),
-            Deserialize<RcaDisplayOptions>(RcaDisplay, jsonByName[RcaDisplay]));
+            Deserialize<RcaDisplayOptions>(RcaDisplay, jsonByName[RcaDisplay]),
+            Deserialize<DashboardFilterOptions>(DashboardFilters, jsonByName[DashboardFilters]));
     }
 
     public static T Deserialize<T>(string name, string json) where T : class
@@ -101,4 +103,5 @@ public sealed record DatabaseStartupSettings(
     AgentAnalysisContextOptions AgentAnalysisContext,
     AgentAnalysisExecutionOptions AgentAnalysisExecution,
     InboxTargetOutputDisplayOptions InboxTargetOutputDisplay,
-    RcaDisplayOptions RcaDisplay);
+    RcaDisplayOptions RcaDisplay,
+    DashboardFilterOptions DashboardFilters);

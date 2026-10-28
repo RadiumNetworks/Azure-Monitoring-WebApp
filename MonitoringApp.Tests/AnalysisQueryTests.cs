@@ -435,7 +435,11 @@ public sealed class AnalysisQueryTests
         Assert.Equal(["tenant-a", "tenant-b"], previews.Select(preview => preview.WorkspaceKey));
         Assert.Equal(["SERVER01", "SERVER02"], previews[0].Systems);
         Assert.Equal(["SERVER03"], previews[1].Systems);
-        Assert.All(previews, preview => Assert.EndsWith(WorkspaceKql, preview.EffectiveKql));
+        Assert.All(previews, preview =>
+        {
+            Assert.Contains(WorkspaceKql, preview.EffectiveKql);
+            Assert.EndsWith("| take 1001", preview.EffectiveKql);
+        });
         Assert.DoesNotContain("Computer", query.Kql);
         Assert.DoesNotContain("_SelectedSystems", query.Kql);
         Assert.Single(runner.CreateExecutionPreviews(query, systems, 60));
@@ -534,10 +538,12 @@ public sealed class AnalysisQueryTests
     }
 
     [Theory]
-    [InlineData("tenant-b", null, "No selected systems belong to workspace 'Workspace B'")]
-    [InlineData("tenant-a", "beta.example", "No selected systems belong to domain 'Company B'")]
+    [InlineData("tenant-b", null, null, null, "No selected systems belong to workspace 'Workspace B'")]
+    [InlineData("tenant-a", "beta.example", null, null, "No selected systems belong to domain 'Company B'")]
+    [InlineData(null, null, "Missing site", null, "No selected systems match the selected site and role filters")]
+    [InlineData("tenant-a", "alpha.example", null, "Missing role", "No selected systems match the selected site and role filters")]
     public async Task DashboardFiltersFlowFromExecutionRequestWithoutChangingInventoryOrSavedSystems(
-        string workspaceKey, string? domain, string expected)
+        string? workspaceKey, string? domain, string? site, string? role, string expected)
     {
         var (options, runner, systems) = DraftEnvironment();
         options.Workspaces[0] = new()
@@ -586,7 +592,7 @@ public sealed class AnalysisQueryTests
         var request = document.CreateExecutionRequest(
             new() { QueryDefinitionId = query.Id },
             systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray())
-            with { WorkspaceKey = workspaceKey, Domain = domain };
+            with { WorkspaceKey = workspaceKey, Domain = domain, Site = site, Role = role };
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new AnalysisQueryExecutionService(factory, runner).ExecuteAsync(request));
@@ -596,6 +602,67 @@ public sealed class AnalysisQueryTests
         Assert.Equal(2, request.Systems.Count);
         await using var verification = factory.CreateDbContext();
         Assert.Equal(2, await verification.ComputerInventory.CountAsync());
+    }
+
+    [Fact]
+    public void SiteAndRoleFiltersCombineWithWorkspaceAndDomainAndDoNotChangeStoredSelection()
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        systems[0].Site = systems[1].Site = "North";
+        systems[2].Site = "South";
+        systems[0].Role = systems[2].Role = "Domain Controller";
+        systems[1].Role = "SQL";
+        var query = DraftDefinition(options);
+        var before = JsonSerializer.Serialize(systems);
+
+        var combined = Assert.Single(runner.CreateExecutionPreviews(query, systems, 60,
+            workspaceKey: "TENANT-A", domain: "ALPHA.EXAMPLE.", site: "north", role: "DOMAIN CONTROLLER"));
+        Assert.Equal(["SERVER01"], combined.Systems);
+        Assert.Equal(["SERVER01", "SERVER02"],
+            Assert.Single(runner.CreateExecutionPreviews(query, systems, 60, site: "North")).Systems);
+        Assert.Equal(["SERVER01", "SERVER03"],
+            runner.CreateExecutionPreviews(query, systems, 60, role: "Domain Controller")
+                .SelectMany(preview => preview.Systems));
+        Assert.Equal(3, runner.CreateExecutionPreviews(query, systems, 60).Sum(preview => preview.Systems.Count));
+        Assert.Equal(before, JsonSerializer.Serialize(systems));
+    }
+
+    [Theory]
+    [InlineData("Missing", null)]
+    [InlineData(null, "Missing")]
+    [InlineData("North", "SQL")]
+    public async Task EmptySiteOrRoleFilterNeverFallsBackToUnfilteredSystems(string? site, string? role)
+    {
+        var (options, runner, systems) = DomainEnvironment();
+        systems[0].Site = "North";
+        systems[0].Role = "Domain Controller";
+        systems[1].Site = "South";
+        systems[1].Role = "SQL";
+        var query = DraftDefinition(options);
+
+        var previewError = Assert.Throws<InvalidOperationException>(() =>
+            runner.CreateExecutionPreviews(query, systems, 60, site: site, role: role));
+        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ExecuteAsync(query, systems, 60, site: site, role: role));
+
+        Assert.Contains("No selected systems match", previewError.Message);
+        Assert.Equal(previewError.Message, executionError.Message);
+    }
+
+    [Fact]
+    public void InventoryDomainsCanBeFilteredWhenWorkspaceRoutingUsesOnlySubscriptions()
+    {
+        var (options, runner, systems) = DraftEnvironment();
+        systems[0].Domain = "Inventory.Example.";
+        systems[1].Domain = "other.example";
+        var query = DraftDefinition(options);
+
+        var preview = Assert.Single(runner.CreateExecutionPreviews(query, systems, 60,
+            workspaceKey: "tenant-a", domain: " INVENTORY.EXAMPLE. "));
+
+        Assert.Equal(["SERVER02"], preview.Systems);
+        Assert.Throws<InvalidOperationException>(() =>
+            runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: "tenant-b", domain: "inventory.example"));
     }
 
     [Fact]
@@ -657,7 +724,7 @@ public sealed class AnalysisQueryTests
     }
 
     [Fact]
-    public async Task WorkspaceQueriesIgnoreBothFiltersButOnlyUseWorkspacesOfSelectedSystems()
+    public async Task WorkspaceQueriesIgnoreSystemFiltersButOnlyUseWorkspacesOfSelectedSystems()
     {
         var (options, runner, systems) = DomainEnvironment();
         var query = DraftDefinition(options);
@@ -668,13 +735,14 @@ public sealed class AnalysisQueryTests
             workspace.LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded;
 
         var previews = runner.CreateExecutionPreviews(query, systems, 60,
-            workspaceKey: "tenant-a", domain: "alpha.example");
+            workspaceKey: "tenant-a", domain: "alpha.example", site: "Missing site", role: "Missing role");
 
         Assert.Equal(["tenant-a", "tenant-b"], previews.Select(preview => preview.WorkspaceKey));
         Assert.Equal(["SERVER01", "SERVER02"], previews[0].Systems);
         Assert.Equal(["SERVER03"], previews[1].Systems);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ExecuteAsync(query, systems, 60, workspaceKey: "tenant-a", domain: "alpha.example"));
+            runner.ExecuteAsync(query, systems, 60, workspaceKey: "tenant-a", domain: "alpha.example",
+                site: "Missing site", role: "Missing role"));
         Assert.Contains("Workspace A:", error.Message);
         Assert.Contains("Workspace B:", error.Message);
 

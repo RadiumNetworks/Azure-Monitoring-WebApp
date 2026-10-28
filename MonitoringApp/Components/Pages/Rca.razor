@@ -11,7 +11,13 @@
         <h1>Root cause analysis</h1>
         <p class="subtitle">Alerts keep their RCA across category changes. New critical alerts for the same system join its oldest open RCA. Prompts are captured immediately and after 15 minutes; analysis is entered manually.</p>
     </div>
-    <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">Refresh</button>
+    <div class="admin-actions">
+        @if (canEdit)
+        {
+            <button class="admin-primary" type="button" disabled="@(busy || HasUnsavedChanges)" @onclick="() => OpenAlertPickerAsync(true)">New RCA</button>
+        }
+        <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">Refresh</button>
+    </div>
 </section>
 
 @if (error is not null)
@@ -21,6 +27,79 @@
 @if (message is not null)
 {
     <div class="admin-message admin-message-success" role="status">@message</div>
+}
+
+@if (canEdit && AlertPickerOpen)
+{
+    <section class="admin-editor rca-linked-alerts" aria-label="Manual RCA alert assignment">
+        <h2>@(creatingCase ? "Create RCA" : $"Assign alerts to {selected?.CategoryName}")</h2>
+        <p>Choose active alerts or alerts received within the last 24 hours (UTC). Each row represents the latest event of an alert; its complete Fired/Resolved history is assigned together.</p>
+        <form class="admin-form" @onsubmit="SubmitAlertAssignmentAsync" @onsubmit:preventDefault>
+            @if (creatingCase)
+            {
+                <label class="admin-field admin-field-wide">
+                    <span>RCA name</span>
+                    <input type="text" maxlength="256" required @bind="newCaseName" disabled="@busy" />
+                </label>
+            }
+            <label class="admin-field admin-field-wide">
+                <span>Search alerts</span>
+                <input type="search" @bind="alertSearch" @bind:event="oninput" disabled="@busy" placeholder="Alert, system, subscription or RCA" />
+            </label>
+            <div class="admin-field-wide rca-alert-scroll rca-picker-scroll">
+                <table class="rca-alert-table">
+                    <thead>
+                        <tr><th scope="col">Select</th><th scope="col">Alert / system</th><th scope="col">State</th><th scope="col">Received (UTC)</th><th scope="col">Current RCA</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var candidate in VisibleAlertCandidates)
+                        {
+                            <tr @key="candidate.Alert.Id">
+                                <td><input type="checkbox" aria-label="@($"Select {candidate.Alert.Name} on {candidate.Alert.TargetName}, event {candidate.Alert.Id}")"
+                                    checked="@selectedAlertIds.Contains(candidate.Alert.Id)" disabled="@busy"
+                                    @onchange="args => AlertSelectionChanged(candidate.Alert.Id, args)" /></td>
+                                <td>@candidate.Alert.Name<br /><small>Alert ID: @candidate.Alert.AlertId</small><br />@candidate.Alert.TargetName<br /><small>@candidate.Alert.SubscriptionId</small></td>
+                                <td>@(candidate.IsActive ? "Active" : "Inactive") / @candidate.Alert.MonitorCondition</td>
+                                <td>@Utc(candidate.Alert.ReceivedAt)</td>
+                                <td>@(candidate.RcaName ?? "Unassigned")
+                                    @if (candidate.RcaId is { } ownerId)
+                                    {
+                                        <br /><small>@ownerId</small>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (!VisibleAlertCandidates.Any())
+                {
+                    <p class="admin-empty">No eligible alerts match. Alerts already assigned to this RCA are not listed.</p>
+                }
+            </div>
+            <p class="admin-field-wide">Selected alerts: @selectedAlertIds.Count</p>
+            @if (ReassignedAlerts.Count > 0)
+            {
+                <div class="admin-message admin-message-warning admin-field-wide" role="note">
+                    <p>The selected alerts and their full histories will be moved from these RCAs. Previous prompt snapshots remain unchanged.</p>
+                    <ul>
+                        @foreach (var source in ReassignedAlerts.Select(candidate => (candidate.RcaId, candidate.RcaName)).Distinct())
+                        {
+                            <li>@source.RcaName (@source.RcaId)</li>
+                        }
+                    </ul>
+                    <label><input type="checkbox" @bind="confirmReassignment" disabled="@busy" /> I confirm moving these alerts from their existing RCA.</label>
+                </div>
+            }
+            <div class="admin-actions admin-field-wide">
+                <button class="admin-primary" type="submit"
+                    disabled="@(busy || selectedAlertIds.Count == 0 || creatingCase && string.IsNullOrWhiteSpace(newCaseName) || ReassignedAlerts.Count > 0 && !confirmReassignment)">
+                    @(creatingCase ? "Create RCA with selected alerts" : "Assign selected alerts")
+                </button>
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAssignableAlertsAsync">Reload alert list</button>
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="CancelAlertAssignment">Cancel</button>
+            </div>
+        </form>
+    </section>
 }
 
 <div class="admin-workspace rca-workspace">
@@ -56,7 +135,7 @@
         @if (selected is { } current)
         {
             <h2>@current.CategoryName</h2>
-            <p>RCA ID: @current.Id / Rule ID: @current.RuleId</p>
+            <p>RCA ID: @current.Id / @(current.RuleId == Guid.Empty ? "Manually created" : $"Rule ID: {current.RuleId}")</p>
             <p>Follow-up due: @Utc(current.FollowUpDueAt).
                 @if (prompts.All(prompt => prompt.Sequence != 1))
                 {
@@ -69,6 +148,13 @@
             }
             <section class="rca-linked-alerts" aria-labelledby="rca-linked-alerts-heading">
                 <h3 id="rca-linked-alerts-heading">Associated alerts (@linkedAlerts.Count)</h3>
+                @if (canEdit)
+                {
+                    <button class="admin-secondary" type="button"
+                        disabled="@(busy || AlertPickerOpen || HasUnsavedChanges || current.Status == RcaStatuses.Closed)"
+                        @onclick="() => OpenAlertPickerAsync(false)">Assign alerts</button>
+                    <p>Save analysis changes before assigning alerts. Closed RCAs must be reopened first.</p>
+                }
                 @if (linkedAlerts.Count == 0)
                 {
                     <p>No alert events are assigned to this RCA.</p>
@@ -108,7 +194,7 @@
             <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
                 <label class="admin-field">
                     <span>Status</span>
-                    <select @bind="status" disabled="@(!canEdit || busy)">
+                    <select @bind="status" disabled="@(!canEdit || busy || AlertPickerOpen)">
                         @foreach (var value in RcaStatuses.All)
                         {
                             <option value="@value">@RcaStatuses.Label(value)</option>
@@ -118,7 +204,7 @@
                 <label class="admin-field">
                     <span>Assigned person</span>
                     <input type="text" list="rca-assignees" maxlength="256" @bind="assignedTo"
-                           disabled="@(!canEdit || busy)" placeholder="Select or enter an email address" />
+                           disabled="@(!canEdit || busy || AlertPickerOpen)" placeholder="Select or enter an email address" />
                     <datalist id="rca-assignees">
                         @foreach (var assignee in assignees)
                         {
@@ -129,15 +215,15 @@
                 </label>
                 <label class="admin-field admin-field-wide">
                     <span>Analysis</span>
-                    <textarea rows="16" maxlength="100000" @bind="analysis" readonly="@(!canEdit || busy)"></textarea>
+                    <textarea rows="16" maxlength="100000" @bind="analysis" readonly="@(!canEdit || busy || AlertPickerOpen)"></textarea>
                 </label>
                 @if (canEdit)
                 {
                     <label class="admin-field admin-field-wide">
                         <span>Add administrator comment</span>
-                        <textarea rows="4" maxlength="4000" @bind="comment" disabled="@busy"></textarea>
+                        <textarea rows="4" maxlength="4000" @bind="comment" disabled="@(busy || AlertPickerOpen)"></textarea>
                     </label>
-                    <button class="admin-primary" type="submit" disabled="@busy">Save changes</button>
+                    <button class="admin-primary" type="submit" disabled="@(busy || AlertPickerOpen)">Save changes</button>
                 }
             </form>
 
@@ -201,6 +287,97 @@
     private bool canEdit;
     private bool initialized;
     private Guid? loadedCaseId;
+    private bool creatingCase;
+    private bool assigningAlerts;
+    private bool confirmReassignment;
+    private string newCaseName = "";
+    private string alertSearch = "";
+    private IReadOnlyList<RcaAlertCandidate> alertCandidates = [];
+    private readonly HashSet<Guid> selectedAlertIds = [];
+    private bool AlertPickerOpen => creatingCase || assigningAlerts;
+    private bool HasUnsavedChanges => selected is not null &&
+        (analysis != selected.Analysis || assignedTo != selected.AssignedTo || status != selected.Status || !string.IsNullOrWhiteSpace(comment));
+    private IEnumerable<RcaAlertCandidate> VisibleAlertCandidates => alertCandidates.Where(candidate =>
+        (creatingCase || candidate.RcaId != selected?.Id) &&
+        (string.IsNullOrWhiteSpace(alertSearch) || new[]
+        {
+            candidate.Alert.Name, candidate.Alert.AlertId, candidate.Alert.TargetName, candidate.Alert.SubscriptionId, candidate.RcaName ?? ""
+        }.Any(value => value.Contains(alertSearch.Trim(), StringComparison.OrdinalIgnoreCase))));
+    private IReadOnlyList<RcaAlertCandidate> ReassignedAlerts => alertCandidates.Where(candidate =>
+        selectedAlertIds.Contains(candidate.Alert.Id) && candidate.RcaId is not null &&
+        (creatingCase || candidate.RcaId != selected?.Id)).ToArray();
+
+    private async Task OpenAlertPickerAsync(bool create)
+    {
+        if (!canEdit || busy || HasUnsavedChanges || !create && (selected is null || selected.Status == RcaStatuses.Closed))
+            return;
+        creatingCase = create;
+        assigningAlerts = !create;
+        newCaseName = "";
+        alertSearch = "";
+        await RefreshAssignableAlertsAsync();
+    }
+
+    private async Task RefreshAssignableAlertsAsync()
+    {
+        if (!canEdit || busy)
+            return;
+        busy = true;
+        error = null;
+        message = null;
+        selectedAlertIds.Clear();
+        confirmReassignment = false;
+        alertCandidates = [];
+        try { alertCandidates = await RcaService.GetAssignableAlertsAsync((await AuthenticationStateTask).User); }
+        catch (Exception exception) { error = $"Could not load eligible alerts: {exception.Message}"; }
+        finally { busy = false; }
+    }
+
+    private void AlertSelectionChanged(Guid id, ChangeEventArgs args)
+    {
+        if (busy)
+            return;
+        if (args.Value is true)
+            selectedAlertIds.Add(id);
+        else
+            selectedAlertIds.Remove(id);
+        confirmReassignment = false;
+    }
+
+    private void CancelAlertAssignment()
+    {
+        creatingCase = assigningAlerts = confirmReassignment = false;
+        alertCandidates = [];
+        selectedAlertIds.Clear();
+    }
+
+    private async Task SubmitAlertAssignmentAsync()
+    {
+        if (!canEdit || busy || !AlertPickerOpen)
+            return;
+        busy = true;
+        error = message = null;
+        try
+        {
+            var user = (await AuthenticationStateTask).User;
+            var selections = alertCandidates.Where(candidate => selectedAlertIds.Contains(candidate.Alert.Id))
+                .Select(candidate => candidate.Selection).ToArray();
+            Guid id;
+            if (creatingCase)
+                id = await RcaService.CreateAsync(user, newCaseName, selections, confirmReassignment);
+            else
+            {
+                id = selected!.Id;
+                await RcaService.AssignAlertsAsync(user, id, selected.Revision, selections, confirmReassignment);
+            }
+            CancelAlertAssignment();
+            cases = await RcaService.ListAsync();
+            await LoadSelectionAsync(cases.Single(rca => rca.Id == id));
+            message = "RCA and alert assignments saved.";
+        }
+        catch (Exception exception) { error = $"Could not save RCA alert assignments: {exception.Message}"; }
+        finally { busy = false; }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -216,6 +393,7 @@
 
     private async Task RefreshAsync()
     {
+        CancelAlertAssignment();
         busy = true;
         error = null;
         try
@@ -238,6 +416,7 @@
 
     private async Task SelectAsync(RootCauseAnalysis rca)
     {
+        CancelAlertAssignment();
         busy = true;
         error = null;
         message = null;

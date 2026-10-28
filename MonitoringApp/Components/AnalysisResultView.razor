@@ -93,10 +93,11 @@ else
         else
         {
         var chart = AnalysisChartGeometry.Create(Result with { Series = visibleSeries });
-        <div class="analysis-chart-legend">
+        <div class="analysis-chart-container" tabindex="0" role="group" aria-label="Chart with legend shown on hover or keyboard focus">
+        <div class="analysis-chart-legend" role="list" aria-label="Series legend">
             @for (var index = 0; index < visibleSeries.Count; index++)
             {
-                <span style="--series-color:@SeriesColor(index)"><i></i>@SeriesLabel(visibleSeries[index])</span>
+                <span role="listitem" style="--series-color:@SeriesColor(index)"><i aria-hidden="true"></i>@SeriesLabel(visibleSeries[index])</span>
             }
         </div>
         <svg class="analysis-chart" viewBox="0 0 1000 390" role="img" aria-label="@ChartDescription(Result)">
@@ -127,11 +128,6 @@ else
             </g>
             <text x="540" y="378" text-anchor="middle">Time (UTC)</text>
         </svg>
-        <div class="analysis-text-summary">
-            @foreach (var series in visibleSeries.Where(series => series.Points.Count > 0))
-            {
-                <span><strong>@SeriesLabel(series)</strong> @series.Points.Count points; min @series.Points.Min(point => point.Value).ToString("0.##"); max @series.Points.Max(point => point.Value).ToString("0.##") @Result.Unit</span>
-            }
         </div>
         }
     }

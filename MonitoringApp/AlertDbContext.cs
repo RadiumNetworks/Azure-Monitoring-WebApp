@@ -28,12 +28,49 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<AnalysisQueryVersion> AnalysisQueryVersions => Set<AnalysisQueryVersion>();
     public DbSet<AnalysisDashboard> AnalysisDashboards => Set<AnalysisDashboard>();
     public DbSet<AnalysisDashboardTemplate> AnalysisDashboardTemplates => Set<AnalysisDashboardTemplate>();
+    public DbSet<ScheduledQueryRule> ScheduledQueryRules => Set<ScheduledQueryRule>();
+    public DbSet<ScheduledQueryTargetState> ScheduledQueryTargetStates => Set<ScheduledQueryTargetState>();
+    public DbSet<ScheduledQueryNotification> ScheduledQueryNotifications => Set<ScheduledQueryNotification>();
 
     /// <summary>
     /// Configures the Alerts table, column sizes, indexes, and non-persisted computed properties. Entity Framework calls this method when it builds the database model.
     /// </summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var scheduled = modelBuilder.Entity<ScheduledQueryRule>();
+        scheduled.ToTable("ScheduledQueryRules");
+        scheduled.HasKey(entry => entry.Id);
+        scheduled.Property(entry => entry.Revision).IsConcurrencyToken();
+        scheduled.Property(entry => entry.Name).HasMaxLength(256);
+        scheduled.HasIndex(entry => entry.Name).IsUnique();
+        scheduled.HasIndex(entry => new { entry.Enabled, entry.NextRunUtc });
+        scheduled.Property(entry => entry.WorkspaceKey).HasMaxLength(128);
+        scheduled.Property(entry => entry.WorkspaceKeysJson).HasColumnType("nvarchar(max)").HasDefaultValue("[]");
+        scheduled.Property(entry => entry.LastWorkspaceResultsJson).HasColumnType("nvarchar(max)").HasDefaultValue("[]");
+        scheduled.Property(entry => entry.Domain).HasMaxLength(256);
+        scheduled.Property(entry => entry.Site).HasMaxLength(256);
+        scheduled.Property(entry => entry.Role).HasMaxLength(256);
+        scheduled.Property(entry => entry.Computers).HasMaxLength(4000);
+        scheduled.Property(entry => entry.Comparison).HasMaxLength(8);
+        scheduled.Property(entry => entry.Severity).HasMaxLength(16);
+        scheduled.Property(entry => entry.CategoryName).HasMaxLength(256);
+        scheduled.Property(entry => entry.LastStatus).HasMaxLength(256);
+        scheduled.Property(entry => entry.LastError).HasMaxLength(2048);
+        var state = modelBuilder.Entity<ScheduledQueryTargetState>();
+        state.ToTable("ScheduledQueryTargetStates");
+        state.HasKey(entry => new { entry.RuleId, entry.SubscriptionId, entry.Computer });
+        state.Property(entry => entry.WorkspaceKey).HasMaxLength(128).HasDefaultValue("");
+        state.Property(entry => entry.SubscriptionId).HasMaxLength(64);
+        state.Property(entry => entry.Computer).HasMaxLength(256);
+        state.Property(entry => entry.Status).HasMaxLength(32);
+        state.Property(entry => entry.ActiveAlertId).HasMaxLength(128);
+        state.HasOne<ScheduledQueryRule>().WithMany().HasForeignKey(entry => entry.RuleId).OnDelete(DeleteBehavior.Cascade);
+        var notification = modelBuilder.Entity<ScheduledQueryNotification>();
+        notification.ToTable("ScheduledQueryNotifications");
+        notification.HasKey(entry => entry.Id);
+        notification.Property(entry => entry.LastError).HasMaxLength(2048);
+        notification.HasIndex(entry => new { entry.DeliveredUtc, entry.Id });
+
         var rca = modelBuilder.Entity<RootCauseAnalysis>();
         rca.ToTable("RootCauseAnalyses");
         rca.HasKey(entry => entry.Id);

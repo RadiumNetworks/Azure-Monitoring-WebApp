@@ -102,6 +102,7 @@ var alertGraph = databaseSettings.AlertGraph;
 var alertSeverityDisplay = databaseSettings.AlertSeverityDisplay;
 var inboxTargetOutputDisplay = databaseSettings.InboxTargetOutputDisplay;
 var rcaDisplay = databaseSettings.RcaDisplay;
+var dashboardFilters = databaseSettings.DashboardFilters;
 var agentAnalysisContext = databaseSettings.AgentAnalysisContext;
 var agentAnalysisExecution = databaseSettings.AgentAnalysisExecution;
 var agentAnalysisProfiles = builder.Configuration
@@ -180,6 +181,13 @@ if (crossTenantLogAnalyticsErrors.Count > 0)
         $"Invalid cross-tenant Log Analytics configuration: {string.Join(" ", crossTenantLogAnalyticsErrors)}");
 }
 
+var dashboardFilterErrors = dashboardFilters.Validate(crossTenantLogAnalytics);
+if (dashboardFilterErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"Invalid database setting '{DatabaseSettingsLoader.DashboardFilters}': {string.Join(" ", dashboardFilterErrors)}");
+}
+
 builder.Services.AddOpenApi();
 builder.Services.AddRateLimiter(options =>
 {
@@ -199,6 +207,7 @@ builder.Services.AddSingleton(alertHistory);
 builder.Services.AddSingleton(alertSeverityDisplay);
 builder.Services.AddSingleton(inboxTargetOutputDisplay);
 builder.Services.AddSingleton(rcaDisplay);
+builder.Services.AddSingleton(dashboardFilters);
 builder.Services.AddSingleton(alertGraph);
 builder.Services.AddSingleton(agentAnalysisContext);
 builder.Services.AddSingleton(agentAnalysisProfiles);
@@ -209,6 +218,7 @@ builder.Services.AddSingleton<TargetWorkspaceResolver>();
 builder.Services.AddSingleton<ILogAnalyticsSecretProvider, KeyVaultLogAnalyticsSecretProvider>();
 builder.Services.AddSingleton<ILogAnalyticsWorkspaceProbe, AzureLogAnalyticsWorkspaceProbe>();
 builder.Services.AddSingleton<LogAnalyticsConnectionDiagnostics>();
+builder.Services.AddSingleton<IAnalysisLogAnalyticsQuery, AzureAnalysisLogAnalyticsQuery>();
 builder.Services.AddSingleton<AnalysisQueryRunner>();
 builder.Services.AddSingleton<AnalysisQueryRegistry>();
 builder.Services.AddSingleton<AnalysisQueryCategoryService>();
@@ -308,6 +318,8 @@ builder.Services.AddSingleton(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
 builder.Services.AddSingleton<SqlAuthenticationService>();
 builder.Services.AddSingleton<AlertStore>();
+builder.Services.AddSingleton<ScheduledQueryService>();
+builder.Services.AddHostedService<ScheduledQueryWorker>();
 builder.Services.AddScoped<RcaService>();
 builder.Services.AddHostedService<RcaWorker>();
 builder.Services.AddScoped<DatabaseResetService>();

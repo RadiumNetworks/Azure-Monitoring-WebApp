@@ -121,10 +121,17 @@ public sealed class AlertRuleEvaluator(QueryResultPresenter queryResultPresenter
             .Select(item => item.Group)
             .ToArray();
         var categorizedIds = assignments.Keys.ToHashSet();
+        var scheduledCategories = alerts.Where(alert => !categorizedIds.Contains(alert.Id))
+            .Select(alert => (Alert: alert, Category: ScheduledQueryAlert.Category(alert)))
+            .Where(item => item.Category is not null)
+            .GroupBy(item => item.Category!.Value.RuleId)
+            .Select(group => new AlertCategoryGroup(group.Key, group.First().Category!.Value.Category,
+                "warning", false, group.Select(item => item.Alert).ToArray())).ToArray();
+        categorizedIds.UnionWith(scheduledCategories.SelectMany(group => group.Alerts).Select(alert => alert.Id));
 
         return new AlertRuleEvaluationResult(
             new AlertCategorizationResult(
-                categories,
+                categories.Concat(scheduledCategories).ToArray(),
                 alerts.Where(alert => !categorizedIds.Contains(alert.Id)).ToArray()),
             decisions.ToArray());
     }

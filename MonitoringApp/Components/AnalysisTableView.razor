@@ -1,10 +1,23 @@
-@foreach (var table in Tables)
+@for (var tableIndex = 0; tableIndex < Tables.Count; tableIndex++)
 {
-    var visible = table.Columns.Select((column, index) => (Column: column, Index: index))
+    var currentIndex = tableIndex;
+    var table = Tables[currentIndex];
+    var columnNames = table.Columns.Select(column => column.Name).ToList();
+    var visible = table.Columns.Select((column, index) =>
+        (Column: column, Index: index, StatusIndex: columnNames.IndexOf($"{column.Name}__Status")))
         .Where(item => !item.Column.Name.EndsWith("__Status", StringComparison.Ordinal) &&
             AnalysisVisualization.Column(Options, item.Column.Name)?.Hidden != true)
         .OrderBy(item => Options.Columns.FindIndex(column => column.Name == item.Column.Name) is var order && order >= 0
             ? order : Options.Columns.Count + item.Index).ToArray();
+    var page = Math.Min(pages.GetValueOrDefault(currentIndex), Math.Max(0, (table.Rows.Count - 1) / PageSize));
+    @if (table.Rows.Count > PageSize)
+    {
+        <nav class="analysis-table-pagination" aria-label="@($"Table pages: {table.Workspace}")">
+            <button type="button" class="admin-secondary" disabled="@(page == 0)" @onclick="() => ChangePage(currentIndex, -1)">Previous</button>
+            <span>Rows @(page * PageSize + 1)-@Math.Min((page + 1) * PageSize, table.Rows.Count) of @table.Rows.Count</span>
+            <button type="button" class="admin-secondary" disabled="@((page + 1) * PageSize >= table.Rows.Count)" @onclick="() => ChangePage(currentIndex, 1)">Next</button>
+        </nav>
+    }
     <div class="analysis-result-table" tabindex="0" role="region" aria-label="@($"Query result: {table.Workspace}")">
         <table>
             <caption>@Name · @table.Workspace</caption>
@@ -16,12 +29,12 @@
                 }
             </tr></thead>
             <tbody>
-                @foreach (var row in table.Rows)
+                @foreach (var row in table.Rows.Skip(page * PageSize).Take(PageSize))
                 {
                     <tr>
                         @foreach (var column in visible)
                         {
-                            var statusIndex = table.Columns.ToList().FindIndex(item => item.Name == $"{column.Column.Name}__Status");
+                            var statusIndex = column.StatusIndex;
                             var isStatus = column.Column.Name == "Status";
                             var value = row[column.Index];
                             <td style="@AnalysisVisualization.CellStyle(Options, value, column.Column.Name)">
@@ -45,4 +58,20 @@
     [Parameter, EditorRequired] public IReadOnlyList<AnalysisQueryTable> Tables { get; set; } = [];
     [Parameter] public string Name { get; set; } = "";
     [Parameter] public AnalysisVisualizationOptions Options { get; set; } = new();
+    private const int PageSize = 50;
+    private readonly Dictionary<int, int> pages = [];
+    private IReadOnlyList<AnalysisQueryTable>? previousTables;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(Tables, previousTables))
+            pages.Clear();
+        previousTables = Tables;
+    }
+
+    private void ChangePage(int tableIndex, int direction)
+    {
+        var lastPage = Math.Max(0, (Tables[tableIndex].Rows.Count - 1) / PageSize);
+        pages[tableIndex] = Math.Clamp(pages.GetValueOrDefault(tableIndex) + direction, 0, lastPage);
+    }
 }

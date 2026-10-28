@@ -8,6 +8,7 @@
 @inject AnalysisQueryRunner QueryRunner
 @inject AlertStore AlertStore
 @inject CrossTenantLogAnalyticsOptions Options
+@inject DashboardFilterOptions FilterDefaults
 @inject ApplicationAuthenticationOptions AuthenticationOptions
 @inject CurrentUserIdentity CurrentUserIdentity
 @inject AnalysisDashboardState Dashboard
@@ -46,7 +47,7 @@
     }
 </section>
 
-<section class="analysis-controls" aria-label="Dashboard workspace">
+<section class="analysis-controls" aria-label="System selection and dashboard filters">
     <label>
         <span>Workspace</span>
         <select disabled="@DashboardBusy" @bind="workspaceFilter" @bind:after="WorkspaceChangedAsync">
@@ -59,26 +60,40 @@
     </label>
     <label>
         <span>Domain</span>
-        <select disabled="@DashboardBusy" @bind="dashboardDomainFilter" @bind:after="DashboardFiltersChangedAsync">
+        <select disabled="@DashboardBusy" @bind="domainFilter" @bind:after="DomainChangedAsync">
             <option value="">All domains</option>
-            @foreach (var workspace in Options.Workspaces
-                .Where(item => workspaceFilter.Length == 0 || item.Key.Equals(workspaceFilter, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+            @foreach (var domain in AvailableDomains)
             {
-                @foreach (var domain in workspace.Domains.OrderBy(workspace.GetDomainDisplayName, StringComparer.OrdinalIgnoreCase))
-                {
-                    <option value="@CrossTenantLogAnalyticsOptions.NormalizeDomain(domain)">@(workspaceFilter.Length == 0 ? $"{workspace.GetDomainDisplayName(domain)} · {workspace.DisplayName}" : workspace.GetDomainDisplayName(domain))</option>
-                }
+                <option value="@domain.Value">@domain.Label</option>
             }
         </select>
     </label>
-    <p>Applies to system-based widgets in personal and published dashboards. Selected systems remain unchanged.
-        Workspace-wide widgets ignore both filters and use the workspaces of all selected systems.</p>
+    <label>
+        <span>Site</span>
+        <select disabled="@DashboardBusy" @bind="siteFilter" @bind:after="SiteChangedAsync">
+            <option value="">All sites</option>
+            @foreach (var site in FilteredByDomain.Select(item => item.Site).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
+            {
+                <option value="@site">@site</option>
+            }
+        </select>
+    </label>
+    <label>
+        <span>Role</span>
+        <select disabled="@DashboardBusy" @bind="roleFilter" @bind:after="DashboardFiltersChangedAsync">
+            <option value="">All roles</option>
+            @foreach (var role in FilteredBySite.Select(item => item.Role).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
+            {
+                <option value="@role">@role</option>
+            }
+        </select>
+    </label>
 </section>
 
 <section class="analysis-dashboard-tabs" aria-label="Shared dashboards">
     <div class="admin-heading-actions">
         <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReturnToPersonalDashboard">My dashboards</button>
+        <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="DuplicateDashboardAsync">Duplicate dashboard</button>
         @if (editMode)
         {
             <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReloadPublicationsAsync">Refresh published dashboards</button>
@@ -87,7 +102,7 @@
         {
             <button class="@(selectedPublishedDashboard == publication.Id ? "admin-primary" : "admin-secondary")"
                     type="button" disabled="@DashboardBusy" @onclick="() => OpenPublishedDashboardAsync(publication.Id)">
-                @publication.Name · @publication.Owner · v@(publication.Version)
+                @publication.Name · v@(publication.Version)
             </button>
         }
     </div>
@@ -123,9 +138,10 @@
 </section>
 @if (selectedPublishedDashboard is Guid publishedId)
 {
-    <PublishedAnalysisDashboardView @key="(publishedId, workspaceFilter, dashboardDomainFilter)" DashboardId="publishedId"
-        WorkspaceKey="@workspaceFilter" Domain="@dashboardDomainFilter"
-        ShowControls="@editMode" AutoRunOnOpen="@(!editMode || runPublishedOnWorkspaceChange)" />
+    <PublishedAnalysisDashboardView @key="(publishedId, workspaceFilter, domainFilter, siteFilter, roleFilter)" DashboardId="publishedId"
+        WorkspaceKey="@workspaceFilter" Domain="@domainFilter" Site="@siteFilter" Role="@roleFilter"
+        FilteredSystems="@VisibleSystems.ToArray()"
+        ShowControls="@editMode" AutoRunOnOpen="@(!editMode || runPublishedOnFilterChange)" />
 }
 <div class="analysis-personal-dashboard" hidden="@(selectedPublishedDashboard is not null)">
 @if (editMode)
@@ -158,39 +174,9 @@
     <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
 }
 
+@if (editMode)
+{
 <section class="analysis-controls" aria-label="Analysis controls">
-    <label>
-        <span>Domain</span>
-        <select @bind="domainFilter">
-            <option value="">All domains</option>
-            @foreach (var domain in inventory.Select(item => item.Domain).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
-            {
-                <option value="@domain">@domain</option>
-            }
-        </select>
-    </label>
-    <label>
-        <span>Site</span>
-        <select @bind="siteFilter">
-            <option value="">All sites</option>
-            @foreach (var site in FilteredByDomain.Select(item => item.Site).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
-            {
-                <option value="@site">@site</option>
-            }
-        </select>
-    </label>
-    <label>
-        <span>Role</span>
-        <select @bind="roleFilter">
-            <option value="">All roles</option>
-            @foreach (var role in FilteredBySite.Select(item => item.Role).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).Order())
-            {
-                <option value="@role">@role</option>
-            }
-        </select>
-    </label>
-    @if (editMode)
-    {
     <label>
         <span>Published query</span>
         <select @bind="selectedQueryId" @bind:after="QueryChanged">
@@ -222,8 +208,8 @@
     {
         <button class="admin-secondary" type="button" disabled="@(isRunning || isDashboardRunning)" @onclick="ApplyWidgetSettingsAsync">Apply settings to opened widget</button>
     }
-    }
 </section>
+}
 
 <div class="analysis-workspace" @ref="dashboardRoot">
 <div class="analysis-selection-panels">
@@ -444,8 +430,7 @@
     private string siteFilter = string.Empty;
     private string roleFilter = string.Empty;
     private string workspaceFilter = string.Empty;
-    private string dashboardDomainFilter = string.Empty;
-    private bool runPublishedOnWorkspaceChange;
+    private bool runPublishedOnFilterChange;
     private Guid selectedQueryId;
     private int timeRangeMinutes = 1440;
     private int binMinutes = 15;
@@ -487,8 +472,19 @@
     private IJSObjectReference? dashboardModule;
     private DotNetObjectReference<Analysis>? dashboardReference;
 
-    private IEnumerable<ComputerInventoryEntry> FilteredByDomain => inventory.Where(item =>
-        string.IsNullOrWhiteSpace(domainFilter) || string.Equals(item.Domain, domainFilter, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<ComputerInventoryEntry> FilteredByWorkspace => inventory.Where(SystemMatchesWorkspace);
+    private IEnumerable<(string Value, string Label)> AvailableDomains =>
+        Options.Workspaces
+            .Where(workspace => workspaceFilter.Length == 0 || workspace.Key.Equals(workspaceFilter, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(workspace => workspace.Domains.Select(domain =>
+                (Value: CrossTenantLogAnalyticsOptions.NormalizeDomain(domain),
+                 Label: workspaceFilter.Length == 0 ? $"{workspace.GetDomainDisplayName(domain)} · {workspace.DisplayName}" : workspace.GetDomainDisplayName(domain))))
+            .Concat(FilteredByWorkspace.Select(system => CrossTenantLogAnalyticsOptions.NormalizeDomain(system.Domain))
+                .Where(domain => domain.Length > 0).Select(domain => (Value: domain, Label: domain)))
+            .DistinctBy(domain => domain.Value, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(domain => domain.Label, StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<ComputerInventoryEntry> FilteredByDomain => FilteredByWorkspace.Where(item =>
+        domainFilter.Length == 0 || CrossTenantLogAnalyticsOptions.NormalizeDomain(item.Domain) == CrossTenantLogAnalyticsOptions.NormalizeDomain(domainFilter));
     private IEnumerable<ComputerInventoryEntry> FilteredBySite => FilteredByDomain.Where(item =>
         string.IsNullOrWhiteSpace(siteFilter) || string.Equals(item.Site, siteFilter, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<ComputerInventoryEntry> VisibleSystems => FilteredBySite.Where(item =>
@@ -528,6 +524,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        workspaceFilter = FilterDefaults.ResolveWorkspace(Options);
+        domainFilter = CrossTenantLogAnalyticsOptions.NormalizeDomain(FilterDefaults.Domain);
+        siteFilter = FilterDefaults.Site?.Trim() ?? string.Empty;
+        roleFilter = FilterDefaults.Role?.Trim() ?? string.Empty;
         var user = (await AuthenticationStateTask).User;
         dashboardOwnerKey = CurrentUserIdentity.GetActor(user, AuthenticationOptions.IsOpen);
         canPublishDashboard = await Publishing.CanPublishAsync(user);
@@ -575,8 +575,35 @@
 
     private async Task WorkspaceChangedAsync()
     {
-        dashboardDomainFilter = string.Empty;
+        domainFilter = siteFilter = roleFilter = string.Empty;
         await DashboardFiltersChangedAsync();
+    }
+
+    private async Task DomainChangedAsync()
+    {
+        siteFilter = roleFilter = string.Empty;
+        await DashboardFiltersChangedAsync();
+    }
+
+    private async Task SiteChangedAsync()
+    {
+        roleFilter = string.Empty;
+        await DashboardFiltersChangedAsync();
+    }
+
+    private bool SystemMatchesWorkspace(ComputerInventoryEntry system)
+    {
+        if (workspaceFilter.Length == 0)
+            return true;
+        try
+        {
+            return QueryRunner.WorkspaceResolver.Resolve(system.SubscriptionId, system.Domain)
+                .Workspace.Key.Equals(workspaceFilter, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (TargetWorkspaceResolutionException)
+        {
+            return false;
+        }
     }
 
     private async Task DashboardFiltersChangedAsync()
@@ -587,7 +614,7 @@
         errorMessage = null;
         hasDetailRequest = false;
         RefreshExecutionPreview();
-        runPublishedOnWorkspaceChange = selectedPublishedDashboard is not null;
+        runPublishedOnFilterChange = selectedPublishedDashboard is not null;
         if (selectedPublishedDashboard is null)
             await RunDashboardAsync();
     }
@@ -862,70 +889,59 @@
             return;
         isDashboardRunning = true;
         errorMessage = null;
-        widgetErrors.Clear();
         StateHasChanged();
-        var systems = inventory
-            .Where(item => selectedSystems.Contains(SystemKey(item)))
-            .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
-            .ToArray();
-        using var concurrency = new SemaphoreSlim(3, 3);
-        var unique = new Dictionary<string, Task<AnalysisQueryResponse>>(StringComparer.Ordinal);
-        var jobs = new List<(AnalysisDashboardWidget Widget, Task<AnalysisQueryResponse> Task)>();
-        foreach (var widget in Dashboard.Document.Widgets)
-        {
-            var query = availableQueries.FirstOrDefault(item => item.Id == widget.QueryDefinitionId);
-            if (query is null)
-            {
-                widgetErrors[widget.Id] = "The published query is no longer available.";
-                continue;
-            }
-            var request = Dashboard.Document.CreateExecutionRequest(widget, systems)
-                with { WorkspaceKey = workspaceFilter, Domain = dashboardDomainFilter };
-            var key = $"{query.Id:N}|{query.Version}|{request.TimeRangeMinutes}|{request.BinMinutes ?? query.DefaultBinMinutes}|{request.GroupBy}";
-            if (!unique.TryGetValue(key, out var task))
-            {
-                task = ExecuteDashboardRequestAsync(
-                    request,
-                    concurrency);
-                unique.Add(key, task);
-            }
-            jobs.Add((widget, task));
-        }
-
-        await Task.WhenAll(jobs.Select(async job =>
-        {
-            try
-            {
-                var response = await job.Task;
-                if (Dashboard.Document.Widgets.Any(widget => widget.Id == job.Widget.Id))
-                {
-                    widgetResults[job.Widget.Id] = response;
-                    widgetErrors.Remove(job.Widget.Id);
-                }
-            }
-            catch (Exception exception)
-            {
-                if (Dashboard.Document.Widgets.Any(widget => widget.Id == job.Widget.Id))
-                    widgetErrors[job.Widget.Id] = exception.Message;
-            }
-        }));
-        dashboardStatus = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u} · {unique.Count} unique request(s)";
-        isDashboardRunning = false;
-    }
-
-    private async Task<AnalysisQueryResponse> ExecuteDashboardRequestAsync(
-        AnalysisQueryRequest request,
-        SemaphoreSlim concurrency)
-    {
         var cancellationToken = refreshCancellation.Token;
-        await concurrency.WaitAsync(cancellationToken);
         try
         {
-            return await Execution.ExecuteAsync(request, cancellationToken);
+            var systems = inventory
+                .Where(item => selectedSystems.Contains(SystemKey(item)))
+                .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
+                .ToArray();
+            var unique = new Dictionary<string, Task<AnalysisQueryResponse>>(StringComparer.Ordinal);
+            var widgets = Dashboard.Document.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column).ToArray();
+            foreach (var widget in widgets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var query = availableQueries.FirstOrDefault(item => item.Id == widget.QueryDefinitionId)
+                        ?? throw new InvalidOperationException("The published query is no longer available.");
+                    var request = Dashboard.Document.CreateExecutionRequest(widget, systems)
+                        with { WorkspaceKey = workspaceFilter, Domain = domainFilter, Site = siteFilter, Role = roleFilter };
+                    var key = $"{query.Id:N}|{query.Version}|{request.TimeRangeMinutes}|{request.BinMinutes ?? query.DefaultBinMinutes}|{request.GroupBy}";
+                    if (!unique.TryGetValue(key, out var task))
+                    {
+                        task = Execution.ExecuteAsync(request, cancellationToken);
+                        unique.Add(key, task);
+                    }
+                    var response = await task;
+                    if (Dashboard.Document.Widgets.Any(current => current.Id == widget.Id))
+                    {
+                        widgetResults[widget.Id] = response;
+                        widgetErrors.Remove(widget.Id);
+                    }
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    if (Dashboard.Document.Widgets.Any(current => current.Id == widget.Id))
+                    {
+                        widgetResults.Remove(widget.Id);
+                        widgetErrors[widget.Id] = exception.Message;
+                    }
+                }
+                StateHasChanged();
+                await Task.Yield();
+            }
+            dashboardStatus = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u} · {unique.Count} unique request(s)";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         finally
         {
-            concurrency.Release();
+            isDashboardRunning = false;
+            if (!cancellationToken.IsCancellationRequested)
+                StateHasChanged();
         }
     }
 
@@ -986,7 +1002,7 @@
         if (selectedPublishedDashboard is null && !await TrySaveDashboardAsync())
             return;
         selectedPublishedDashboard = id;
-        runPublishedOnWorkspaceChange = false;
+        runPublishedOnFilterChange = false;
         confirmWithdrawDashboard = false;
     }
 
@@ -1061,6 +1077,60 @@
     private Task RenameDashboardAsync(string name) => ChangeDashboardAsync(collection => collection.RenameActive(name));
     private Task DeleteDashboardAsync() => ChangeDashboardAsync(collection => collection.DeleteActive());
 
+    private async Task DuplicateDashboardAsync()
+    {
+        if (DashboardBusy)
+            return;
+        isChangingDashboard = true;
+        publicationError = publicationMessage = null;
+        try
+        {
+            AnalysisDashboardDocument source;
+            if (selectedPublishedDashboard is Guid publishedId)
+                source = (await Publishing.LoadAsync(publishedId,
+                    (await AuthenticationStateTask).User, refreshCancellation.Token)).Document;
+            else
+            {
+                if (!await TrySaveDashboardAsync())
+                    return;
+                source = Dashboard.Document;
+            }
+            var candidate = dashboardCollection.Copy();
+            candidate.AddCopy(source);
+            var saved = await DashboardRepository.SaveAsync(
+                dashboardOwnerKey, candidate, dashboardRevision, refreshCancellation.Token);
+            ActivatePersonalDashboard(candidate, saved.Revision);
+            editMode = dashboardEditMode = true;
+            publicationMessage = $"Personal copy '{Dashboard.Document.Name}' created. Changes do not affect the original dashboard.";
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            publicationError = "The dashboards were changed in another session. Reload the page before duplicating.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            publicationError = $"The dashboard could not be duplicated: {exception.Message}";
+        }
+        finally
+        {
+            isChangingDashboard = false;
+        }
+    }
+
+    private void ActivatePersonalDashboard(AnalysisDashboardCollection collection, int revision)
+    {
+        dashboardRevision = revision;
+        dashboardCollection = collection;
+        selectedPublishedDashboard = null;
+        runPublishedOnFilterChange = false;
+        Dashboard.Load(collection.OpenActive());
+        confirmWithdrawDashboard = false;
+        selectedQueryId = Guid.Empty;
+        openedWidgetId = null;
+        RestoreDashboardSystems();
+        dashboardStatus = $"{Dashboard.Document.Name} · saved revision {dashboardRevision}";
+    }
+
     private async Task ChangeDashboardAsync(Action<AnalysisDashboardCollection> change)
     {
         if (isRunning || isDashboardRunning || PersonalActionsBlocked)
@@ -1074,15 +1144,7 @@
             var candidate = dashboardCollection.Copy();
             change(candidate);
             var saved = await DashboardRepository.SaveAsync(dashboardOwnerKey, candidate, dashboardRevision);
-            dashboardRevision = saved.Revision;
-            dashboardCollection = candidate;
-            Dashboard.Load(candidate.OpenActive());
-            confirmWithdrawDashboard = false;
-            selectedQueryId = Guid.Empty;
-            openedWidgetId = null;
-            domainFilter = siteFilter = roleFilter = string.Empty;
-            RestoreDashboardSystems();
-            dashboardStatus = $"{Dashboard.Document.Name} · saved revision {dashboardRevision}";
+            ActivatePersonalDashboard(candidate, saved.Revision);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -1180,7 +1242,7 @@
                 .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
                 .ToArray();
             var request = new AnalysisQueryRequest(selectedQueryId, systems, timeRangeMinutes, binMinutes, groupBy,
-                workspaceFilter, dashboardDomainFilter);
+                workspaceFilter, domainFilter, siteFilter, roleFilter);
             var response = await Execution.ExecuteAsync(request, refreshCancellation.Token);
             if (hasDetailRequest && request.QueryDefinitionId == selectedQueryId &&
                 request.TimeRangeMinutes == timeRangeMinutes && request.BinMinutes == binMinutes && request.GroupBy == groupBy)
@@ -1208,7 +1270,7 @@
         {
             var systems = inventory.Where(item => selectedSystems.Contains(SystemKey(item))).ToArray();
             executionPreviews = QueryRunner.CreateExecutionPreviews(SelectedQuery, systems, timeRangeMinutes, binMinutes, groupBy,
-                workspaceFilter, dashboardDomainFilter);
+                workspaceFilter, domainFilter, siteFilter, roleFilter);
         }
         catch (InvalidOperationException exception)
         {

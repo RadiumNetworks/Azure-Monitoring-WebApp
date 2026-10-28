@@ -33,9 +33,12 @@ Unter der Chromhaube läuft eine **ASP.NET Core Blazor WebApp auf .NET 10** mit 
 Unter **Overview** stehen **Inbox**, **Graph** und **Dashboards** bereit.
 Die bisherige Live Analysis heißt jetzt Dashboards; ihre URL `/analysis` bleibt bestehen.
 
-Auf der Dashboard-Seite begrenzen **Workspace** und **Domain** die
-systembezogenen Abfragen und deren Ausführungsvorschau. Workspaces erscheinen
-mit ihrem **DisplayName**; Domänen können innerhalb desselben Workspace eigene
+Auf der Dashboard-Seite begrenzt ein gemeinsamer Bereich mit **Workspace**,
+**Domain**, **Site** und **Role** sowohl die Liste für die Systemauswahl als
+auch die systembezogenen Abfragen und deren Ausführungsvorschau. Workspaces erscheinen
+mit ihrem **DisplayName**. Ohne eigene Vorgabe ist beim Öffnen der erste Workspace
+dieser alphabetisch sortierten Liste ausgewählt. **All workspaces** bleibt manuell auswählbar.
+Domänen können innerhalb desselben Workspace eigene
 Anzeigenamen erhalten. Dafür im jeweiligen Eintrag unter
 `CrossTenantLogAnalytics:Workspaces` optional ergänzen:
 
@@ -59,15 +62,44 @@ Die Konfiguration wird beim Start geladen; nach einer Änderung neu starten.
 Ein vollständiges Beispiel steht in
 [MonitoringMultiTenantOptionA.example.json](MonitoringApp/Deployment/MonitoringMultiTenantOptionA.example.json).
 
-**All workspaces** und **All domains** heben die jeweiligen Filter auf; ein
-Workspace-Wechsel setzt die Domänenauswahl zurück. Die Auswahl gilt für eigene
-und veröffentlichte Dashboards während des Seitenbesuchs. Gespeicherte
+Unter **Admin → Settings → Dashboard filter defaults** lassen sich die vier
+Startfilter zentral festlegen, zum Beispiel:
+
+```json
+{
+  "Workspace": "workspace-a",
+  "Domain": "firma-a.local",
+  "Site": "Berlin",
+  "Role": "Domain Controller"
+}
+```
+
+`Workspace` verwendet den konfigurierten Key, nicht den DisplayName. `null`
+wählt wie bisher den ersten Workspace, `""` setzt **All workspaces** als Standard.
+Leere oder `null`-Werte für `Domain`, `Site` und `Role` bedeuten jeweils **All**.
+Domain, Site und Role beziehen sich auf die Inventarwerte, nicht auf Anzeigenamen.
+Die Vorgaben gelten beim Öffnen der Dashboard-Seite für persönliche und
+veröffentlichte Dashboards; manuelle Änderungen während des Seitenbesuchs bleiben
+möglich. Wie bei den übrigen Admin-Settings ist nach dem Speichern ein Neustart
+erforderlich. Vor dem ersten Start dieser Version die Migration
+`20261027082000_AddDashboardFilterSetting` oder das aktualisierte
+[Datenbankskript](MonitoringApp/Database/CreateMonitoringDatabase.template.sql)
+anwenden; die neue Einstellung wird ohne Änderung vorhandener Werte angelegt.
+
+**All workspaces**, **All domains**, **All sites** und **All roles** heben die
+jeweiligen Filter auf. Ein Workspace-Wechsel setzt Domäne, Standort und Rolle
+zurück; ein Domänenwechsel Standort und Rolle, ein Standortwechsel die Rolle.
+Die Auswahl gilt für eigene
+und veröffentlichte Dashboards während des Seitenbesuchs. In veröffentlichten
+Dashboards zeigt **Selected systems** nur die gespeicherten Systeme, die zu den
+aktuellen Workspace-, Domain-, Site- und Role-Filtern passen; ohne Treffer steht
+dort **None**. Gespeicherte
 Systemauswahl, Dashboard-Konfiguration und Veröffentlichungen bleiben
 unverändert. Beim Umschalten werden bisherige Ergebnisse entfernt und Widgets
 neu abgefragt. Ohne passende ausgewählte Systeme erscheint ein Hinweis statt
 Daten anderer Domänen.
 
-**Workspaceweite Abfragen (`Scope: Workspace`) ignorieren beide Anzeige-Filter.**
+**Workspaceweite Abfragen (`Scope: Workspace`) ignorieren diese Systemfilter.**
 Sie laufen weiterhin einmal pro Workspace der gesamten ausgewählten
 Systemmenge, nicht automatisch gegen alle konfigurierten Workspaces.
 Abfragefreigaben und Validierung bleiben erforderlich. Ihre Ergebnisse können
@@ -75,6 +107,21 @@ also Daten mehrerer Domänen enthalten, auch wenn ein Domänenfilter aktiv ist.
 Inbox, Graph und Inventory werden nicht gefiltert.
 
 ### Root Cause Analysis
+
+Administratoren koennen mit **New RCA** einen benannten Fall mit ausgewaehlten
+Alerts anlegen und mit **Assign alerts** weitere Alerts einem offenen Fall
+zuordnen. Der durchsuchbare Auswahlbereich bietet nur aktuell aktive Alerts
+oder Alerts an, deren juengstes Ereignis hoechstens 24 Stunden zurueckliegt
+(UTC, einschliesslich der Grenze). Aktive Alerts bleiben unabhaengig vom Alter
+auswaehlbar; beim Speichern wird die Berechtigung und Aktualitaet erneut geprueft.
+Ein Alert wird mit seinem gesamten Fired-/Resolved-Verlauf zugeordnet.
+Bereits anderweitig zugeordnete Alerts werden nur nach ausdruecklicher
+Bestaetigung verschoben; der Wechsel wird in beiden Faellen protokolliert.
+Vorhandene Prompt-Snapshots bleiben unveraendert. Geschlossene Ziel-Faelle
+muessen vorher wieder geoeffnet, ungespeicherte Analyseaenderungen gespeichert
+werden. Auch manuelle Faelle erhalten einen initialen und einen 15-Minuten-Prompt.
+Die Funktion verwendet die vorhandenen RCA-Tabellen; keine neue Migration ist
+erforderlich.
 
 Unter **Analyze > Root cause analysis** (`/rca`) entsteht je kritischer
 Regelkategorie ein gemeinsamer Fall über alle betroffenen Systeme. Maßgeblich
@@ -183,11 +230,17 @@ Diese Angaben kommen auch dem Graphen und der Systemauswahl für Analysen zugute
 
 Ein Alarm ist der Einstieg, nicht die ganze Story. Die neuen Dashboards legen freigegebene KQL-Auswertungen nebeneinander: Systemzustand, AD-Signale und zeitliche Auffälligkeiten im selben Blickfeld. Hilfreich, wenn die Crew nach Spuren aktiver Decker sucht – was tatsächlich sichtbar wird, bestimmen Datenquellen und Abfragen, nicht die Neonfarbe.
 
-Workspace und Domäne schalten den relevanten Sektor für systembezogene Widgets auf. Eigene Domänen-Displaynamen halten auch geteilte Workspaces übersichtlich. Workspaceweite Widgets bleiben bewusst auf allen Workspaces der ausgewählten Systeme aktiv; sie ignorieren diese Anzeigefilter.
+Ein gemeinsamer Filterbereich mit Workspace, Domäne, Standort und Rolle steuert sowohl die Liste für die Systemauswahl als auch die systembezogenen Widgets in persönlichen und veröffentlichten Dashboards. Bereits ausgewählte Systeme bleiben gespeichert und werden für die aktuelle Anzeige nur eingegrenzt. Eigene Domänen-Displaynamen halten auch geteilte Workspaces übersichtlich. Beim Wechsel eines übergeordneten Filters werden die abhängigen Filter zurückgesetzt. Workspaceweite Widgets bleiben bewusst auf allen Workspaces der ausgewählten Systeme aktiv; sie ignorieren diese Anzeigefilter.
 
 ### Die passende Sicht // Nicht alles ist eine Tabellenzeile
 
 Tabellen für Details, Waben für Zustände, Linien für Zeitspuren, Balken und Gauges für Größenverhältnisse. Kennzahlen und Statusverläufe ergänzen das Lagebild. Farben und Beschriftungen dienen dem Signal, nicht der Lichtshow.
+
+Liniencharts zeigen nur die Grafik. Die Legende erscheint beim Mouseover oder Tastaturfokus als halbtransparentes, einspaltiges und scrollbares Overlay mit kleiner Schrift oben rechts; die bisherige Zusammenfassung mit Messpunktanzahl und Min-/Max-Werten entfällt.
+
+Wabenansichten passen Anordnung und Wabengröße automatisch an die verfügbare Widgetfläche an, auch beim Skalieren des Widgets. Mit „−“ und „+“ lässt sich die Darstellung zwischen 50 und 200 Prozent der eingepassten Größe ändern; „Fit“ stellt die automatische Einpassung wieder her. Beim Vergrößern kann innerhalb der Grafik gescrollt werden. Der Zoom gilt für die aktuelle Ansicht und wird nicht im Dashboard gespeichert.
+
+Richtungswaben wie bei **LDAP latency by site** mit leerem Ziel hinter `->` werden ausgeblendet und belegen keinen Platz im Layout. Vollständige Standortpaare bleiben auch bei gekürzter Beschriftung sichtbar. Die Rohdaten und die Tabellenansicht bleiben unverändert.
 
 ![Analyse-Dashboard mit Tabelle, Waben, Balkenanzeigen und Linienchart; synthetische Demodaten](./Media/Analysis.png)
 
@@ -195,7 +248,33 @@ Tabellen für Details, Waben für Zustände, Linien für Zeitspuren, Balken und 
 
 Widgets aus der Bibliothek ziehen, verschieben und skalieren. Mehrere Cockpits speichern, Zeiträume und Mittelungsintervalle gemeinsam setzen, alle 30 Sekunden aktualisieren und Layoutänderungen rückgängig machen.
 
+Beim manuellen und automatischen Aktualisieren werden die Widgets nacheinander in ihrer visuellen Reihenfolge (oben nach unten, links nach rechts) abgearbeitet: Daten holen, das einzelne Widget aktualisieren, dann das nächste laden. Bisherige Inhalte bleiben bis zur jeweiligen Aktualisierung sichtbar; Fehler betreffen nur das jeweilige Widget. Das gilt auch für veröffentlichte Dashboards.
+
+Auch ein Timeout einer einzelnen Abfrage stoppt die nachfolgenden Widgets nicht.
+Azure-Fehler zeigen HTTP-Status, Fehlercode und eine Diagnose-ID; speicherbegrenzt
+protokollierte Fehlerdetails stehen mit dieser ID sowie Workspace, Systemanzahl und Zeitraum im
+Anwendungslog. Im Query-Management steht ein Testfehler zusaetzlich direkt bei
+**Test execution**. Azure-Teilergebnisse werden nicht als vollstaendige Daten
+angezeigt. Eine feste Grenze bei 13 Systemen gibt es nicht; bei datenabhaengigen
+Fehlern den konkreten Azure-Fehlercode und die Logs pruefen, statt Systeme
+stillschweigend wegzulassen.
+
+Detailtabellen werden serverseitig auf **1.000 Zeilen je Workspace und Abfrage**
+begrenzt und in **Seiten mit 50 Zeilen** angezeigt. Ein zusaetzlich abgefragter
+Datensatz erkennt, ob weitere Zeilen existieren; dann erscheint ein deutlicher
+Hinweis. Die Netlogon-Fehlertabelle behaelt durch ihre Zeit-Sortierung die
+neuesten Eintraege. Alle ausgewaehlten Systeme bleiben Teil der Abfrage.
+Die Abfrageantwort hat zusaetzlich eine Schutzgrenze von 4 MiB; bei groesseren
+Antworten werden Fehler beziehungsweise Azure-Teilergebnisse nicht als
+vollstaendige Daten angezeigt. Zeitraum oder Filter dann weiter eingrenzen.
+Diese Laufzeitgrenzen gelten auch fuer bereits veroeffentlichte Abfragen und
+den Admin-Test; erneutes Veroeffentlichen oder eine Datenbankmigration ist nicht
+noetig. Fehlerdetails im Log sind auf 2.048 Zeichen begrenzt; ein Speicherfehler
+beim Logging wird zusaetzlich zum urspruenglichen Abfragefehler angezeigt.
+
 Admins veröffentlichen ihre Cockpits für die Crew. Private Umbauten bleiben privat, bis eine neue Version freigegeben wird. Kein Überraschungsumbau mitten im Run.
+
+Die Auswahlbuttons veröffentlichter Dashboards zeigen nur Dashboardname und Version; Angaben zum Herausgeber stehen weiterhin in der geöffneten Ansicht.
 
 ## Query Library // Ordnung im Datenarsenal
 
@@ -209,6 +288,8 @@ Die mitgelieferte **Active-Directory-Bibliothek mit 38 Vorlagen** bietet einen A
 
 Admins verwalten die Abfragen und ihre Darstellung an einer zentralen Stelle. Neue oder geänderte Auswertungen werden geprüft, bevor sie für die Crew freigegeben werden. Ein unfertiger Arbeitsstand ersetzt damit nicht versehentlich das Werkzeug, das andere gerade im Einsatz haben.
 
+Für neue Workspaces bietet die Registry eine Sammelzuordnung: Im Bereich **Workspace assignment for all queries** die gewünschten Workspaces auswählen und mit **Apply to all queries** bei allen gespeicherten Abfragen aktivieren. Vorhandene Zuordnungen anderer Workspaces, Abfrageinhalte und Versionen bleiben erhalten. Die Option **Include disabled queries and re-enable them** bezieht deaktivierte Abfragen ein und aktiviert sie wieder; dadurch können vorhandene Veröffentlichungen auf bereits validierten Workspaces erneut verfügbar werden. Neue Workspace-Zuordnungen bleiben ungeprüft. Validierung und Veröffentlichung erfolgen weiterhin separat. Ein geöffneter Query-Editor muss vorher geschlossen werden, damit ungespeicherte Änderungen nicht überschrieben werden.
+
 Kategorien lassen sich anlegen, umbenennen und neu ordnen. Abfragen können per Ziehen oder über eine Auswahl zugeordnet werden. Die Gliederung erscheint auch in der Bibliothek; zum bloßen Aufräumen müssen die Auswertungen nicht neu veröffentlicht werden.
 
 Eigene Anpassungen bleiben beim erneuten Installieren der mitgelieferten Bibliothek erhalten. Gespeicherte Abfragen lassen sich zusammen mit ihren Ansichten exportieren, um sie weiterzuverwenden. Das nimmt den Werkzeugkasten mit, ersetzt aber keine vollständige Sicherung der Anwendung.
@@ -220,6 +301,18 @@ Eigene Anpassungen bleiben beim erneuten Installieren der mitgelieferten Bibliot
 Nicht jede Meldung braucht dieselbe Aufmerksamkeit. Regeln helfen dabei, bekannte Situationen einzuordnen, unauffällige Ergebnisse zurückzunehmen und kritische Störungen hervorzuheben. So bleiben wichtige Signale sichtbar, auch wenn viele ähnliche Meldungen eintreffen.
 
 Beispielsweise kann ein einzelner bekannter Prüffehler anders behandelt werden als mehrere gleichzeitig fehlgeschlagene Prüfungen. Regeln können außerdem dabei helfen, die Aufgabe eines erkannten Systems im Inventar zuzuordnen. Die Bewertung bleibt zentral pflegbar, statt sich auf persönliche Gewohnheiten einzelner Operatoren zu verlassen.
+
+Unter **Alert rules > Scheduled KQL alert rules** lassen sich auch eigene
+KQL-Abfragen zeitgesteuert auswerten. Editierbare CPU- und Kerberos-Vorlagen
+starten deaktiviert. Workspace-Mehrfachauswahl/Systemfilter, Intervall, Auswertungsfenster,
+Schwellwert, Vergleich, Severity und Kategorie sind konfigurierbar. Ein
+gemessener Grenzwertverstoß erzeugt einen Alert je System; gemessene Erholung
+löst ihn auf. Jeder Workspace wird getrennt ausgewertet: Fehler in einem
+Workspace stoppen die anderen nicht und werden separat angezeigt.
+Fehlende Daten sind kein Nullwert und keine Entwarnung.
+Die WebApp muss dauerhaft laufen (App Service: Always On). Vor Deployment ist
+das SQL-Upgrade erforderlich; Details stehen in der
+[technischen Dokumentation](./MonitoringApp/README.md#geplante-kql-alerts).
 
 ## Logbook // Das Gedächtnis der Crew
 

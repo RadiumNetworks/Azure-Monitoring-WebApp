@@ -1,0 +1,324 @@
+@page "/admin/rules/queries"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "OperatorAccess")]
+@using System.Globalization
+@using System.Text.Json
+@inject ScheduledQueryService Service
+@inject CrossTenantLogAnalyticsOptions Options
+
+<PageTitle>Scheduled KQL alert rules</PageTitle>
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">Configuration / Alert rules</p>
+        <h1>Scheduled KQL alert rules</h1>
+        <p class="subtitle">Run your own KQL on a schedule and create one alert lifecycle per rule and system.</p>
+    </div>
+    <a class="admin-secondary" href="admin/rules">Other alert rules</a>
+</section>
+<p>Checks run on the server, even without an open dashboard. The WebApp must remain running (App Service: Always On).
+    Missing data or failed queries never count as zero and never resolve an existing alert.</p>
+
+@if (error is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@error</div>
+}
+@if (message is not null)
+{
+    <div class="admin-message admin-message-success" role="status">@message</div>
+}
+@if (delivery.Pending > 0)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        <p>Pending alert notifications: @delivery.Pending. Delivery is retried automatically.</p>
+        @if (delivery.Error is not null)
+        {
+            <p role="alert">Last delivery failure: @delivery.Error</p>
+        }
+    </div>
+}
+<div class="admin-card-actions">
+    <button class="admin-primary" type="button" disabled="@busy" @onclick="() => BeginNew(null)">Create custom KQL rule</button>
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => BeginNew(false)">CPU example</button>
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => BeginNew(true)">Kerberos example</button>
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">Refresh status</button>
+</div>
+<div class="admin-workspace">
+    <section class="admin-rule-list">
+        <h2>Scheduled rules (@rules.Count)</h2>
+        @foreach (var rule in rules)
+        {
+            <article class="admin-rule-card">
+                <h3>@rule.Name</h3>
+                <p>@(rule.Enabled ? "Enabled" : "Disabled") · @string.Join(", ", rule.WorkspaceKeys) · every @rule.IntervalMinutes min</p>
+                <p>@rule.CategoryName · @rule.Severity · Value @rule.Comparison @rule.Threshold</p>
+                <p>@rule.LastStatus</p>
+                <p>Last check: @Time(rule.LastRunUtc) · Window end (UTC): @Time(rule.LastWindowEndUtc)</p>
+                <p>Next check (UTC): @(rule.Enabled ? Time(rule.NextRunUtc) : "Paused")</p>
+                @if (rule.LastError.Length > 0)
+                {
+                    <div class="admin-message admin-message-error" role="alert">@rule.LastError</div>
+                }
+                @foreach (var result in rule.WorkspaceResults)
+                {
+                    <p>Workspace @result.WorkspaceKey: @result.Targets systems; @result.Values measured values.</p>
+                    @if (result.Error is not null)
+                    {
+                        <div class="admin-message admin-message-error" role="alert">@result.WorkspaceKey: @result.Error</div>
+                    }
+                }
+                <div class="admin-card-actions">
+                    <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => EditAsync(rule)">Edit / system status</button>
+                    <button class="admin-secondary" type="button" disabled="@(busy || !rule.Enabled)" @onclick="() => DisableAsync(rule)">Disable</button>
+                    <button class="admin-danger" type="button" disabled="@(busy || rule.Enabled)" @onclick="() => deleteRule = rule">Delete</button>
+                </div>
+            </article>
+        }
+        @if (rules.Count == 0)
+        {
+            <p class="admin-empty">No scheduled KQL rules configured. Examples start disabled; test them before enabling.</p>
+        }
+    </section>
+    <section class="admin-editor">
+        @if (editing is not null)
+        {
+            var rule = editing;
+            <h2>@(rule.Revision == 0 ? "New scheduled rule" : rule.Name)</h2>
+            <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <label class="admin-field admin-field-wide"><span>Name</span><input required maxlength="256" @bind="rule.Name" /></label>
+                <label class="admin-check"><input type="checkbox" @bind="rule.Enabled" /><span>Enabled</span></label>
+                <fieldset class="admin-field admin-field-wide">
+                    <legend>Workspaces</legend>
+                    @foreach (var workspace in Options.Workspaces.OrderBy(item => item.DisplayName))
+                    {
+                        <label class="admin-check"><input type="checkbox" disabled="@busy"
+                            checked="@rule.WorkspaceKeys.Contains(workspace.Key, StringComparer.OrdinalIgnoreCase)"
+                            @onchange="args => SetWorkspace(workspace.Key, args.Value is true)" />
+                            <span>@workspace.DisplayName (@workspace.Key)</span></label>
+                    }
+                    @foreach (var key in rule.WorkspaceKeys.Where(key => !Options.Workspaces.Any(workspace => workspace.Key.Equals(key, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        <label class="admin-check"><input type="checkbox" disabled="@busy" checked
+                            @onchange="args => SetWorkspace(key, args.Value is true)" /><span>@key (no longer configured)</span></label>
+                    }
+                    <small>Select at least one workspace. Each workspace runs independently; a failure does not stop the others.</small>
+                </fieldset>
+                <label class="admin-field"><span>Domain</span><input maxlength="256" @bind="rule.Domain" /></label>
+                <label class="admin-field"><span>Site</span><input maxlength="256" @bind="rule.Site" /></label>
+                <label class="admin-field"><span>Role</span><input maxlength="256" @bind="rule.Role" /></label>
+                <label class="admin-field admin-field-wide">
+                    <span>Computers (optional)</span><textarea rows="3" maxlength="4000" @bind="rule.Computers"></textarea>
+                    <small>Exact inventory names, separated by commas or newlines. Blank filters select all matching systems in each selected workspace; systems in maintenance are excluded. At most @ScheduledQueryService.MaxTargets systems per workspace.</small>
+                </label>
+                <label class="admin-field"><span>Run every (minutes)</span><input required type="number" min="1" max="1440" @bind="rule.IntervalMinutes" /></label>
+                <label class="admin-field"><span>Evaluation window (minutes)</span><input required type="number" min="1" max="1440" @bind="rule.WindowMinutes" /></label>
+                <label class="admin-field">
+                    <span>Ingestion delay (minutes)</span><input required type="number" min="0" max="60" @bind="rule.IngestionDelayMinutes" />
+                    <small>Wait for telemetry to arrive. Window end is rounded down to a full UTC minute after this delay.</small>
+                </label>
+                <label class="admin-field">
+                    <span>Comparison</span><select @bind="rule.Comparison">
+                        @foreach (var comparison in ScheduledQueryRule.Comparisons)
+                        {
+                            <option value="@comparison">@comparison</option>
+                        }
+                    </select>
+                </label>
+                <label class="admin-field"><span>Threshold</span><input required type="number" step="any" @bind="rule.Threshold" /></label>
+                <label class="admin-field"><span>Severity</span><select @bind="rule.Severity">
+                    @for (var index = 0; index <= 4; index++)
+                    {
+                        <option value="@($"Sev{index}")">@($"Sev{index}")</option>
+                    }
+                </select></label>
+                <label class="admin-field"><span>Category</span><input required maxlength="256" @bind="rule.CategoryName" /></label>
+                <label class="admin-field admin-field-wide">
+                    <span>KQL</span><textarea required rows="15" maxlength="65536" spellcheck="false" @bind="rule.Kql"></textarea>
+                    <small>Use _SelectedSystems, _WindowStart (inclusive) and _WindowEnd (exclusive). Return Series = Computer and one numeric or null Value per computer. Aggregate inside the KQL; the examples use the average over the complete window, not five consecutive threshold breaches. No row or a null value means No data.</small>
+                    <small>CPU example requires the Processor/Processor Information % Idle Time counter (_Total); CPU usage = 100 - average idle. Kerberos requires the Security System-Wide Statistics / Kerberos Authentications counter. Missing counters do not trigger a zero-value alert.</small>
+                </label>
+                <p class="admin-field-wide">An alert fires only on entry into the threshold condition and resolves on a measured recovery.
+                    Disabling or changing the system filters does not resolve existing alerts. Existing inbox categorization rules take precedence over this category.</p>
+                <div class="admin-card-actions admin-field-wide">
+                    <button class="admin-primary" type="submit" disabled="@busy">Save rule</button>
+                    <button class="admin-secondary" type="button" disabled="@busy" @onclick="PreviewAsync">Test query (no alerts)</button>
+                    <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => editing = null">Cancel</button>
+                </div>
+            </form>
+            @foreach (var executionPreview in executionPreviews)
+            {
+                <article class="analysis-execution-preview-card">
+                    <h3>Effective KQL for this test</h3>
+                    <p>Workspace: @executionPreview.Query.WorkspaceDisplayName (@executionPreview.Query.WorkspaceKey)
+                        · Workspace ID: @executionPreview.WorkspaceId</p>
+                    <p>UTC window: @Time(executionPreview.WindowStartUtc) (inclusive) to @Time(executionPreview.WindowEndUtc) (exclusive).
+                        API lookback: @executionPreview.ApiTimeRangeMinutes minutes.</p>
+                    <p>The window includes the configured ingestion delay. Only data inside this window and matching the exact inventory computer names is evaluated.</p>
+                    @if (executionPreview.Query.Systems.Count == 0)
+                    {
+                        <p role="status">Not executed: no inventory systems match these filters.</p>
+                    }
+                    <details open>
+                        <summary>Generated query · select and copy into Log Analytics</summary>
+                        <pre>@executionPreview.Query.EffectiveKql</pre>
+                    </details>
+                </article>
+            }
+            @if (preview is not null)
+            {
+                <h3>Test result · window end (UTC): @Time(preview.WindowEndUtc)</h3>
+                <p>This test creates no alerts. Showing up to 50 systems per workspace. Retest after changing KQL or filters.</p>
+                @foreach (var result in preview.Workspaces)
+                {
+                    <h4>Workspace @result.WorkspaceKey</h4>
+                    <p>@result.Targets.Count selected systems; @result.Values.Count returned rows.</p>
+                    @if (result.Error is not null)
+                    {
+                        <div class="admin-message admin-message-error" role="alert">@result.Error</div>
+                    }
+                    <div class="table-scroll"><table><thead><tr><th>Computer</th><th>Subscription</th><th>Value</th><th>Evaluation</th></tr></thead><tbody>
+                        @foreach (var target in result.Targets.Take(50))
+                        {
+                            var value = result.Values.GetValueOrDefault(target.Computer);
+                            <tr><td>@target.Computer</td><td>@target.SubscriptionId</td><td>@value</td><td>@(result.Error is not null ? "Error" : value is null ? "No data" : rule.Matches(value.Value) ? "Would alert" : "Normal")</td></tr>
+                        }
+                    </tbody></table></div>
+                }
+            }
+            @if (states.Count > 0)
+            {
+                <h3>Saved system status</h3>
+                <p>Includes earlier targets; missing or excluded systems retain any previous active alert.</p>
+                <div class="table-scroll"><table><thead><tr><th>Workspace</th><th>Computer</th><th>Subscription</th><th>Status</th><th>Value</th><th>Active alert</th><th>Checked (UTC)</th></tr></thead><tbody>
+                    @foreach (var state in states.Skip(statePage * 50).Take(50))
+                    {
+                        <tr><td>@state.WorkspaceKey</td><td>@state.Computer</td><td>@state.SubscriptionId</td><td>@state.Status</td><td>@state.Value</td><td>@(state.ActiveAlertId is null ? "No" : "Yes")</td><td>@Time(state.CheckedUtc)</td></tr>
+                    }
+                </tbody></table></div>
+                <button class="admin-secondary" type="button" disabled="@(statePage == 0)" @onclick="() => statePage--">Previous</button>
+                <span>Page @(statePage + 1) / @((states.Count + 49) / 50)</span>
+                <button class="admin-secondary" type="button" disabled="@((statePage + 1) * 50 >= states.Count)" @onclick="() => statePage++">Next</button>
+            }
+        }
+        else
+        {
+            <p class="admin-empty">Create a custom rule, start from an example, or select an existing rule.</p>
+        }
+    </section>
+</div>
+@if (deleteRule is not null)
+{
+    <section class="admin-message admin-message-error" role="alert">
+        <p>Delete '@deleteRule.Name'? Checks stop permanently. Previously emitted alerts are retained and must be resolved manually if still active. Pending notifications will still be delivered.</p>
+        <button class="admin-danger" type="button" disabled="@busy" @onclick="DeleteAsync">Confirm delete</button>
+        <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => deleteRule = null">Cancel</button>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<ScheduledQueryRule> rules = [];
+    private IReadOnlyList<ScheduledQueryTargetState> states = [];
+    private ScheduledQueryRule? editing, deleteRule;
+    private ScheduledQueryEvaluation? preview;
+    private readonly List<ScheduledQueryExecutionPreview> executionPreviews = [];
+    private bool busy;
+    private int statePage;
+    private string? error, message;
+    private (int Pending, string? Error) delivery;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true;
+        error = message = null;
+        try { await action(); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private Task RefreshAsync() => ExecuteAsync(async () =>
+    {
+        rules = await Service.ListAsync();
+        delivery = await Service.DeliveryStatusAsync();
+        if (editing is not null)
+        {
+            states = await Service.StatesAsync(editing.Id);
+            statePage = 0;
+        }
+    });
+
+    private void BeginNew(bool? kerberos)
+    {
+        editing = kerberos.HasValue ? ScheduledQueryRule.Example(kerberos.Value) : new();
+        editing.WorkspaceKeys = Options.Workspaces.OrderBy(item => item.DisplayName).Take(1).Select(item => item.Key).ToArray();
+        preview = null;
+        executionPreviews.Clear();
+        states = [];
+        statePage = 0;
+        error = message = null;
+    }
+
+    private Task EditAsync(ScheduledQueryRule rule) => ExecuteAsync(async () =>
+    {
+        editing = JsonSerializer.Deserialize<ScheduledQueryRule>(JsonSerializer.Serialize(rule))!;
+        states = await Service.StatesAsync(rule.Id);
+        statePage = 0;
+        preview = null;
+        executionPreviews.Clear();
+    });
+
+    private Task SaveAsync() => ExecuteAsync(async () =>
+    {
+        if (editing is null) return;
+        await Service.SaveAsync(editing);
+        rules = await Service.ListAsync();
+        editing = null;
+        preview = null;
+        executionPreviews.Clear();
+        message = "Rule saved. Enabled rules are picked up by the scheduler within approximately 30 seconds.";
+    });
+
+    private Task PreviewAsync() => ExecuteAsync(async () =>
+    {
+        preview = null;
+        executionPreviews.Clear();
+        if (editing is not null)
+            preview = await Service.PreviewAsync(editing, onPrepared: prepared =>
+            {
+                executionPreviews.Add(prepared);
+                StateHasChanged();
+            });
+    });
+
+    private void SetWorkspace(string key, bool selected)
+    {
+        if (editing is null) return;
+        editing.WorkspaceKeys = selected
+            ? editing.WorkspaceKeys.Append(key).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : editing.WorkspaceKeys.Where(value => !value.Equals(key, StringComparison.OrdinalIgnoreCase)).ToArray();
+        preview = null;
+        executionPreviews.Clear();
+    }
+
+    private Task DeleteAsync() => ExecuteAsync(async () =>
+    {
+        if (deleteRule is null) return;
+        await Service.DeleteAsync(deleteRule.Id, deleteRule.Revision);
+        if (editing?.Id == deleteRule.Id) editing = null;
+        deleteRule = null;
+        rules = await Service.ListAsync();
+        message = "Scheduled rule deleted. Existing alerts are retained.";
+    });
+
+    private static string Time(DateTime? time) => time?.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "Never";
+
+    private Task DisableAsync(ScheduledQueryRule rule) => ExecuteAsync(async () =>
+    {
+        await Service.DisableAsync(rule.Id, rule.Revision);
+        if (editing?.Id == rule.Id) editing = null;
+        rules = await Service.ListAsync();
+        message = "Rule disabled. Existing alerts are retained.";
+    });
+}

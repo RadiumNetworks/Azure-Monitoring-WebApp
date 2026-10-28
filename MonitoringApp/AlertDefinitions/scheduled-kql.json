@@ -1,0 +1,21 @@
+{
+  "type": "ScheduledKql",
+  "label": "Scheduled KQL threshold",
+  "identity": {
+    "targetColumns": ["Computer"],
+    "siteColumns": ["Site"]
+  },
+  "summary": [
+    { "operation": "row-count", "label": "systems", "singularLabel": "system", "tone": "info" }
+  ],
+  "row": {
+    "title": "{Computer}",
+    "metadata": [{ "column": "Site", "label": "Site" }],
+    "facts": [
+      { "column": "Value", "label": "Measured value" },
+      { "column": "Comparison", "label": "Comparison" },
+      { "column": "Threshold", "label": "Threshold" },
+      { "column": "WindowMinutes", "label": "Window (minutes)" }
+    ]
+  }
+}

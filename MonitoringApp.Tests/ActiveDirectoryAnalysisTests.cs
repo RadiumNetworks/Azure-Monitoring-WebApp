@@ -96,6 +96,24 @@ public sealed class ActiveDirectoryAnalysisTests
     }
 
     [Fact]
+    public void PreservesNullRealValuesFromAzureSdkForGpoStatistics()
+    {
+        var sdkResult = ModelReaderWriter.Read<LogsQueryResult>(BinaryData.FromString(
+            """
+            {"tables":[{"name":"PrimaryResult","columns":[
+              {"name":"Series","type":"string"},{"name":"Dimension","type":"string"},{"name":"Value","type":"real"}],
+              "rows":[["domain-a","LargeGPOs",0],["domain-b","LargePct",null],["domain-c","AvgLargeMiB",null]]}]}
+            """))!;
+        var normalized = AnalysisQueryRunner.NormalizeResult(
+            sdkResult.Table, "Workspace", AnalysisQueryVisualizationTypes.Stat);
+        Assert.Null(normalized.Error);
+        var table = Assert.Single(normalized.Tables!);
+        Assert.Equal("0", table.Rows[0][2]);
+        Assert.Null(table.Rows[1][2]);
+        Assert.Null(table.Rows[2][2]);
+    }
+
+    [Fact]
     public void ConvertsActualAzureSdkRowsIncludingDynamicValuesAndNulls()
     {
         var sdkResult = ModelReaderWriter.Read<LogsQueryResult>(BinaryData.FromString(
@@ -191,7 +209,75 @@ public sealed class ActiveDirectoryAnalysisTests
         Assert.Contains("1000 ms", html);
         Assert.Contains("hsl(60 65% 38%)", html);
         Assert.Contains("2000 ms", html);
+        Assert.Contains("data-analysis-honeycomb", html);
+        Assert.Contains("analysis-honeycomb-viewport", html);
+        Assert.Contains("aria-label=\"Honeycomb zoom\"", html);
+        Assert.Contains("data-honeycomb-zoom=\"out\"", html);
+        Assert.Contains("data-honeycomb-zoom=\"in\"", html);
+        Assert.Contains("data-honeycomb-zoom=\"fit\"", html);
+        Assert.Contains("transform=\"translate(", html);
         Assert.DoesNotContain("<polyline", html);
+    }
+
+    [Fact]
+    public async Task HoneycombOmitsMissingTargetsButKeepsCompleteLongNamesAndNonDirectionalEntries()
+    {
+        var response = Response(AnalysisQueryVisualizationTypes.Honeycomb);
+        var points = response.Series[0].Points;
+        var html = await RenderAsync(response with
+        {
+            Series =
+            [
+                new("Missing target -> ", null, "Workspace", points),
+                new("Site A -> Site B", null, "Workspace", points),
+                new("Whitespace target -> \t ", null, "Workspace", points),
+                new("Very long source site name -> Target Site", null, "Workspace", points),
+                new("Standalone metric", null, "Workspace", points)
+            ]
+        });
+
+        Assert.Equal(3, html.Split("<polygon", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("Missing target", html);
+        Assert.DoesNotContain("Whitespace target", html);
+        Assert.Contains("Site A -&gt; Site B", html);
+        Assert.Contains("Very long source site name -&gt; Target Site", html);
+        Assert.Contains("Standalone metric", html);
+        Assert.Contains("transform=\"translate(90 70)\"", html);
+        Assert.Contains("transform=\"translate(195 131)\"", html);
+        Assert.Contains("transform=\"translate(300 70)\"", html);
+    }
+
+    [Fact]
+    public async Task HoneycombShowsExplicitMessageWhenOnlySourceOnlyEntriesRemain()
+    {
+        var response = Response(AnalysisQueryVisualizationTypes.Honeycomb);
+        var html = await RenderAsync(response with
+        {
+            Series = [new("Site A -> ", null, "Workspace", response.Series[0].Points)]
+        });
+
+        Assert.DoesNotContain("<polygon", html);
+        Assert.DoesNotContain("<svg", html);
+        Assert.Contains("No honeycomb entries", html);
+        Assert.Contains("No data is not an OK status", html);
+    }
+
+    [Fact]
+    public async Task SourceOnlyEntriesRemainAvailableInOtherVisualizationsAndRawTables()
+    {
+        var response = Response(AnalysisQueryVisualizationTypes.BarChart);
+        var series = new AnalysisQuerySeries("Source only -> ", null, "Workspace", response.Series[0].Points);
+        var bars = await RenderAsync(response with { Series = [series] });
+        Assert.Contains("Source only -&gt;", bars);
+
+        var table = await RenderComponentAsync<AnalysisResultView>(new()
+        {
+            ["Result"] = response with { VisualizationType = AnalysisQueryVisualizationTypes.Honeycomb, Series = [series] },
+            ["AllowTableView"] = true,
+            ["ShowTable"] = true
+        });
+        Assert.Contains("<table", table);
+        Assert.Contains("Source only -&gt;", table);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using Azure.Identity;
 using Azure.Monitor.Query.Logs;
 using Azure.Monitor.Query.Logs.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MonitoringApp;
 
@@ -128,16 +129,70 @@ public sealed class AnalysisQueryRegistry(
         {
             var enabled = draft.Workspaces.Any(item =>
                 item.Enabled && item.WorkspaceKey.Equals(assignment.WorkspaceKey, StringComparison.OrdinalIgnoreCase));
-            if (enabled && !assignment.Enabled)
-            {
-                assignment.LastValidatedAt = null;
-                assignment.LastValidationStatus = AnalysisQueryValidationStatuses.NotValidated;
-                assignment.LastValidationMessage = string.Empty;
-            }
-            assignment.Enabled = enabled;
+            SetWorkspaceEnabled(assignment, enabled);
         }
         await context.SaveChangesAsync(cancellationToken);
         return stored;
+    }
+
+    public async Task<AnalysisQueryWorkspaceAssignmentResult> EnableWorkspacesForAllAsync(
+        IReadOnlyCollection<string> workspaceKeys,
+        bool includeDisabledQueries,
+        string actor,
+        CancellationToken cancellationToken = default)
+    {
+        if (workspaceKeys.Count == 0 || workspaceKeys.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidOperationException("Select at least one configured Log Analytics workspace.");
+        var selectedWorkspaces = workspaceKeys.Select(key =>
+            options.Workspaces.SingleOrDefault(workspace => workspace.Key.Equals(key.Trim(), StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"Log Analytics workspace '{key}' is not configured."))
+            .DistinctBy(workspace => workspace.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var queries = await context.AnalysisQueryDefinitions
+            .Include(query => query.Workspaces)
+            .Where(query => includeDisabledQueries || query.Enabled && query.Status != AnalysisQueryStatuses.Disabled)
+            .ToArrayAsync(cancellationToken);
+        var updatedQueries = 0;
+        var enabledAssignments = 0;
+        var reactivatedQueries = 0;
+        var now = DateTimeOffset.UtcNow;
+        foreach (var query in queries)
+        {
+            var changed = false;
+            foreach (var workspace in selectedWorkspaces)
+            {
+                var assignment = query.Workspaces.SingleOrDefault(item =>
+                    item.WorkspaceKey.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase));
+                if (assignment is null)
+                {
+                    assignment = new AnalysisQueryWorkspace
+                    {
+                        QueryDefinitionId = query.Id,
+                        WorkspaceKey = workspace.Key,
+                        Enabled = false
+                    };
+                    query.Workspaces.Add(assignment);
+                }
+                if (assignment.Enabled) continue;
+                SetWorkspaceEnabled(assignment, true);
+                enabledAssignments++;
+                changed = true;
+            }
+            if (!query.Enabled || query.Status == AnalysisQueryStatuses.Disabled)
+            {
+                query.Enabled = true;
+                reactivatedQueries++;
+                changed = true;
+            }
+            if (!changed) continue;
+            query.Status = AnalysisQueryStatuses.Draft;
+            query.UpdatedAt = now;
+            query.UpdatedBy = actor.Trim();
+            updatedQueries++;
+        }
+        await context.SaveChangesAsync(cancellationToken);
+        return new(updatedQueries, enabledAssignments, reactivatedQueries);
     }
 
     public async Task<AnalysisQueryResponse> TestDraftAsync(
@@ -367,6 +422,17 @@ public sealed class AnalysisQueryRegistry(
         workspace.LastValidationMessage = message.Length <= 1000 ? message : message[..1000];
     }
 
+    private static void SetWorkspaceEnabled(AnalysisQueryWorkspace assignment, bool enabled)
+    {
+        if (enabled && !assignment.Enabled)
+        {
+            assignment.LastValidatedAt = null;
+            assignment.LastValidationStatus = AnalysisQueryValidationStatuses.NotValidated;
+            assignment.LastValidationMessage = string.Empty;
+        }
+        assignment.Enabled = enabled;
+    }
+
     private void AddMissingWorkspaceAssignments(AnalysisQueryDefinition query)
     {
         foreach (var workspace in options.Workspaces.Where(workspace =>
@@ -442,11 +508,40 @@ public static partial class AnalysisQueryValidator
     }
 }
 
+public interface IAnalysisLogAnalyticsQuery
+{
+    Task<LogsQueryResult> QueryAsync(
+        CrossTenantLogAnalyticsWorkspaceOptions workspace, string applicationClientId, string secret,
+        string kql, int timeRangeMinutes, CancellationToken cancellationToken);
+}
+
+public sealed class AzureAnalysisLogAnalyticsQuery : IAnalysisLogAnalyticsQuery
+{
+    public async Task<LogsQueryResult> QueryAsync(
+        CrossTenantLogAnalyticsWorkspaceOptions workspace, string applicationClientId, string secret,
+        string kql, int timeRangeMinutes, CancellationToken cancellationToken)
+    {
+        var credential = new ClientSecretCredential(workspace.TenantId, applicationClientId, secret);
+        var response = await new LogsQueryClient(credential).QueryWorkspaceAsync(
+            workspace.WorkspaceId, kql,
+            new LogsQueryTimeRange(TimeSpan.FromMinutes(timeRangeMinutes)),
+            cancellationToken: cancellationToken);
+        return response.Value;
+    }
+}
+
 public sealed class AnalysisQueryRunner(
     CrossTenantLogAnalyticsOptions options,
     ILogAnalyticsSecretProvider secretProvider,
-    TargetWorkspaceResolver workspaceResolver)
+    TargetWorkspaceResolver workspaceResolver,
+    IAnalysisLogAnalyticsQuery? queryClient = null,
+    ILogger<AnalysisQueryRunner>? logger = null)
 {
+    public const int MaxTableRows = 1000;
+    public const int MaxTableResponseBytes = 4 * 1024 * 1024;
+    private const int MaxDiagnosticMessageLength = 2048;
+    private readonly IAnalysisLogAnalyticsQuery queryClient = queryClient ?? new AzureAnalysisLogAnalyticsQuery();
+    private readonly ILogger<AnalysisQueryRunner> logger = logger ?? NullLogger<AnalysisQueryRunner>.Instance;
     public TargetWorkspaceResolver WorkspaceResolver { get; } = workspaceResolver;
 
     public AnalysisQueryExecutionPreview CreateDraftExecutionPreview(
@@ -477,7 +572,7 @@ public sealed class AnalysisQueryRunner(
         var names = systems.Select(system => system.Computer)
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray();
         return new(workspace.Key, workspace.DisplayName, names,
-            BuildEffectiveKql(definition.Kql, names, binMinutes ?? definition.DefaultBinMinutes, requestedMinutes, groupBy));
+            BuildEffectiveKql(definition.Kql, names, binMinutes ?? definition.DefaultBinMinutes, requestedMinutes, groupBy, definition.VisualizationType));
     }
 
     public async Task<AnalysisQueryResponse> ExecuteDraftAsync(
@@ -500,7 +595,8 @@ public sealed class AnalysisQueryRunner(
             throw new InvalidOperationException($"{workspace.DisplayName}: {result.Error}");
         var now = DateTimeOffset.UtcNow;
         return new(definition.Id, definition.Name, definition.Version, definition.Unit,
-            from, now, now, watch.ElapsedMilliseconds, CreateSeries(result.Rows, workspace.DisplayName), [],
+            from, now, now, watch.ElapsedMilliseconds, CreateSeries(result.Rows, workspace.DisplayName),
+            result.Warning is null ? [] : [new(workspace.DisplayName, result.Warning)],
             definition.VisualizationType, result.Tables, AnalysisVisualization.Parse(definition.VisualizationJson),
             binMinutes ?? definition.DefaultBinMinutes, definition.Scope);
     }
@@ -512,9 +608,11 @@ public sealed class AnalysisQueryRunner(
         int? binMinutes = null,
         string groupBy = "SourceDSA",
         string? workspaceKey = null,
-        string? domain = null)
+        string? domain = null,
+        string? site = null,
+        string? role = null)
     {
-        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain);
+        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain, site, role);
         ValidateExecutionLimits(definition, systems.Count, requestedMinutes);
         AnalysisQuerySelections.Validate(binMinutes == definition.DefaultBinMinutes ? null : binMinutes, groupBy);
         return systems
@@ -533,7 +631,7 @@ public sealed class AnalysisQueryRunner(
                     workspace.Key,
                     workspace.DisplayName,
                     names,
-                    BuildEffectiveKql(definition.Kql, names, binMinutes ?? definition.DefaultBinMinutes, requestedMinutes, groupBy));
+                    BuildEffectiveKql(definition.Kql, names, binMinutes ?? definition.DefaultBinMinutes, requestedMinutes, groupBy, definition.VisualizationType));
             })
             .OrderBy(preview => preview.WorkspaceDisplayName)
             .ToArray();
@@ -541,10 +639,11 @@ public sealed class AnalysisQueryRunner(
 
     private IReadOnlyList<ComputerInventoryEntry> FilterWorkspaceSystems(
         AnalysisQueryDefinition definition,
-        IReadOnlyList<ComputerInventoryEntry> systems, string? workspaceKey, string? domain)
+        IReadOnlyList<ComputerInventoryEntry> systems, string? workspaceKey, string? domain, string? site, string? role)
     {
         if (definition.Scope == AnalysisQueryScopes.Workspace ||
-            (string.IsNullOrEmpty(workspaceKey) && string.IsNullOrEmpty(domain)))
+            (string.IsNullOrEmpty(workspaceKey) && string.IsNullOrEmpty(domain) &&
+             string.IsNullOrEmpty(site) && string.IsNullOrEmpty(role)))
             return systems;
         var workspace = string.IsNullOrEmpty(workspaceKey) ? null :
             options.Workspaces.SingleOrDefault(item => item.Key.Equals(workspaceKey, StringComparison.OrdinalIgnoreCase))
@@ -553,9 +652,14 @@ public sealed class AnalysisQueryRunner(
         CrossTenantLogAnalyticsWorkspaceOptions? domainWorkspace = null;
         if (!string.IsNullOrEmpty(domain))
         {
+            if (normalizedDomain.Length == 0)
+                throw new InvalidOperationException("The selected domain is not configured for the selected workspace.");
             domainWorkspace = options.Workspaces.SingleOrDefault(item =>
                 (workspace is null || item.Key.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase)) &&
                 item.Domains.Any(value => CrossTenantLogAnalyticsOptions.NormalizeDomain(value) == normalizedDomain))
+                ?? systems.Where(system => CrossTenantLogAnalyticsOptions.NormalizeDomain(system.Domain) == normalizedDomain)
+                    .Select(system => WorkspaceResolver.Resolve(system.SubscriptionId, system.Domain).Workspace)
+                    .FirstOrDefault(item => workspace is null || item.Key.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("The selected domain is not configured for the selected workspace.");
         }
         var filtered = systems.Where(system =>
@@ -566,9 +670,15 @@ public sealed class AnalysisQueryRunner(
         {
             if (domainWorkspace is not null)
                 throw new InvalidOperationException($"No selected systems belong to domain '{domainWorkspace.GetDomainDisplayName(normalizedDomain)}'. Select systems from this domain or choose All domains.");
-            throw new InvalidOperationException($"No selected systems belong to workspace '{workspace!.DisplayName}'. Select systems from this workspace or choose All workspaces.");
+            if (workspace is not null)
+                throw new InvalidOperationException($"No selected systems belong to workspace '{workspace.DisplayName}'. Select systems from this workspace or choose All workspaces.");
         }
-        return filtered;
+        var matching = filtered.Where(system =>
+            (string.IsNullOrEmpty(site) || string.Equals(system.Site, site, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(role) || string.Equals(system.Role, role, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (matching.Length == 0 && (!string.IsNullOrEmpty(site) || !string.IsNullOrEmpty(role)))
+            throw new InvalidOperationException("No selected systems match the selected site and role filters. Select matching systems or choose All sites / All roles.");
+        return matching;
     }
 
     public async Task<AnalysisQueryResponse> ExecuteAsync(
@@ -579,9 +689,11 @@ public sealed class AnalysisQueryRunner(
         int? binMinutes = null,
         string groupBy = "SourceDSA",
         string? workspaceKey = null,
-        string? domain = null)
+        string? domain = null,
+        string? site = null,
+        string? role = null)
     {
-        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain);
+        systems = FilterWorkspaceSystems(definition, systems, workspaceKey, domain, site, role);
         ValidateExecutionLimits(definition, systems.Count, requestedMinutes);
         AnalysisQuerySelections.Validate(binMinutes == definition.DefaultBinMinutes ? null : binMinutes, groupBy);
         var minutes = requestedMinutes;
@@ -620,6 +732,8 @@ public sealed class AnalysisQueryRunner(
             }
             series.AddRange(CreateSeries(result.Rows, workspace.DisplayName));
             tables.AddRange(result.Tables ?? []);
+            if (result.Warning is not null)
+                warnings.Add(new(workspace.DisplayName, result.Warning));
             succeeded++;
         }
 
@@ -658,29 +772,70 @@ public sealed class AnalysisQueryRunner(
         try
         {
             var secret = await secretProvider.GetClientSecretAsync(cancellationToken);
-            var credential = new ClientSecretCredential(workspace.TenantId, options.ApplicationClientId, secret);
-            var client = new LogsQueryClient(credential);
-            var response = await client.QueryWorkspaceAsync(
-                workspace.WorkspaceId,
-                BuildEffectiveKql(kql, systems, binMinutes, timeRangeMinutes, groupBy),
-                new LogsQueryTimeRange(TimeSpan.FromMinutes(timeRangeMinutes)),
-                cancellationToken: cancellationToken);
-            if (response.Value.Error is not null)
-                return new([], $"Query failed: {response.Value.Error.Code}. Partial results were not used.");
-            return NormalizeResult(response.Value.Table, workspace.DisplayName, visualizationType);
+            var response = await queryClient.QueryAsync(
+                workspace, options.ApplicationClientId, secret,
+                BuildEffectiveKql(kql, systems, binMinutes, timeRangeMinutes, groupBy, visualizationType),
+                timeRangeMinutes, cancellationToken);
+            if (response.Error is not null)
+            {
+                var diagnosticId = Guid.NewGuid().ToString("N");
+                var details = LimitDiagnostic(response.Error.Message);
+                var loggingFailure = LogFailure(diagnosticId, $"{response.Error.Code}: {details}");
+                return new([], $"Query failed: {response.Error.Code}. {details} Partial results were not used. Diagnostic ID: {diagnosticId}.{loggingFailure}");
+            }
+            return NormalizeResult(response.Table, workspace.DisplayName, visualizationType);
         }
-        catch (Exception exception) when (exception is Azure.RequestFailedException or AuthenticationFailedException or InvalidOperationException)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return new([], $"Query failed: {exception.GetType().Name}.");
+            return Failure(exception, "The Log Analytics request timed out. Try a shorter time range or fewer systems.");
+        }
+        catch (Azure.RequestFailedException exception)
+        {
+            return Failure(exception,
+                $"Azure HTTP {exception.Status}" +
+                (string.IsNullOrWhiteSpace(exception.ErrorCode) ? "." : $" ({exception.ErrorCode})."));
+        }
+        catch (Exception exception) when (exception is AuthenticationFailedException or InvalidOperationException)
+        {
+            return Failure(exception, exception is AuthenticationFailedException
+                ? "Log Analytics authentication failed."
+                : exception.Message);
+        }
+
+        AnalysisQueryRunResult Failure(Exception exception, string message)
+        {
+            var diagnosticId = Guid.NewGuid().ToString("N");
+            var loggingFailure = LogFailure(diagnosticId, $"{exception.GetType().Name}: {LimitDiagnostic(exception.Message)}");
+            return new([], $"Query failed: {LimitDiagnostic(message)} Diagnostic ID: {diagnosticId}. See application logs for details.{loggingFailure}");
+        }
+
+        string? LogFailure(string diagnosticId, string details)
+        {
+            try
+            {
+                logger.LogWarning(
+                    "Log Analytics query failure {DiagnosticId}. Workspace={WorkspaceKey}, Systems={SystemCount}, Minutes={Minutes}, Details={Details}",
+                    diagnosticId, workspace.Key, systems.Count, timeRangeMinutes, LimitDiagnostic(details));
+                return null;
+            }
+            catch (AggregateException exception) when (exception.Flatten().InnerExceptions.Any(inner => inner is OutOfMemoryException))
+            {
+                return " Diagnostic logging also failed due to insufficient memory. Restart the application after deploying the memory limits.";
+            }
         }
     }
+
+    private static string LimitDiagnostic(string? message) =>
+        message is null ? "No additional error details were returned." :
+        message.Length <= MaxDiagnosticMessageLength ? message : message[..MaxDiagnosticMessageLength] + "...";
 
     public static string BuildEffectiveKql(
         string kql,
         IReadOnlyList<string> systems,
         int binMinutes,
         int timeRangeMinutes = 1440,
-        string groupBy = "SourceDSA")
+        string groupBy = "SourceDSA",
+        string visualizationType = AnalysisQueryVisualizationTypes.LineChart)
     {
         if (binMinutes is < 1 or > 1440)
             throw new ArgumentOutOfRangeException(nameof(binMinutes));
@@ -688,7 +843,10 @@ public sealed class AnalysisQueryRunner(
             throw new ArgumentOutOfRangeException(nameof(timeRangeMinutes));
         AnalysisQuerySelections.Validate(null, groupBy);
         var encodedSystems = JsonSerializer.Serialize(systems);
-        return $"let _SelectedSystems = dynamic({encodedSystems});\nlet _BinSize = {binMinutes}m;\nlet _TimePeriod = {timeRangeMinutes}m;\nlet _GroupBy = \"{groupBy}\";\n{kql}";
+        var parameters = $"let _SelectedSystems = dynamic({encodedSystems});\nlet _BinSize = {binMinutes}m;\nlet _TimePeriod = {timeRangeMinutes}m;\nlet _GroupBy = \"{groupBy}\";\n";
+        return visualizationType == AnalysisQueryVisualizationTypes.Table
+            ? $"set truncationmaxsize={MaxTableResponseBytes};\n{parameters}let _MonitoringTableResult = () {{\n{kql}\n}};\n_MonitoringTableResult()\n| take {MaxTableRows + 1}"
+            : parameters + kql;
     }
 
     private static string? FormatCell(object? value) => value switch
@@ -699,12 +857,18 @@ public sealed class AnalysisQueryRunner(
         _ => Convert.ToString(value, CultureInfo.InvariantCulture)
     };
 
-    public static AnalysisQueryRunResult NormalizeResult(LogsTable table, string workspace, string visualizationType) =>
-        NormalizeResult(new AnalysisQueryTable(
+    public static AnalysisQueryRunResult NormalizeResult(LogsTable table, string workspace, string visualizationType)
+    {
+        var limit = visualizationType == AnalysisQueryVisualizationTypes.Table ? MaxTableRows : int.MaxValue;
+        var normalized = NormalizeResult(new AnalysisQueryTable(
             workspace,
             table.Columns.Select(column => new AnalysisQueryColumn(column.Name, column.Type.ToString())).ToArray(),
-            table.Rows.Select(row => (IReadOnlyList<string?>)Enumerable.Range(0, row.Count)
+            table.Rows.Take(limit).Select(row => (IReadOnlyList<string?>)Enumerable.Range(0, row.Count)
                 .Select(index => FormatCell(row[index])).ToArray()).ToArray()), visualizationType);
+        return visualizationType == AnalysisQueryVisualizationTypes.Table && table.Rows.Count > MaxTableRows
+            ? normalized with { Warning = $"Table result limited to {MaxTableRows} rows for this workspace. More rows exist; narrow the filters or time range to inspect them." }
+            : normalized;
+    }
 
     public static AnalysisQueryRunResult NormalizeResult(AnalysisQueryTable table, string visualizationType)
     {
@@ -792,7 +956,8 @@ public sealed record AnalysisQueryNormalizedRow(
 public sealed record AnalysisQueryRunResult(
     IReadOnlyList<AnalysisQueryNormalizedRow> Rows,
     string? Error,
-    IReadOnlyList<AnalysisQueryTable>? Tables = null);
+    IReadOnlyList<AnalysisQueryTable>? Tables = null,
+    string? Warning = null);
 
 public sealed class AnalysisQueryExecutionService(
     IDbContextFactory<AlertDbContext> contextFactory,
@@ -846,7 +1011,9 @@ public sealed class AnalysisQueryExecutionService(
             request.BinMinutes,
             request.GroupBy,
             request.WorkspaceKey,
-            request.Domain);
+            request.Domain,
+            request.Site,
+            request.Role);
     }
 
     public static bool IsRoleAllowed(string minimumRole, System.Security.Claims.ClaimsPrincipal user, bool openAuthentication)

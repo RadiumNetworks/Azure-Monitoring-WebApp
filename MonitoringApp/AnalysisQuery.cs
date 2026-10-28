@@ -38,6 +38,11 @@ public sealed class AnalysisQueryWorkspace
     public AnalysisQueryDefinition QueryDefinition { get; set; } = null!;
 }
 
+public sealed record AnalysisQueryWorkspaceAssignmentResult(
+    int UpdatedQueries,
+    int EnabledAssignments,
+    int ReactivatedQueries);
+
 public sealed class AnalysisQueryVersion
 {
     public Guid Id { get; set; }
@@ -136,7 +141,9 @@ public sealed record AnalysisQueryRequest(
     int? BinMinutes = null,
     string GroupBy = "SourceDSA",
     string? WorkspaceKey = null,
-    string? Domain = null);
+    string? Domain = null,
+    string? Site = null,
+    string? Role = null);
 
 public sealed record AnalysisQueryPoint(
     DateTimeOffset Timestamp,
