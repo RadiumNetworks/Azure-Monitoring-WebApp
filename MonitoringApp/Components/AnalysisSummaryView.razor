@@ -1,3 +1,6 @@
+@inject UiText Ui
+@inject QueryTextPresentation QueryText
+
 @{
     var seriesList = Result.Series
         .Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true)
@@ -7,28 +10,30 @@
 }
 @if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb && seriesList.Length == 0)
 {
-    <div class="admin-message admin-message-warning" role="status">No honeycomb entries with data and a complete source/target site direction remain. No data is not an OK status.</div>
+    <div class="admin-message admin-message-warning" role="status">@Ui["AnalysisResults.HoneycombEmpty"]</div>
 }
 else if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Honeycomb)
 {
     <div class="analysis-honeycomb-view" data-analysis-honeycomb>
-    <div class="analysis-honeycomb-controls" role="group" aria-label="Honeycomb zoom">
-        <button type="button" data-honeycomb-zoom="out" aria-label="Zoom out honeycomb">-</button>
-        <output aria-label="Honeycomb zoom level">100%</output>
-        <button type="button" data-honeycomb-zoom="in" aria-label="Zoom in honeycomb">+</button>
-        <button type="button" data-honeycomb-zoom="fit" title="Fit all cells to the widget">Fit</button>
+    <p data-honeycomb-error hidden role="alert">@Ui["AnalysisResults.HoneycombBrowserFailed"]</p>
+    <button type="button" data-honeycomb-retry hidden>@Ui["AnalysisResults.HoneycombRetryBrowser"]</button>
+    <div class="analysis-honeycomb-controls" role="group" aria-label="@Ui["AnalysisResults.HoneycombZoom"]">
+        <button type="button" data-honeycomb-zoom="out" disabled aria-label="@Ui["AnalysisResults.HoneycombZoomOut"]">-</button>
+        <output aria-label="@Ui["AnalysisResults.HoneycombZoomLevel"]">100%</output>
+        <button type="button" data-honeycomb-zoom="in" disabled aria-label="@Ui["AnalysisResults.HoneycombZoomIn"]">+</button>
+        <button type="button" data-honeycomb-zoom="fit" disabled title="@Ui["AnalysisResults.HoneycombFitTitle"]">@Ui["AnalysisResults.HoneycombFit"]</button>
     </div>
     @if (Options.Thresholds.Count == 0 && Options.Color is null && Options.Columns.Count == 0 && Options.ValueMappings.Count == 0)
     {
-        <p class="cell-secondary analysis-honeycomb-description" title="LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.">LDAP latency: green 0 ms to red 2000 ms. Colors are not alert thresholds.</p>
+        <p class="cell-secondary analysis-honeycomb-description" title="@Ui["AnalysisResults.HoneycombLatencyHelp"]">@Ui["AnalysisResults.HoneycombLatencyHelp"]</p>
     }
     else
     {
-        <p class="cell-secondary analysis-honeycomb-description" title="Colors use the query's published visualization settings, not alert rules.">Colors use the query's published visualization settings, not alert rules.</p>
+        <p class="cell-secondary analysis-honeycomb-description" title="@Ui["AnalysisResults.HoneycombSettingsHelp"]">@Ui["AnalysisResults.HoneycombSettingsHelp"]</p>
     }
-    <div class="analysis-honeycomb-viewport" tabindex="0" role="region" aria-label="Honeycomb chart">
+    <div class="analysis-honeycomb-viewport" tabindex="0" role="region" aria-label="@Ui["AnalysisResults.HoneycombChart"]">
     <svg class="analysis-honeycomb" viewBox="@($"0 0 500 {Math.Max(190, (int)Math.Ceiling(seriesList.Length / 4d) * 122 + 75)}")"
-         role="img" aria-label="@($"{Result.Name}: latency by source and target site")">
+         role="img" aria-label="@Ui.Format("AnalysisResults.HoneycombDescription", QueryText.Name(Result))">
         @for (var index = 0; index < seriesList.Length; index++)
         {
             var series = seriesList[index];
@@ -59,7 +64,7 @@ else
     var minimum = gauge ? Options.Minimum ?? 0 : 0;
     var maximum = Options.Maximum ?? seriesList.SelectMany(series => series.Points).Select(point => Math.Abs(point.Value)).DefaultIfEmpty(1).Max();
     if (maximum <= minimum) { maximum = minimum + 1; }
-    <div class="analysis-bars" role="list" aria-label="@Result.Name">
+    <div class="analysis-bars" role="list" aria-label="@QueryText.Name(Result)">
         @foreach (var series in seriesList)
         {
             var point = series.Points.MaxBy(point => point.Timestamp);

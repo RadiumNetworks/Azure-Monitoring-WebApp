@@ -1,14 +1,16 @@
+@inject UiText Text
+
 <label class="admin-field">
-    <span>Time range</span>
+    <span>@Text["AnalysisSelections.TimeRange"]</span>
     <select value="@TimeRangeMinutes" disabled="@Disabled" @onchange="ChangeTimeRange">
         @foreach (var minutes in AnalysisQuerySelections.TimeRanges.Append(TimeRangeMinutes).Distinct().Order())
         {
-            <option value="@minutes" disabled="@(minutes > MaxTimeRangeMinutes)">@AnalysisQuerySelections.TimeRangeLabel(minutes)</option>
+            <option value="@minutes" disabled="@(minutes > MaxTimeRangeMinutes)">@AnalysisSelectionLabels.TimeRange(Text, minutes)</option>
         }
     </select>
 </label>
 <label class="admin-field">
-    <span>Averaging interval</span>
+    <span>@Text["AnalysisSelections.AveragingInterval"]</span>
     <select value="@BinMinutes" disabled="@Disabled" @onchange="ChangeBin">
         @foreach (var minutes in AnalysisQuerySelections.BinSizes.Append(BinMinutes).Distinct().Order())
         {
@@ -19,11 +21,15 @@
 @if (ShowGrouping)
 {
     <label class="admin-field">
-        <span>Replication grouping</span>
+        <span>@Text["AnalysisSelections.ReplicationGrouping"]</span>
         <select value="@GroupBy" disabled="@Disabled" @onchange="ChangeGrouping">
             @foreach (var grouping in AnalysisQuerySelections.Groupings)
             {
-                <option value="@grouping.Key">@grouping.Value</option>
+                <option value="@grouping.Key">@Text["AnalysisSelections.Grouping." + grouping.Key]</option>
+            }
+            @if (validationError is not null)
+            {
+                <span role="alert">@validationError</span>
             }
         </select>
     </label>
@@ -40,22 +46,52 @@
     [Parameter] public bool ShowGrouping { get; set; }
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public EventCallback Changed { get; set; }
+    private string? validationError;
 
     private async Task ChangeTimeRange(ChangeEventArgs args)
     {
-        await TimeRangeMinutesChanged.InvokeAsync(int.Parse(args.Value?.ToString() ?? "", System.Globalization.CultureInfo.InvariantCulture));
+        if (Disabled) return;
+        if (!TryMinutes(args, out var minutes) || minutes > MaxTimeRangeMinutes ||
+            !AnalysisQuerySelections.TimeRanges.Append(TimeRangeMinutes).Contains(minutes))
+        {
+            validationError = Text["AnalysisSelections.InvalidTimeRange"];
+            return;
+        }
+        validationError = null;
+        await TimeRangeMinutesChanged.InvokeAsync(minutes);
         await Changed.InvokeAsync();
     }
 
     private async Task ChangeBin(ChangeEventArgs args)
     {
-        await BinMinutesChanged.InvokeAsync(int.Parse(args.Value?.ToString() ?? "", System.Globalization.CultureInfo.InvariantCulture));
+        if (Disabled) return;
+        if (!TryMinutes(args, out var minutes) || !AnalysisQuerySelections.BinSizes.Append(BinMinutes).Contains(minutes))
+        {
+            validationError = Text["AnalysisSelections.InvalidInterval"];
+            return;
+        }
+        validationError = null;
+        await BinMinutesChanged.InvokeAsync(minutes);
         await Changed.InvokeAsync();
     }
 
     private async Task ChangeGrouping(ChangeEventArgs args)
     {
-        await GroupByChanged.InvokeAsync(args.Value?.ToString() ?? "");
+        if (Disabled || !ShowGrouping) return;
+        if (args.Value is not string grouping || !AnalysisQuerySelections.Groupings.ContainsKey(grouping))
+        {
+            validationError = Text["AnalysisSelections.InvalidGrouping"];
+            return;
+        }
+        validationError = null;
+        await GroupByChanged.InvokeAsync(grouping);
         await Changed.InvokeAsync();
+    }
+
+    private static bool TryMinutes(ChangeEventArgs args, out int minutes)
+    {
+        minutes = 0;
+        return args.Value is string value && int.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out minutes);
     }
 }

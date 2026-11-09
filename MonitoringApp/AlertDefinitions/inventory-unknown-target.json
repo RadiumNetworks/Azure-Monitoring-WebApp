@@ -1,0 +1,15 @@
+{
+  "type": "InventoryUnknownTarget",
+  "label": "Unknown inventory target",
+  "labelKey": "QueryResults.UnknownInventoryTarget",
+  "identity": {
+    "targetColumns": ["Computer"]
+  },
+  "row": {
+    "title": "{Computer}",
+    "facts": [
+      { "column": "SourceAlertName", "label": "Source alert", "labelKey": "QueryResults.SourceAlert" },
+      { "column": "SourceAlertId", "label": "Source alert ID", "labelKey": "QueryResults.SourceAlertId" }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Account password reset (4724)",
+  "categoryName": "Account Changes",
+  "scope": "Workspace",
+  "kql": "let _SecurityEvents = materialize(\n    Event\n    | where TimeGenerated >= _WindowStart and TimeGenerated < _WindowEnd\n    | where EventLog == \"Security\"\n    | project EventID, EventData\n);\nlet _Observations = toscalar(_SecurityEvents | count);\n_SecurityEvents\n| where EventID == 4724\n| extend eventdata = parse_xml(EventData)\n| extend Actor = tostring(eventdata.DataItem.EventData.Data[4][\"#text\"]),\n         Account = tostring(eventdata.DataItem.EventData.Data[0][\"#text\"])\n| extend User = iff(isnotempty(Actor) and Actor != \"-\" and isnotempty(Account) and Account != \"-\",\n                    strcat(Actor, \" changes \", Account), \"\")\n| summarize MatchingEvents = count(),\n            Users = make_set_if(User, isnotempty(User), 101),\n            UnparsedEvents = countif(isempty(User))\n| project Series = \"Workspace\",\n          Value = iff(_Observations > 0, todouble(MatchingEvents), real(null)),\n          EventId = 4724,\n          UsersTruncated = array_length(Users) > 100,\n          Users = tostring(array_sort_asc(array_slice(Users, 0, 99))),\n          UnparsedEvents",
+  "intervalMinutes": 5,
+  "windowMinutes": 5,
+  "ingestionDelayMinutes": 2,
+  "comparison": ">",
+  "threshold": 0,
+  "severity": "Sev2"
+}

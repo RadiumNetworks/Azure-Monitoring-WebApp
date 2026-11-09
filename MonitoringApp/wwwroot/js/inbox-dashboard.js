@@ -1,6 +1,9 @@
 const cleanups = new WeakMap();
 
 export function initialize(dotNetReference, root) {
+    dispose(root);
+    let cancelGesture = null;
+    const gestureFinished = () => { cancelGesture = null; };
     const onPointerDown = event => {
         if (event.button !== 0) return;
         const handle = event.target.closest("[data-inbox-resize-handle]");
@@ -8,19 +11,24 @@ export function initialize(dotNetReference, root) {
             const dragHandle = event.target.closest("[data-inbox-drag-handle]");
             if (dragHandle && root.contains(dragHandle) &&
                 !event.target.closest("button, input, select, textarea, a, [contenteditable='true']")) {
-                beginMove(event, dragHandle, dotNetReference);
+                cancelGesture?.();
+                cancelGesture = beginMove(event, dragHandle, dotNetReference, gestureFinished);
             }
             return;
         }
 
-        beginResize(event, handle, dotNetReference);
+        cancelGesture?.();
+        cancelGesture = beginResize(event, handle, dotNetReference, gestureFinished);
     };
 
     root.addEventListener("pointerdown", onPointerDown);
-    cleanups.set(root, () => root.removeEventListener("pointerdown", onPointerDown));
+    cleanups.set(root, () => {
+        root.removeEventListener("pointerdown", onPointerDown);
+        cancelGesture?.();
+    });
 }
 
-function beginMove(event, handle, dotNetReference) {
+function beginMove(event, handle, dotNetReference, gestureFinished) {
     event.preventDefault();
     event.stopPropagation();
 
@@ -43,6 +51,7 @@ function beginMove(event, handle, dotNetReference) {
     const rowSpan = Number(widget.dataset.rowSpan);
     let nextColumn = startColumn;
     let nextRow = startRow;
+    const originalTransform = widget.style.transform;
 
     handle.setPointerCapture(event.pointerId);
     widget.classList.add("is-moving");
@@ -55,21 +64,27 @@ function beginMove(event, handle, dotNetReference) {
         widget.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
     };
 
-    const stop = async () => {
+    const cleanup = () => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", stop);
         handle.removeEventListener("pointercancel", stop);
-        widget.style.transform = "";
+        widget.style.transform = originalTransform;
         widget.classList.remove("is-moving");
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+        gestureFinished();
+    };
+    const stop = async () => {
+        cleanup();
         await dotNetReference.invokeMethodAsync("CommitDashboardMove", widget.dataset.inboxWidgetId, nextColumn, nextRow);
     };
 
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
+    return cleanup;
 }
 
-function beginResize(event, handle, dotNetReference) {
+function beginResize(event, handle, dotNetReference, gestureFinished) {
     event.preventDefault();
     event.stopPropagation();
 
@@ -89,6 +104,8 @@ function beginResize(event, handle, dotNetReference) {
     const startRows = Number(widget.dataset.rowSpan);
     let nextColumns = startColumns;
     let nextRows = startRows;
+    const originalColumnEnd = widget.style.gridColumnEnd;
+    const originalRowEnd = widget.style.gridRowEnd;
 
     handle.setPointerCapture(event.pointerId);
     widget.classList.add("is-resizing");
@@ -100,17 +117,27 @@ function beginResize(event, handle, dotNetReference) {
         widget.style.gridRowEnd = `span ${nextRows}`;
     };
 
-    const stop = async () => {
+    const cleanup = restorePreview => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", stop);
         handle.removeEventListener("pointercancel", stop);
         widget.classList.remove("is-resizing");
+        if (restorePreview) {
+            widget.style.gridColumnEnd = originalColumnEnd;
+            widget.style.gridRowEnd = originalRowEnd;
+        }
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+        gestureFinished();
+    };
+    const stop = async () => {
+        cleanup(false);
         await dotNetReference.invokeMethodAsync("CommitDashboardResize", widget.dataset.inboxWidgetId, nextColumns, nextRows);
     };
 
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
+    return () => cleanup(true);
 }
 
 export function dispose(root) {

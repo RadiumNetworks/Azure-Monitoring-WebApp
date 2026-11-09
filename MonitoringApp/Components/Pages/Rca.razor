@@ -1,22 +1,25 @@
 @page "/rca"
 @rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
 @inject RcaService RcaService
 @inject IAuthorizationService Authorization
+@inject UiText Text
+@inject ILogger<Rca> Logger
 
-<PageTitle>Root cause analysis</PageTitle>
+<PageTitle>@Text["Navigation.RootCauseAnalysis"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Operations</p>
-        <h1>Root cause analysis</h1>
-        <p class="subtitle">Alerts keep their RCA across category changes. New critical alerts for the same system join its oldest open RCA. Prompts are captured immediately and after 15 minutes; analysis is entered manually.</p>
+        <p class="eyebrow">@Text["Common.Operations"]</p>
+        <h1>@Text["Navigation.RootCauseAnalysis"]</h1>
+        <p class="subtitle">@Text["Rca.Description"]</p>
     </div>
     <div class="admin-actions">
         @if (canEdit)
         {
-            <button class="admin-primary" type="button" disabled="@(busy || HasUnsavedChanges)" @onclick="() => OpenAlertPickerAsync(true)">New RCA</button>
+            <button class="admin-primary" type="button" disabled="@(busy || reloadRequired || HasUnsavedChanges)" @onclick="() => OpenAlertPickerAsync(true)">@Text["Rca.New"]</button>
         }
-        <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">Refresh</button>
+        <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAsync">@Text["Common.Refresh"]</button>
     </div>
 </section>
 
@@ -31,37 +34,37 @@
 
 @if (canEdit && AlertPickerOpen)
 {
-    <section class="admin-editor rca-linked-alerts" aria-label="Manual RCA alert assignment">
-        <h2>@(creatingCase ? "Create RCA" : $"Assign alerts to {selected?.CategoryName}")</h2>
-        <p>Choose active alerts or alerts received within the last 24 hours (UTC). Each row represents the latest event of an alert; its complete Fired/Resolved history is assigned together.</p>
+    <section class="admin-editor rca-linked-alerts" aria-label="@Text["Rca.AssignmentLabel"]">
+        <h2>@(creatingCase ? Text["Rca.Create"] : Text.Format("Rca.AssignTo", selected?.CategoryName ?? ""))</h2>
+        <p>@Text["Rca.PickerHelp"]</p>
         <form class="admin-form" @onsubmit="SubmitAlertAssignmentAsync" @onsubmit:preventDefault>
             @if (creatingCase)
             {
                 <label class="admin-field admin-field-wide">
-                    <span>RCA name</span>
+                    <span>@Text["Rca.Name"]</span>
                     <input type="text" maxlength="256" required @bind="newCaseName" disabled="@busy" />
                 </label>
             }
             <label class="admin-field admin-field-wide">
-                <span>Search alerts</span>
-                <input type="search" @bind="alertSearch" @bind:event="oninput" disabled="@busy" placeholder="Alert, system, subscription or RCA" />
+                <span>@Text["Rca.Search"]</span>
+                <input type="search" @bind="alertSearch" @bind:event="oninput" disabled="@busy" placeholder="@Text["Rca.SearchPlaceholder"]" />
             </label>
             <div class="admin-field-wide rca-alert-scroll rca-picker-scroll">
                 <table class="rca-alert-table">
                     <thead>
-                        <tr><th scope="col">Select</th><th scope="col">Alert / system</th><th scope="col">State</th><th scope="col">Received (UTC)</th><th scope="col">Current RCA</th></tr>
+                        <tr><th scope="col">@Text["Rca.Select"]</th><th scope="col">@Text["Rca.AlertSystem"]</th><th scope="col">@Text["Rca.State"]</th><th scope="col">@Text["Rca.Received"]</th><th scope="col">@Text["Rca.Current"]</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var candidate in VisibleAlertCandidates)
                         {
                             <tr @key="candidate.Alert.Id">
-                                <td><input type="checkbox" aria-label="@($"Select {candidate.Alert.Name} on {candidate.Alert.TargetName}, event {candidate.Alert.Id}")"
+                                <td><input type="checkbox" aria-label="@Text.Format("Rca.SelectAlert", candidate.Alert.Name, candidate.Alert.TargetName, candidate.Alert.Id)"
                                     checked="@selectedAlertIds.Contains(candidate.Alert.Id)" disabled="@busy"
                                     @onchange="args => AlertSelectionChanged(candidate.Alert.Id, args)" /></td>
-                                <td>@candidate.Alert.Name<br /><small>Alert ID: @candidate.Alert.AlertId</small><br />@candidate.Alert.TargetName<br /><small>@candidate.Alert.SubscriptionId</small></td>
-                                <td>@(candidate.IsActive ? "Active" : "Inactive") / @candidate.Alert.MonitorCondition</td>
+                                <td>@candidate.Alert.Name<br /><small>@Text.Format("Rca.AlertId", candidate.Alert.AlertId)</small><br />@candidate.Alert.TargetName<br /><small>@candidate.Alert.SubscriptionId</small></td>
+                                <td>@Text[candidate.IsActive ? "Rca.Active" : "Rca.Inactive"] / @candidate.Alert.MonitorCondition</td>
                                 <td>@Utc(candidate.Alert.ReceivedAt)</td>
-                                <td>@(candidate.RcaName ?? "Unassigned")
+                                <td>@(candidate.RcaName ?? Text["Inbox.RcaUnassigned"])
                                     @if (candidate.RcaId is { } ownerId)
                                     {
                                         <br /><small>@ownerId</small>
@@ -71,101 +74,101 @@
                         }
                     </tbody>
                 </table>
-                @if (!VisibleAlertCandidates.Any())
+                @if (!candidateLoadFailed && !VisibleAlertCandidates.Any())
                 {
-                    <p class="admin-empty">No eligible alerts match. Alerts already assigned to this RCA are not listed.</p>
+                    <p class="admin-empty">@Text["Rca.NoCandidates"]</p>
                 }
             </div>
-            <p class="admin-field-wide">Selected alerts: @selectedAlertIds.Count</p>
+            <p class="admin-field-wide">@Text.Format("Rca.SelectedAlerts", selectedAlertIds.Count)</p>
             @if (ReassignedAlerts.Count > 0)
             {
                 <div class="admin-message admin-message-warning admin-field-wide" role="note">
-                    <p>The selected alerts and their full histories will be moved from these RCAs. Previous prompt snapshots remain unchanged.</p>
+                    <p>@Text["Rca.MoveWarning"]</p>
                     <ul>
                         @foreach (var source in ReassignedAlerts.Select(candidate => (candidate.RcaId, candidate.RcaName)).Distinct())
                         {
                             <li>@source.RcaName (@source.RcaId)</li>
                         }
                     </ul>
-                    <label><input type="checkbox" @bind="confirmReassignment" disabled="@busy" /> I confirm moving these alerts from their existing RCA.</label>
+                    <label><input type="checkbox" @bind="confirmReassignment" disabled="@busy" /> @Text["Rca.ConfirmMove"]</label>
                 </div>
             }
             <div class="admin-actions admin-field-wide">
                 <button class="admin-primary" type="submit"
-                    disabled="@(busy || selectedAlertIds.Count == 0 || creatingCase && string.IsNullOrWhiteSpace(newCaseName) || ReassignedAlerts.Count > 0 && !confirmReassignment)">
-                    @(creatingCase ? "Create RCA with selected alerts" : "Assign selected alerts")
+                    disabled="@(busy || reloadRequired || candidateLoadFailed || selectedAlertIds.Count == 0 || creatingCase && string.IsNullOrWhiteSpace(newCaseName) || ReassignedAlerts.Count > 0 && !confirmReassignment)">
+                    @Text[creatingCase ? "Rca.CreateSelected" : "Rca.AssignSelected"]
                 </button>
-                <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAssignableAlertsAsync">Reload alert list</button>
-                <button class="admin-secondary" type="button" disabled="@busy" @onclick="CancelAlertAssignment">Cancel</button>
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="RefreshAssignableAlertsAsync">@Text["Rca.ReloadAlerts"]</button>
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="CancelAlertAssignment">@Text["Common.Cancel"]</button>
             </div>
         </form>
     </section>
 }
 
 <div class="admin-workspace rca-workspace">
-    <section class="admin-rule-list" aria-label="RCA incidents">
-        @if (cases.Count == 0)
+    <section class="admin-rule-list" aria-label="@Text["Rca.Incidents"]">
+        @if (!casesLoadFailed && cases.Count == 0)
         {
-            <p class="admin-empty">No RCA incidents have been recorded.</p>
+            <p class="admin-empty">@Text["Rca.Empty"]</p>
         }
         @if (cases.Count > 0)
         {
-            <h2 class="rca-group-heading">Open RCAs (@cases.Count(rca => rca.Status != RcaStatuses.Closed))</h2>
-            <div class="rca-case-list" aria-label="Open RCAs">
+            <h2 class="rca-group-heading">@Text.Format("Rca.OpenCount", cases.Count(rca => rca.Status != RcaStatuses.Closed))</h2>
+            <div class="rca-case-list" aria-label="@Text["Rca.Open"]">
                 @foreach (var rca in cases.Where(rca => rca.Status != RcaStatuses.Closed))
                 {
                     <RcaCaseSummary @key="rca.Id" Case="rca" Selected="@(selected?.Id == rca.Id)"
-                                    Busy="busy" OnSelected="SelectAsync" />
+                                    Busy="@(busy || reloadRequired)" OnSelected="SelectAsync" />
                 }
             </div>
             <details class="rca-closed-group">
-                <summary>Closed RCAs (@cases.Count(rca => rca.Status == RcaStatuses.Closed))</summary>
-                <div class="rca-case-list" aria-label="Closed RCAs">
+                <summary>@Text.Format("Rca.ClosedCount", cases.Count(rca => rca.Status == RcaStatuses.Closed))</summary>
+                <div class="rca-case-list" aria-label="@Text["Rca.Closed"]">
                     @foreach (var rca in cases.Where(rca => rca.Status == RcaStatuses.Closed))
                     {
                         <RcaCaseSummary @key="rca.Id" Case="rca" Selected="@(selected?.Id == rca.Id)"
-                                        Busy="busy" OnSelected="SelectAsync" />
+                                        Busy="@(busy || reloadRequired)" OnSelected="SelectAsync" />
                     }
                 </div>
             </details>
         }
     </section>
 
-    <section class="admin-editor" aria-label="RCA details">
+    <section class="admin-editor" aria-label="@Text["Rca.Details"]">
         @if (selected is { } current)
         {
             <h2>@current.CategoryName</h2>
-            <p>RCA ID: @current.Id / @(current.RuleId == Guid.Empty ? "Manually created" : $"Rule ID: {current.RuleId}")</p>
-            <p>Follow-up due: @Utc(current.FollowUpDueAt).
+            <p>@Text.Format("Rca.Identity", current.Id, current.RuleId == Guid.Empty ? Text["Rca.Manual"] : Text.Format("Rca.RuleId", current.RuleId))</p>
+            <p>@Text.Format("Rca.FollowUp", Utc(current.FollowUpDueAt))
                 @if (prompts.All(prompt => prompt.Sequence != 1))
                 {
-                    <span>Pending; overdue snapshots are retried by the background worker.</span>
+                    <span>@Text["Rca.FollowUpPending"]</span>
                 }
             </p>
             @if (current.CriticalEndedAt is { } endedAt)
             {
-                <p>No longer critical since @Utc(endedAt). This does not close the RCA.</p>
+                <p>@Text.Format("Rca.CriticalEnded", Utc(endedAt))</p>
             }
             <section class="rca-linked-alerts" aria-labelledby="rca-linked-alerts-heading">
-                <h3 id="rca-linked-alerts-heading">Associated alerts (@linkedAlerts.Count)</h3>
+                <h3 id="rca-linked-alerts-heading">@Text.Format("Rca.LinkedCount", linkedAlerts.Count)</h3>
                 @if (canEdit)
                 {
                     <button class="admin-secondary" type="button"
-                        disabled="@(busy || AlertPickerOpen || HasUnsavedChanges || current.Status == RcaStatuses.Closed)"
-                        @onclick="() => OpenAlertPickerAsync(false)">Assign alerts</button>
-                    <p>Save analysis changes before assigning alerts. Closed RCAs must be reopened first.</p>
+                        disabled="@(busy || reloadRequired || AlertPickerOpen || HasUnsavedChanges || current.Status == RcaStatuses.Closed)"
+                        @onclick="() => OpenAlertPickerAsync(false)">@Text["Rca.AssignAlerts"]</button>
+                    <p>@Text["Rca.AssignHelp"]</p>
                 }
                 @if (linkedAlerts.Count == 0)
                 {
-                    <p>No alert events are assigned to this RCA.</p>
+                    <p>@Text["Rca.NoLinkedAlerts"]</p>
                 }
                 else
                 {
-                    <p>Stored alert events assigned to this RCA, including older and resolved events. Expand an alert for its IDs and subscription.</p>
+                    <p>@Text["Rca.LinkedHelp"]</p>
                     <div class="rca-alert-scroll">
                         <table class="rca-alert-table">
                             <thead>
-                                <tr><th scope="col">Alert</th><th scope="col">System</th><th scope="col">Monitor condition</th><th scope="col">Received (UTC)</th></tr>
+                                <tr><th scope="col">@Text["Rca.Alert"]</th><th scope="col">@Text["Rca.System"]</th><th scope="col">@Text["Rca.MonitorCondition"]</th><th scope="col">@Text["Rca.Received"]</th></tr>
                             </thead>
                             <tbody>
                                 @foreach (var alert in linkedAlerts)
@@ -174,10 +177,10 @@
                                         <td>
                                             <details>
                                                 <summary>@alert.Name</summary>
-                                                <p>Event ID: @alert.Id<br />Alert ID: @alert.AlertId<br />Subscription: @alert.SubscriptionId</p>
+                                                <p>@Text.Format("Rca.EventId", alert.Id)<br />@Text.Format("Rca.AlertId", alert.AlertId)<br />@Text.Format("Rca.Subscription", alert.SubscriptionId)</p>
                                                 @if (!string.IsNullOrWhiteSpace(alert.SearchResultsUrl))
                                                 {
-                                                    <a href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">Open alert search results</a>
+                                                    <a href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">@Text["Rca.OpenSearch"]</a>
                                                 }
                                             </details>
                                         </td>
@@ -193,53 +196,53 @@
             </section>
             <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
                 <label class="admin-field">
-                    <span>Status</span>
-                    <select @bind="status" disabled="@(!canEdit || busy || AlertPickerOpen)">
+                    <span>@Text["AdminScheduledQueries.Status"]</span>
+                    <select @bind="status" disabled="@(!canEdit || busy || reloadRequired || AlertPickerOpen)">
                         @foreach (var value in RcaStatuses.All)
                         {
-                            <option value="@value">@RcaStatuses.Label(value)</option>
+                            <option value="@value">@Text[$"Inbox.RcaStatus.{value}"]</option>
                         }
                     </select>
                 </label>
                 <label class="admin-field">
-                    <span>Assigned person</span>
+                    <span>@Text["Rca.Assignee"]</span>
                     <input type="text" list="rca-assignees" maxlength="256" @bind="assignedTo"
-                           disabled="@(!canEdit || busy || AlertPickerOpen)" placeholder="Select or enter an email address" />
+                           disabled="@(!canEdit || busy || reloadRequired || AlertPickerOpen)" placeholder="@Text["Rca.AssigneePlaceholder"]" />
                     <datalist id="rca-assignees">
                         @foreach (var assignee in assignees)
                         {
                             <option value="@assignee"></option>
                         }
                     </datalist>
-                    <small>Known users and email addresses are suggested. Enter another email address or leave empty for Unassigned.</small>
+                    <small>@Text["Rca.AssigneeHelp"]</small>
                 </label>
                 <label class="admin-field admin-field-wide">
-                    <span>Analysis</span>
-                    <textarea rows="16" maxlength="100000" @bind="analysis" readonly="@(!canEdit || busy || AlertPickerOpen)"></textarea>
+                    <span>@Text["Rca.Analysis"]</span>
+                    <textarea rows="16" maxlength="100000" @bind="analysis" readonly="@(!canEdit || busy || reloadRequired || AlertPickerOpen)"></textarea>
                 </label>
                 @if (canEdit)
                 {
                     <label class="admin-field admin-field-wide">
-                        <span>Add administrator comment</span>
-                        <textarea rows="4" maxlength="4000" @bind="comment" disabled="@(busy || AlertPickerOpen)"></textarea>
+                        <span>@Text["Rca.AddComment"]</span>
+                        <textarea rows="4" maxlength="4000" @bind="comment" disabled="@(busy || reloadRequired || AlertPickerOpen)"></textarea>
                     </label>
-                    <button class="admin-primary" type="submit" disabled="@(busy || AlertPickerOpen)">Save changes</button>
+                    <button class="admin-primary" type="submit" disabled="@(busy || reloadRequired || AlertPickerOpen)">@Text["Common.SaveChanges"]</button>
                 }
             </form>
 
-            <h3>Raw Copilot prompts</h3>
+            <h3>@Text["Rca.RawPrompts"]</h3>
             @foreach (var prompt in prompts)
             {
                 <details @key="prompt.Id">
-                    <summary>@(prompt.Sequence == 0 ? "Initial snapshot" : "15-minute follow-up") / @Utc(prompt.CreatedAt)</summary>
+                    <summary>@Text[prompt.Sequence == 0 ? "Rca.InitialSnapshot" : "Rca.FollowUpSnapshot"] / @Utc(prompt.CreatedAt)</summary>
                     <label class="admin-field admin-field-wide">
-                        <span>Raw prompt (read only; select and copy to Copilot)</span>
+                        <span>@Text["Rca.RawPromptHelp"]</span>
                         <textarea rows="16" readonly value="@prompt.RawPrompt"></textarea>
                     </label>
                 </details>
             }
 
-            <h3>Comments and changelog</h3>
+            <h3>@Text["Rca.Changelog"]</h3>
             @foreach (var change in changes)
             {
                 <details @key="change.Id">
@@ -247,12 +250,12 @@
                     @if (change.Field != "Comment")
                     {
                         <label class="admin-field admin-field-wide">
-                            <span>Before</span>
+                            <span>@Text["Rca.Before"]</span>
                             <textarea rows="3" readonly value="@change.Before"></textarea>
                         </label>
                     }
                     <label class="admin-field admin-field-wide">
-                        <span>@(change.Field == "Comment" ? "Comment" : "After")</span>
+                        <span>@Text[change.Field == "Comment" ? "Logbook.Comment" : "Rca.After"]</span>
                         <textarea rows="4" readonly value="@change.After"></textarea>
                     </label>
                 </details>
@@ -260,7 +263,7 @@
         }
         else
         {
-            <p class="admin-empty">Select an RCA to view its evidence, analysis and history.</p>
+            <p class="admin-empty">@Text["Rca.SelectCase"]</p>
         }
     </section>
 </div>
@@ -286,6 +289,10 @@
     private bool busy;
     private bool canEdit;
     private bool initialized;
+    private bool casesLoadFailed;
+    private bool candidateLoadFailed;
+    private bool reloadRequired;
+    private Guid? pendingReloadCaseId;
     private Guid? loadedCaseId;
     private bool creatingCase;
     private bool assigningAlerts;
@@ -309,7 +316,7 @@
 
     private async Task OpenAlertPickerAsync(bool create)
     {
-        if (!canEdit || busy || HasUnsavedChanges || !create && (selected is null || selected.Status == RcaStatuses.Closed))
+        if (!canEdit || busy || reloadRequired || HasUnsavedChanges || !create && (selected is null || selected.Status == RcaStatuses.Closed))
             return;
         creatingCase = create;
         assigningAlerts = !create;
@@ -328,8 +335,16 @@
         selectedAlertIds.Clear();
         confirmReassignment = false;
         alertCandidates = [];
-        try { alertCandidates = await RcaService.GetAssignableAlertsAsync((await AuthenticationStateTask).User); }
-        catch (Exception exception) { error = $"Could not load eligible alerts: {exception.Message}"; }
+        try
+        {
+            alertCandidates = await RcaService.GetAssignableAlertsAsync((await AuthenticationStateTask).User);
+            candidateLoadFailed = false;
+        }
+        catch (Exception exception)
+        {
+            candidateLoadFailed = true;
+            ReportError(exception, "Rca.LoadCandidatesError");
+        }
         finally { busy = false; }
     }
 
@@ -349,11 +364,12 @@
         creatingCase = assigningAlerts = confirmReassignment = false;
         alertCandidates = [];
         selectedAlertIds.Clear();
+        candidateLoadFailed = false;
     }
 
     private async Task SubmitAlertAssignmentAsync()
     {
-        if (!canEdit || busy || !AlertPickerOpen)
+        if (!canEdit || busy || reloadRequired || candidateLoadFailed || !AlertPickerOpen)
             return;
         busy = true;
         error = message = null;
@@ -371,11 +387,12 @@
                 await RcaService.AssignAlertsAsync(user, id, selected.Revision, selections, confirmReassignment);
             }
             CancelAlertAssignment();
-            cases = await RcaService.ListAsync();
-            await LoadSelectionAsync(cases.Single(rca => rca.Id == id));
-            message = "RCA and alert assignments saved.";
+            pendingReloadCaseId = id;
+            reloadRequired = true;
+            message = Text["Rca.AssignmentsSaved"];
+            await ReloadCasesAsync();
         }
-        catch (Exception exception) { error = $"Could not save RCA alert assignments: {exception.Message}"; }
+        catch (Exception exception) { ReportError(exception, "Rca.SaveAssignmentsError"); }
         finally { busy = false; }
     }
 
@@ -386,6 +403,8 @@
         initialized = true;
         loadedCaseId = CaseId;
         selected = null;
+        pendingReloadCaseId = null;
+        reloadRequired = false;
         var state = await AuthenticationStateTask;
         canEdit = (await Authorization.AuthorizeAsync(state.User, "AdminAccess")).Succeeded;
         await RefreshAsync();
@@ -393,35 +412,58 @@
 
     private async Task RefreshAsync()
     {
+        if (busy)
+            return;
         CancelAlertAssignment();
         busy = true;
         error = null;
+        try { await ReloadCasesAsync(); }
+        finally { busy = false; }
+    }
+
+    private async Task ReloadCasesAsync()
+    {
         try
         {
-            cases = await RcaService.ListAsync();
-            if (canEdit)
-                assignees = await RcaService.GetAssigneesAsync((await AuthenticationStateTask).User);
-            var current = cases.FirstOrDefault(rca => rca.Id == (selected?.Id ?? CaseId));
+            var loadedCases = await RcaService.ListAsync();
+            var loadedAssignees = canEdit
+                ? await RcaService.GetAssigneesAsync((await AuthenticationStateTask).User) : Array.Empty<string>();
+            var current = loadedCases.FirstOrDefault(rca => rca.Id == (pendingReloadCaseId ?? selected?.Id ?? CaseId));
             if (current is not null)
                 await LoadSelectionAsync(current);
             else
+            {
                 selected = null;
+                prompts = [];
+                changes = [];
+                linkedAlerts = [];
+                analysis = assignedTo = comment = "";
+                status = RcaStatuses.Open;
+            }
+            cases = loadedCases;
+            assignees = loadedAssignees;
+            casesLoadFailed = false;
+            reloadRequired = false;
+            pendingReloadCaseId = null;
+            error = null;
         }
         catch (Exception exception)
         {
-            error = $"Could not load RCAs: {exception.Message}";
+            casesLoadFailed = true;
+            ReportError(exception, "Rca.LoadCasesError");
         }
-        finally { busy = false; }
     }
 
     private async Task SelectAsync(RootCauseAnalysis rca)
     {
+        if (busy || reloadRequired)
+            return;
         CancelAlertAssignment();
         busy = true;
         error = null;
         message = null;
         try { await LoadSelectionAsync(rca); }
-        catch (Exception exception) { error = $"Could not load RCA: {exception.Message}"; }
+        catch (Exception exception) { ReportError(exception, "Rca.LoadCaseError"); }
         finally { busy = false; }
     }
 
@@ -443,7 +485,7 @@
 
     private async Task SaveAsync()
     {
-        if (selected is null || busy)
+        if (!canEdit || selected is null || busy || reloadRequired || AlertPickerOpen)
             return;
         busy = true;
         error = null;
@@ -453,12 +495,38 @@
             var state = await AuthenticationStateTask;
             await RcaService.SaveAsync(state.User, selected.Id, selected.Revision,
                 analysis, assignedTo, status, comment);
-            await RefreshAsync();
-            if (error is null)
-                message = "RCA changes saved.";
+            comment = "";
+            pendingReloadCaseId = selected.Id;
+            reloadRequired = true;
+            message = Text["Rca.Saved"];
+            await ReloadCasesAsync();
         }
-        catch (Exception exception) { error = $"Could not save RCA: {exception.Message}"; }
+        catch (Exception exception) { ReportError(exception, "Rca.SaveError"); }
         finally { busy = false; }
+    }
+
+    private void ReportError(Exception exception, string fallbackKey)
+    {
+        if (exception is RcaValidationException validation && Enum.IsDefined(validation.Code))
+        {
+            Logger.LogWarning(exception, "RCA operation {Operation} failed validation {Code}.", fallbackKey, validation.Code);
+            error = Text[validation.Code == RcaValidationCode.Changed ? "Rca.Errors.Changed" : $"Rca.Validation.{validation.Code}"];
+        }
+        else if (exception is UnauthorizedAccessException)
+        {
+            Logger.LogWarning(exception, "RCA operation {Operation} was denied.", fallbackKey);
+            error = Text["Rca.Errors.NotAllowed"];
+        }
+        else if (exception is DbUpdateConcurrencyException or InvalidOperationException { InnerException: DbUpdateConcurrencyException })
+        {
+            Logger.LogWarning(exception, "RCA operation {Operation} encountered a concurrency conflict.", fallbackKey);
+            error = Text["Rca.Errors.Changed"];
+        }
+        else
+        {
+            Logger.LogError(exception, "RCA operation {Operation} failed.", fallbackKey);
+            error = Text[exception is RcaEvidenceException or RcaEvidenceJsonException ? "Rca.Errors.EvidenceInvalid" : fallbackKey];
+        }
     }
 
     private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");

@@ -1,0 +1,49 @@
+@using System.Text
+@using System.Text.RegularExpressions
+@inject UiText Text
+@{
+    var message = Text[ResourceKey];
+    if (CompositeFormat.Parse(message).MinimumArgumentCount > 6)
+    {
+        throw new InvalidOperationException($"UI resource '{ResourceKey}' supports at most six content placeholders.");
+    }
+}
+@foreach (var part in Regex.Split(message, @"(\{[0-5]\})"))
+{
+    @switch (part)
+    {
+        case "{0}":
+            @Required(Value0)
+            break;
+        case "{1}":
+            @Required(Value1)
+            break;
+        case "{2}":
+            @Required(Value2)
+            break;
+        case "{3}":
+            @Required(Value3)
+            break;
+        case "{4}":
+            @Required(Value4)
+            break;
+        case "{5}":
+            @Required(Value5)
+            break;
+        default:
+            @part
+            break;
+    }
+}
+@code {
+    [Parameter, EditorRequired] public string ResourceKey { get; set; } = "";
+    [Parameter] public RenderFragment? Value0 { get; set; }
+    [Parameter] public RenderFragment? Value1 { get; set; }
+    [Parameter] public RenderFragment? Value2 { get; set; }
+    [Parameter] public RenderFragment? Value3 { get; set; }
+    [Parameter] public RenderFragment? Value4 { get; set; }
+    [Parameter] public RenderFragment? Value5 { get; set; }
+
+    private RenderFragment Required(RenderFragment? value) => value
+        ?? throw new InvalidOperationException($"UI resource '{ResourceKey}' is missing required content.");
+}

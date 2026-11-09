@@ -1,0 +1,177 @@
+@page "/support/lockouts"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "ApplicationAccess")]
+@implements IDisposable
+@inject LockoutQueryService Service
+@inject CrossTenantLogAnalyticsOptions Options
+@inject ILogger<Lockouts> Logger
+@inject UiText Text
+
+<PageTitle>@Text["Lockouts.Title"]</PageTitle>
+<h1>@Text["Lockouts.Title"]</h1>
+<p>@Text["Lockouts.Help"]</p>
+<form class="admin-form" @onsubmit="SearchAsync" @onsubmit:preventDefault>
+    <label>
+        @Text["FreeKql.Workspace"]
+        <select @bind="workspaceKey" @bind:after="LoadUsersAsync" disabled="@(!Options.Enabled)">
+            <option value="">@Text["FreeKql.SelectWorkspace"]</option>
+            @foreach (var workspace in Options.Workspaces.OrderBy(workspace => workspace.DisplayName))
+            {
+                <option value="@workspace.Key">@workspace.DisplayName</option>
+            }
+        </select>
+    </label>
+    <label>
+        @Text["Lockouts.TimeRange"]
+        <select @bind="timeRangeMinutes" @bind:after="LoadUsersAsync" disabled="@(!Options.Enabled)">
+            @foreach (var minutes in LockoutQueryService.TimeRanges)
+            {
+                <option value="@minutes">@Text[$"Lockouts.TimeRange.{minutes}"]</option>
+            }
+        </select>
+    </label>
+    <label>
+        @Text["Lockouts.User"]
+        <select @bind:get="selectedUser" @bind:set="SelectUser" disabled="@(busy || !Options.Enabled || users.Count == 0)">
+            <option value="">@Text["Lockouts.SelectUser"]</option>
+            @foreach (var user in users)
+            {
+                <option value="@user">@user</option>
+            }
+        </select>
+    </label>
+    <button type="submit" disabled="@(busy || !Options.Enabled || string.IsNullOrEmpty(selectedUser))">@Text["Lockouts.Search"]</button>
+    @if (busy)
+    {
+        <button type="button" @onclick="Cancel">@Text["Common.Cancel"]</button>
+        <p role="status">@Text[loadingUsers ? "Lockouts.LoadingUsers" : "Lockouts.Searching"]</p>
+    }
+</form>
+@if (!Options.Enabled)
+{
+    <p role="alert">@Text["Analysis.Validation.LiveDisabled"]</p>
+}
+@if (error is not null)
+{
+    <p role="alert">@error</p>
+}
+@if (usersLimited || result?.Limited == true)
+{
+    <p role="status">@Text["FreeKql.Limited"]</p>
+}
+@if (usersLoaded && !usersLimited && users.Count == 0 && !busy)
+{
+    <p role="status">@Text["Lockouts.NoUsers"]</p>
+}
+@if (result is not null)
+{
+    @if (!result.Limited && result.Tables.All(table => table.Rows.Count == 0))
+    {
+        <p role="status">@Text["Lockouts.NoEvents"]</p>
+    }
+    <RawQueryTableView Tables="result.Tables" />
+}
+
+@code {
+    private string workspaceKey = "", selectedUser = "";
+    private int timeRangeMinutes = 60;
+    private IReadOnlyList<string> users = [];
+    private FreeKqlResult? result;
+    private string? error;
+    private bool busy, loadingUsers, usersLoaded, usersLimited, disposed;
+    private CancellationTokenSource? cancellation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        workspaceKey = Options.Workspaces.OrderBy(workspace => workspace.DisplayName).FirstOrDefault()?.Key ?? "";
+        await LoadUsersAsync();
+    }
+
+    private void SelectUser(string? user)
+    {
+        selectedUser = user ?? "";
+        result = null;
+        error = null;
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        Cancel();
+        users = [];
+        usersLoaded = usersLimited = false;
+        selectedUser = "";
+        result = null;
+        error = null;
+        if (!Options.Enabled || string.IsNullOrEmpty(workspaceKey) || disposed) return;
+        var workspace = workspaceKey;
+        var minutes = timeRangeMinutes;
+        await RunAsync(true, async (token, isCurrent) =>
+        {
+            var response = await Service.GetUsersAsync(workspace, minutes, token);
+            if (isCurrent())
+            {
+                users = response.Names;
+                usersLimited = response.Limited;
+                usersLoaded = true;
+            }
+        }, "Lockouts.LoadFailed");
+    }
+
+    private async Task SearchAsync()
+    {
+        if (busy || disposed) return;
+        if (!usersLoaded || !users.Contains(selectedUser, StringComparer.Ordinal))
+        {
+            Logger.LogWarning("Lockout search rejected because no user from the current list is selected.");
+            error = Text["Lockouts.SelectUser"];
+            return;
+        }
+        var workspace = workspaceKey;
+        var minutes = timeRangeMinutes;
+        var user = selectedUser;
+        await RunAsync(false, async (token, isCurrent) =>
+        {
+            var response = await Service.SearchAsync(workspace, minutes, user, token);
+            if (isCurrent() && selectedUser == user) result = response;
+        }, "Lockouts.SearchFailed");
+    }
+
+    private async Task RunAsync(bool loadUsers, Func<CancellationToken, Func<bool>, Task> action, string failureKey)
+    {
+        Cancel();
+        using var request = new CancellationTokenSource();
+        cancellation = request;
+        var workspace = workspaceKey;
+        var minutes = timeRangeMinutes;
+        bool IsCurrent() => !disposed && ReferenceEquals(cancellation, request) &&
+            workspaceKey == workspace && timeRangeMinutes == minutes;
+        busy = true;
+        loadingUsers = loadUsers;
+        result = null;
+        error = null;
+        try
+        {
+            await action(request.Token, IsCurrent);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
+        {
+            if (IsCurrent()) error = Text["FreeKql.Cancelled"];
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Lockout query failed for workspace {WorkspaceKey}.", workspace);
+            if (IsCurrent()) error = AnalysisErrorPresentation.Message(exception, Text, failureKey);
+        }
+        finally
+        {
+            if (ReferenceEquals(cancellation, request))
+            {
+                cancellation = null;
+                busy = false;
+            }
+        }
+    }
+
+    private void Cancel() => cancellation?.Cancel();
+    public void Dispose() { disposed = true; Cancel(); }
+}

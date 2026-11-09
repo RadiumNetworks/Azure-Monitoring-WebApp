@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
@@ -17,6 +19,30 @@ namespace MonitoringApp.Tests;
 public sealed class AnalysisQueryCategoryTests
 {
     [Fact]
+    public async Task DraftMoveAndRenameShareCategoryNormalizationAndAuditRules()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var saved = await fixture.SeedAsync(" AD / Replication ");
+        var before = DateTimeOffset.UtcNow;
+        saved = await fixture.Registry.SaveDraftAsync(saved, " draft-author ");
+        AssertAudit(saved, "AD/Replication", "draft-author");
+        await fixture.Categories.CreateAsync(" Health ", "ad");
+        await fixture.Categories.MoveQueryAsync(saved.Id, "ad/health", " category-author ");
+        AssertAudit(Assert.Single(await fixture.Registry.ListAsync()), "AD/Health", "category-author");
+        await fixture.Categories.UpdateAsync("AD", " Directory ", null, " rename-author ");
+        AssertAudit(Assert.Single(await fixture.Registry.ListAsync()), "Directory/Health", "rename-author");
+
+        void AssertAudit(AnalysisQueryDefinition query, string category, string actor)
+        {
+            Assert.Equal(category, query.Category);
+            Assert.Equal(actor, query.UpdatedBy);
+            Assert.InRange(query.UpdatedAt, before, DateTimeOffset.UtcNow);
+            Assert.Equal(AnalysisQueryStatuses.Draft, query.Status);
+            Assert.Empty(query.Versions);
+        }
+    }
+
+    [Fact]
     public async Task ImportsExistingCategoriesAndPersistsEmptyNestedCategories()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -31,7 +57,7 @@ public sealed class AnalysisQueryCategoryTests
         await fixture.Categories.DeleteAsync("AD/Replication/Errors");
         await fixture.Categories.DeleteAsync("AD/Replication");
         Assert.Equal(["AD"], await fixture.Categories.ListAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.DeleteAsync("AD"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.DeleteAsync("AD"));
     }
 
     [Fact]
@@ -104,16 +130,16 @@ public sealed class AnalysisQueryCategoryTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync("AD/Replication");
         await fixture.Categories.CreateAsync("Other", null);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.CreateAsync("ad", null));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.CreateAsync("Invalid/Name", null));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.CreateAsync("Child", "Missing"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.UpdateAsync("AD", "AD", "AD/Replication", "admin"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.UpdateAsync("AD", "Other", null, "admin"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.UpdateAsync("AD", new string('x', 128), null, "admin"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.DeleteAsync("AD"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.DeleteAsync("AD/Replication"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.MoveQueryAsync(Guid.NewGuid(), "AD", "admin"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Categories.MoveQueryAsync(Guid.NewGuid(), "Missing", "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.CreateAsync("ad", null));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.CreateAsync("Invalid/Name", null));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.CreateAsync("Child", "Missing"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.UpdateAsync("AD", "AD", "AD/Replication", "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.UpdateAsync("AD", "Other", null, "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.UpdateAsync("AD", new string('x', 128), null, "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.DeleteAsync("AD"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.DeleteAsync("AD/Replication"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.MoveQueryAsync(Guid.NewGuid(), "AD", "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Categories.MoveQueryAsync(Guid.NewGuid(), "Missing", "admin"));
         Assert.Equal(["AD", "AD/Replication", "Other"], await fixture.Categories.ListAsync());
     }
 
@@ -128,6 +154,33 @@ public sealed class AnalysisQueryCategoryTests
         var query = ActiveDirectoryAnalysisQueries.Create().First();
         query.Category = path;
         Assert.NotEmpty(AnalysisQueryValidator.ValidateDefinition(query));
+    }
+
+    [Theory]
+    [InlineData("", AnalysisValidationCode.CategoryRequired)]
+    [InlineData(" ", AnalysisValidationCode.CategoryRequired)]
+    [InlineData("/AD", AnalysisValidationCode.CategoryPathInvalid)]
+    [InlineData("AD/", AnalysisValidationCode.CategoryPathInvalid)]
+    [InlineData("AD//Replication", AnalysisValidationCode.CategoryPathInvalid)]
+    [InlineData("AD/\nReplication", AnalysisValidationCode.CategoryPathInvalid)]
+    public void CategoryNormalizationHasStableCodesWithoutChangingDiagnostics(string path, AnalysisValidationCode code)
+    {
+        var exception = Assert.Throws<AnalysisValidationException>(() => AnalysisQueryCategories.Normalize(path));
+        Assert.Equal(code, exception.Code);
+        Assert.Equal(code == AnalysisValidationCode.CategoryRequired ? "A category is required."
+            : "Category paths require nonempty names without control characters and at most 128 characters in total. Use / between levels.",
+            exception.Message);
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+    }
+
+    [Fact]
+    public void CategoryPathLimitCountsTheNormalizedWholePath()
+    {
+        var valid = new string('x', 126) + "/Y";
+        Assert.Equal(valid, AnalysisQueryCategories.Normalize("  " + new string('x', 126) + " / Y  "));
+        Assert.Equal(128, valid.Length);
+        Assert.Equal(AnalysisValidationCode.CategoryPathInvalid, Assert.Throws<AnalysisValidationException>(
+            () => AnalysisQueryCategories.Normalize(valid + "Z")).Code);
     }
 
     [Fact]
@@ -145,7 +198,7 @@ public sealed class AnalysisQueryCategoryTests
         Assert.Equal("Errors", Assert.Single(Assert.Single(root.Children).Children).Name);
         var library = AnalysisQueryCategories.Build(queries.Take(1));
         Assert.Empty(Assert.Single(library).Children);
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<AnalysisQueryCategoryTree>(ParameterView.FromDictionary(new Dictionary<string, object?>
@@ -160,6 +213,59 @@ public sealed class AnalysisQueryCategoryTests
         Assert.Equal(2, html.Split("class=\"analysis-query-library-grid\"").Length - 1);
     }
 
+    [Theory]
+    [InlineData("en-US", 0, false)]
+    [InlineData("de-DE", 0, false)]
+    [InlineData("en-US", 1, false)]
+    [InlineData("de-DE", 1, false)]
+    [InlineData("en-US", 2, false)]
+    [InlineData("de-DE", 2, false)]
+    [InlineData("en-US", 0, true)]
+    [InlineData("de-DE", 0, true)]
+    [InlineData("en-US", 1, true)]
+    [InlineData("de-DE", 1, true)]
+    [InlineData("en-US", 2, true)]
+    [InlineData("de-DE", 2, true)]
+    public async Task CategoryTreeLocalizesCountsDropHelpAndEmptyStateWithoutChangingOriginalHierarchy(string culture, int count, bool allowDrop)
+    {
+        var previousUi = CultureInfo.CurrentUICulture;
+        var previousFormat = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            const string path = "Original <category> &/Child";
+            var queries = Enumerable.Range(0, count).Select(index => new AnalysisQueryDefinition
+            {
+                Id = Guid.NewGuid(), Name = $"Original <query> & {index}", Category = path, Kql = "Original KQL"
+            }).ToArray();
+            var nodes = AnalysisQueryCategories.Build(queries, [path, "Empty <category> &"]);
+            var original = JsonSerializer.Serialize(nodes);
+            await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
+            await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+            var html = await renderer.Dispatcher.InvokeAsync(async () =>
+                (await renderer.RenderComponentAsync<AnalysisQueryCategoryTree>(ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Nodes"] = nodes, ["AllowDrop"] = allowDrop,
+                    ["QueryContent"] = (RenderFragment<AnalysisQueryDefinition>)(query => builder => builder.AddContent(0, query.Name))
+                }))).ToHtmlString());
+            var decoded = WebUtility.HtmlDecode(html);
+            Assert.Contains(culture == "de-DE" ? $"{count} {(count == 1 ? "Abfrage" : "Abfragen")}" : $"{count} queries", decoded);
+            Assert.Contains(culture == "de-DE" ? "Keine Abfragen in dieser Kategorie." : "No queries in this category.", decoded);
+            Assert.Contains($"title=\"{(allowDrop ? culture == "de-DE" ? $"Eine Abfrage in {path} ablegen" : $"Drop a query into {path}" : path)}\"", decoded);
+            Assert.Contains("Original &lt;category&gt; &amp;", html);
+            Assert.DoesNotContain("<query>", html);
+            foreach (var query in queries) Assert.Contains(query.Name, decoded);
+            Assert.Equal(original, JsonSerializer.Serialize(nodes));
+            Assert.Equal("fr-FR", CultureInfo.CurrentCulture.Name);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousUi;
+            CultureInfo.CurrentCulture = previousFormat;
+        }
+    }
+
     [Fact]
     public async Task RegistryDropMovesTheSavedQueryAndPreservesUnsavedEditorContent()
     {
@@ -167,7 +273,14 @@ public sealed class AnalysisQueryCategoryTests
         var saved = await fixture.SeedAsync("AD");
         await fixture.Categories.CreateAsync("Replication", "AD");
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         var page = new AdminAnalysisQueries();
+        typeof(AdminAnalysisQueries).GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
+        typeof(AdminAnalysisQueries).GetProperty("Logger", flags)!.SetValue(page, services.GetRequiredService<ILogger<AdminAnalysisQueries>>());
+        var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+        typeof(AdminAnalysisQueries).GetProperty("AlertStore", flags)!.SetValue(page, new AlertStore(fixture.Factory,
+            new DatabaseConfigurationStatus(true, null, new Microsoft.Data.SqlClient.SqlConnectionStringBuilder()),
+            presenter, new AlertRuleEvaluator(presenter), services.GetRequiredService<ILogger<AlertStore>>()));
         typeof(AdminAnalysisQueries).GetProperty("Registry", flags)!.SetValue(page, fixture.Registry);
         typeof(AdminAnalysisQueries).GetProperty("Categories", flags)!.SetValue(page, fixture.Categories);
         typeof(AdminAnalysisQueries).GetField("actor", flags)!.SetValue(page, "admin");
@@ -176,6 +289,7 @@ public sealed class AnalysisQueryCategoryTests
         typeof(AdminAnalysisQueries).GetField("draggedQueryId", flags)!.SetValue(page, saved.Id);
         await (Task)typeof(AdminAnalysisQueries).GetMethod("DropQueryAsync", flags)!.Invoke(page, ["AD/Replication"])!;
         Assert.Null(typeof(AdminAnalysisQueries).GetField("errorMessage", flags)!.GetValue(page));
+        Assert.Null(typeof(AdminAnalysisQueries).GetField("loadError", flags)!.GetValue(page));
         Assert.Equal("AD/Replication", editor.Category);
         Assert.Equal("Unsaved editor text", editor.Kql);
         Assert.Equal("AD/Replication", Assert.Single(await fixture.Registry.ListAsync()).Category);
@@ -223,12 +337,13 @@ public sealed class AnalysisQueryCategoryTests
             await connection.OpenAsync();
             var factory = new ContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
             await using var context = factory.CreateDbContext();
-            string[] tables = ["AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "AnalysisQueryCategories"];
+            string[] tables = ["AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "AnalysisQueryCategories", "ComputerInventory"];
             foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Where(statement => tables.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
                 await context.Database.ExecuteSqlRawAsync(statement.Replace("{}", "{{}}", StringComparison.Ordinal)
                     .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
-                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal));
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal)
+                    .Replace("N'", "'", StringComparison.Ordinal));
             return new(connection, factory);
         }
 

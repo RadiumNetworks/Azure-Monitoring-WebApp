@@ -1,0 +1,60 @@
+[
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "inventory-test-without-site",
+        "alertRule": "Inventory Heartbeat Status",
+        "severity": "Sev3",
+        "alertState": "Activated",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-inventory-test",
+        "targetSubscriptionId": "inventory-test-subscription",
+        "alertTargetIDs": [
+          "/subscriptions/inventory-test-subscription/resourceGroups/rg-inventory-test/providers/Microsoft.HybridCompute/machines/INVENTORY-TEST-01"
+        ],
+        "firedDateTime": "2026-08-30T10:00:00Z",
+        "description": "InventoryHeartbeat creates the inventory record without a site."
+      }
+    },
+    "queryResult": {
+      "type": "InventoryHeartbeat",
+      "rowCount": 1,
+      "columns": [
+        { "name": "SubscriptionId" }, { "name": "Computer" },
+        { "name": "Site" }, { "name": "LastHeartbeat" }
+      ],
+      "rows": [["inventory-test-subscription", "INVENTORY-TEST-01", "", "2026-08-30T10:00:00Z"]]
+    }
+  },
+  {
+    "schemaId": "azureMonitorCommonAlertSchema",
+    "data": {
+      "essentials": {
+        "alertId": "inventory-test-with-site",
+        "alertRule": "Inventory Heartbeat Status",
+        "severity": "Sev3",
+        "alertState": "Activated",
+        "signalType": "Log",
+        "monitorCondition": "Fired",
+        "targetResourceGroup": "rg-inventory-test",
+        "targetSubscriptionId": "inventory-test-subscription",
+        "alertTargetIDs": [
+          "/subscriptions/inventory-test-subscription/resourceGroups/rg-inventory-test/providers/Microsoft.HybridCompute/machines/INVENTORY-TEST-01"
+        ],
+        "firedDateTime": "2026-08-30T10:01:00Z",
+        "description": "InventoryHeartbeat updates the existing inventory record with its reported site."
+      }
+    },
+    "queryResult": {
+      "type": "InventoryHeartbeat",
+      "rowCount": 1,
+      "columns": [
+        { "name": "SubscriptionId" }, { "name": "Computer" },
+        { "name": "Site" }, { "name": "LastHeartbeat" }
+      ],
+      "rows": [["inventory-test-subscription", "INVENTORY-TEST-01", "INVENTORY-TEST-SITE", "2026-08-30T10:01:00Z"]]
+    }
+  }
+]

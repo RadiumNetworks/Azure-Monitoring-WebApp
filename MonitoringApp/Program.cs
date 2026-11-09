@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.SqlClient;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MonitoringApp;
 using MonitoringApp.Components;
@@ -18,9 +17,10 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
-const string SqlCookieScheme = "SqlAuthentication";
-const string OperatorPolicy = "OperatorAccess";
-const string AdminPolicy = "AdminAccess";
+builder.Services.AddUiLocalization();
+AgentPromptTemplates.ValidatePackaged();
+const string SqlCookieScheme = ApplicationAuthorization.SqlCookieScheme;
+const string OperatorPolicy = ApplicationAuthorization.OperatorPolicy;
 var applicationInsightsConnectionString =
     builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
 
@@ -54,49 +54,12 @@ if (ingestionAuthentication.Enabled && ingestionAuthenticationErrors.Count > 0)
         $"Invalid alert ingestion authentication configuration: {string.Join(" ", ingestionAuthenticationErrors)}");
 }
 
-var alertsConnectionString = builder.Configuration.GetConnectionString("AlertsDatabase");
-var databaseConfigurationError = string.Empty;
-SqlConnectionStringBuilder sqlConnection;
-
-try
-{
-    sqlConnection = new SqlConnectionStringBuilder(alertsConnectionString);
-}
-catch (Exception exception) when (exception is ArgumentException or FormatException)
-{
-    databaseConfigurationError = $"Connection string AlertsDatabase is malformed: {exception.Message}";
-    sqlConnection = new SqlConnectionStringBuilder();
-}
-
-if (string.IsNullOrWhiteSpace(alertsConnectionString))
-{
-    databaseConfigurationError = "Connection string AlertsDatabase is missing.";
-}
-else if (builder.Environment.IsProduction() &&
-         (sqlConnection.Authentication != SqlAuthenticationMethod.ActiveDirectoryManagedIdentity ||
-          string.IsNullOrWhiteSpace(sqlConnection.UserID)))
-{
-    databaseConfigurationError =
-        "Production requires 'Authentication=Active Directory Managed Identity' and " +
-        "'User Id=<managed-identity-client-id>'. User Id must be the client ID, not the object ID.";
-}
-
-var databaseConfiguration = new DatabaseConfigurationStatus(
-    string.IsNullOrEmpty(databaseConfigurationError),
-    string.IsNullOrEmpty(databaseConfigurationError) ? null : databaseConfigurationError,
-    sqlConnection);
-var effectiveConnectionString = databaseConfiguration.IsValid
-    ? alertsConnectionString!
-    : "Server=127.0.0.1,1;Database=Unavailable;Connect Timeout=1;Encrypt=False";
-
-if (!databaseConfiguration.IsValid)
-{
-    throw new InvalidOperationException(
-        $"A valid AlertsDatabase connection is required to load application settings: {databaseConfiguration.Error}");
-}
-
-var databaseSettings = DatabaseSettingsLoader.LoadRequired(effectiveConnectionString);
+var databaseConfiguration = DatabaseConfigurationStatus.Parse(
+    builder.Configuration.GetConnectionString("AlertsDatabase"), builder.Environment.IsProduction());
+var databaseSettings = DatabaseSettingsLoader.LoadRequired(databaseConfiguration.RequireConnectionString());
 var applicationAuthentication = databaseSettings.Authentication;
+if (applicationAuthentication.IsEntra)
+    AppServiceAuthenticationHandler.ValidateHosting(builder.Configuration);
 var alertHistory = databaseSettings.AlertHistory;
 var alertGraph = databaseSettings.AlertGraph;
 var alertSeverityDisplay = databaseSettings.AlertSeverityDisplay;
@@ -213,24 +176,17 @@ builder.Services.AddSingleton(agentAnalysisContext);
 builder.Services.AddSingleton(agentAnalysisProfiles);
 builder.Services.AddSingleton(agentAnalysisExecutionState);
 builder.Services.AddSingleton(agentAnalysisAccess);
-builder.Services.AddSingleton(crossTenantLogAnalytics);
-builder.Services.AddSingleton<TargetWorkspaceResolver>();
-builder.Services.AddSingleton<ILogAnalyticsSecretProvider, KeyVaultLogAnalyticsSecretProvider>();
-builder.Services.AddSingleton<ILogAnalyticsWorkspaceProbe, AzureLogAnalyticsWorkspaceProbe>();
-builder.Services.AddSingleton<LogAnalyticsConnectionDiagnostics>();
-builder.Services.AddSingleton<IAnalysisLogAnalyticsQuery, AzureAnalysisLogAnalyticsQuery>();
-builder.Services.AddSingleton<AnalysisQueryRunner>();
-builder.Services.AddSingleton<AnalysisQueryRegistry>();
-builder.Services.AddSingleton<AnalysisQueryCategoryService>();
+builder.Services.AddKqlServices(crossTenantLogAnalytics);
 builder.Services.AddSingleton<IAnalysisQueryExportService, AnalysisQueryExportService>();
-builder.Services.AddSingleton<AnalysisQueryExecutionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(ingestionAuthentication);
 builder.Services.AddSingleton<IAlertIngestionDiagnostics, AlertIngestionDiagnostics>();
 builder.Services.AddAuthentication(options =>
     {
-        options.DefaultAuthenticateScheme = SqlCookieScheme;
-        options.DefaultChallengeScheme = SqlCookieScheme;
+        options.DefaultAuthenticateScheme = applicationAuthentication.IsEntra
+            ? AppServiceAuthenticationHandler.SchemeName : SqlCookieScheme;
+        options.DefaultChallengeScheme = options.DefaultAuthenticateScheme;
+        options.DefaultForbidScheme = options.DefaultAuthenticateScheme;
         options.DefaultSignInScheme = SqlCookieScheme;
     })
     .AddCookie(SqlCookieScheme, options =>
@@ -257,6 +213,8 @@ builder.Services.AddAuthentication(options =>
             return Task.CompletedTask;
         };
     })
+    .AddScheme<AuthenticationSchemeOptions, AppServiceAuthenticationHandler>(
+        AppServiceAuthenticationHandler.SchemeName, _ => { })
     .AddJwtBearer(options =>
     {
         options.Authority = "https://login.microsoftonline.com/organizations/v2.0";
@@ -271,12 +229,8 @@ builder.Services.AddAuthentication(options =>
         };
     });
 var authorization = builder.Services.AddAuthorizationBuilder();
-if (applicationAuthentication.IsSql)
-{
-    authorization.SetFallbackPolicy(new AuthorizationPolicyBuilder(SqlCookieScheme)
-        .RequireAuthenticatedUser()
-        .Build());
-}
+builder.Services.Configure<AuthorizationOptions>(options =>
+    ApplicationAuthorization.Configure(options, applicationAuthentication));
 
 authorization
     .AddPolicy(AlertIngestionAuthorization.PolicyName, policy =>
@@ -292,39 +246,18 @@ authorization
         {
             policy.RequireAssertion(_ => true);
         }
-    })
-    .AddPolicy(OperatorPolicy, policy => policy.RequireAssertion(context =>
-        applicationAuthentication.IsOpen ||
-        context.User.IsInRole(SqlAuthenticationRoles.Operator) ||
-        context.User.IsInRole(SqlAuthenticationRoles.Admin)))
-    .AddPolicy(AdminPolicy, policy => policy.RequireAssertion(context =>
-        applicationAuthentication.IsOpen ||
-        context.User.IsInRole(SqlAuthenticationRoles.Admin)));
+    });
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    // Allow bounded 64 KiB JSON imports, including UTF-8 and JSON event-envelope escaping.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentUserIdentity>();
-builder.Services.AddSingleton<SqlCommandFailureLoggingInterceptor>();
-builder.Services.AddSingleton<SqlConnectionFailureLoggingInterceptor>();
-builder.Services.AddDbContextFactory<AlertDbContext>((services, options) =>
-    options
-        .UseSqlServer(effectiveConnectionString, sqlServerOptions =>
-            sqlServerOptions.EnableRetryOnFailure())
-        .AddInterceptors(
-            services.GetRequiredService<SqlCommandFailureLoggingInterceptor>(),
-            services.GetRequiredService<SqlConnectionFailureLoggingInterceptor>()));
-builder.Services.AddSingleton(databaseConfiguration);
+builder.Services.AddAlertDatabase(databaseConfiguration);
 builder.Services.AddSingleton<SqlPasswordHasher>();
-builder.Services.AddSingleton<SqlAuthenticationService>();
-builder.Services.AddSingleton<AlertStore>();
-builder.Services.AddSingleton<ScheduledQueryService>();
 builder.Services.AddHostedService<ScheduledQueryWorker>();
-builder.Services.AddScoped<RcaService>();
 builder.Services.AddHostedService<RcaWorker>();
-builder.Services.AddScoped<DatabaseResetService>();
-builder.Services.AddScoped<LegacyAlertResolutionService>();
-builder.Services.AddSingleton<LogbookStore>();
 builder.Services.AddSingleton(new QueryResultPresenter(
     Path.Combine(builder.Environment.ContentRootPath, "AlertDefinitions")));
 builder.Services.AddSingleton<AlertRuleEvaluator>();
@@ -332,8 +265,6 @@ builder.Services.AddSingleton<IncidentAnalysisSnapshotBuilder>();
 builder.Services.AddSingleton<IncidentAnalysisSnapshotService>();
 builder.Services.AddSingleton(_ => MicrosoftSourceCatalog.CreateDefault());
 builder.Services.AddSingleton<AgentAnalysisOrchestrator>();
-builder.Services.AddSingleton<AgentAnalysisJobStore>();
-builder.Services.AddSingleton<AgentAnalysisReviewStore>();
 builder.Services.AddSingleton<AgentAnalysisScopePolicy>();
 builder.Services.AddSingleton<AgentAnalysisJobService>();
 builder.Services.AddSingleton<IAgentAnalysisExecutionAdapter, DisabledTeamsWorkflowAdapter>();
@@ -346,11 +277,7 @@ builder.Services.AddHttpClient<MicrosoftSourceLinkChecker>(client =>
     });
 builder.Services.AddHostedService<MicrosoftSourceCatalogVerificationService>();
 builder.Services.AddScoped<InboxDashboardState>();
-builder.Services.AddScoped<InboxLayoutRepository>();
 builder.Services.AddScoped<AnalysisDashboardState>();
-builder.Services.AddScoped<AnalysisDashboardRepository>();
-builder.Services.AddScoped<AnalysisDashboardPublishing>();
-builder.Services.AddHostedService<DatabaseStartupCheck>();
 builder.Services.AddHostedService<AgentAnalysisRetentionService>();
 
 var app = builder.Build();
@@ -365,9 +292,9 @@ if (databaseConfiguration.IsValid)
     app.Logger.LogInformation(
         "MonitoringApp starting. Environment={Environment}, Server={Server}, Database={Database}, Authentication={Authentication}",
         app.Environment.EnvironmentName,
-        sqlConnection.DataSource,
-        sqlConnection.InitialCatalog,
-        sqlConnection.Authentication);
+        databaseConfiguration.Server,
+        databaseConfiguration.Database,
+        databaseConfiguration.Authentication);
 }
 else
 {
@@ -384,11 +311,13 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler("/error", createScopeForErrors: true);
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+app.UseRequestLocalization();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
-    if (context.User.Identity?.IsAuthenticated != true &&
+    if (applicationAuthentication.IsOpen &&
+        context.User.Identity?.IsAuthenticated != true &&
         CurrentUserIdentity.CreateAppServicePrincipal(context.Request.Headers) is { } entraPrincipal)
     {
         context.User = entraPrincipal;
@@ -400,6 +329,7 @@ app.UseMiddleware<AlertIngestionDiagnosticsMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
 app.MapStaticAssets().AllowAnonymous();
+app.MapUiLanguage();
 
 app.MapPost("/auth/login", async (
     [FromForm] LoginRequest request,
@@ -407,6 +337,8 @@ app.MapPost("/auth/login", async (
     SqlAuthenticationService authenticationService,
     CancellationToken cancellationToken) =>
 {
+    if (applicationAuthentication.IsEntra)
+        return Results.NotFound();
     if (!applicationAuthentication.IsSql)
     {
         return Results.Redirect("/");
@@ -440,6 +372,8 @@ app.MapPost("/auth/login", async (
 
 app.MapPost("/auth/logout", async (HttpContext httpContext) =>
 {
+    if (applicationAuthentication.IsEntra)
+        return Results.Redirect("/.auth/logout?post_logout_redirect_uri=/login");
     await httpContext.SignOutAsync(SqlCookieScheme);
     return Results.Redirect("/login");
 });

@@ -15,7 +15,269 @@ namespace MonitoringApp.Tests;
 
 public sealed class InventorySafetyTests
 {
+    [Fact]
+    public async Task BootTimePersistsOnCreateAndRefreshWithoutBeingErasedByLegacyNullOrStaleEvents()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var originalBoot = Now.AddDays(-5);
+        var newBoot = Now.AddDays(-1);
+        async Task Send(DateTimeOffset heartbeat, object? boot, bool includeColumn = true)
+        {
+            var names = new[] { "SubscriptionId", "Computer", "LastHeartbeat" }
+                .Concat(includeColumn ? ["lastboottime"] : []).ToArray();
+            var values = new object?[] { "sub", "DC01", heartbeat.ToString("O") }
+                .Concat(includeColumn ? new[] { boot } : []).ToArray();
+            using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                alertId = "boot-time-inventory",
+                alertRule = InventoryHeartbeatBatch.AlertName,
+                monitorCondition = "Fired",
+                queryResult = new
+                {
+                    type = InventoryHeartbeatBatch.QueryResultType, rowCount = 1,
+                    columns = names.Select(name => new { name }).ToArray(), rows = new[] { values }
+                }
+            }));
+            await fixture.Store.AddAsync(payload.RootElement);
+        }
+        async Task<ComputerInventoryEntry> Stored() =>
+            Assert.Single(await fixture.Store.GetComputerInventoryAsync());
+
+        await Send(Now, originalBoot.ToOffset(TimeSpan.FromHours(2)).ToString("O"));
+        Assert.Equal(originalBoot, (await Stored()).LastBootTime);
+        Assert.Equal(TimeSpan.Zero, (await Stored()).LastBootTime!.Value.Offset);
+        await Send(Now.AddMinutes(1), null, includeColumn: false);
+        await Send(Now.AddMinutes(2), null);
+        Assert.Equal(originalBoot, (await Stored()).LastBootTime);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Send(Now.AddMinutes(3), "invalid"));
+        Assert.Equal(Now.AddMinutes(2), (await Stored()).LastHeartbeatAt);
+        Assert.Equal(originalBoot, (await Stored()).LastBootTime);
+        await Send(Now.AddMinutes(3), newBoot.ToString("O"));
+        Assert.Equal(newBoot, (await Stored()).LastBootTime);
+        await Send(Now.AddMinutes(1), originalBoot.ToString("O"));
+        Assert.Equal(newBoot, (await Stored()).LastBootTime);
+        await fixture.Store.SaveComputerInventoryEntryAsync(new()
+        {
+            SubscriptionId = "sub", Computer = "DC01", Site = "Manually edited site", LastBootTime = null
+        });
+        Assert.Equal(newBoot, (await Stored()).LastBootTime);
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.Empty(await context.Alerts.ToArrayAsync());
+    }
+
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
+
+    [Theory]
+    [InlineData("ingestion", false)]
+    [InlineData("ingestion", true)]
+    [InlineData("backfill", false)]
+    [InlineData("backfill", true)]
+    public async Task NonHeartbeatAlertsNeverModifyManualOrHeartbeatData(
+        string path, bool populated)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "sub", Computer = "DC01", Domain = "known.example",
+                Site = populated ? "Known site" : null,
+                ResourceGroup = populated ? "registered-rg" : null,
+                Role = populated ? "Custom role" : null,
+                Maintenance = true, LastHeartbeatAt = Now, PrivateIP = "10.0.0.1",
+                NtdsFileSizeInGb = 8.25, CertificatesJson = "[]", ServicesJson = "[]"
+            });
+            await context.SaveChangesAsync();
+        }
+        var notifications = 0;
+        fixture.Store.Changed += () => notifications++;
+        using var payload = JsonDocument.Parse(LearningPayload());
+        if (path == "ingestion")
+        {
+            Assert.True((await fixture.Store.AddAsync(payload.RootElement)).Created);
+            Assert.False((await fixture.Store.AddAsync(payload.RootElement)).Created);
+        }
+        else
+        {
+            await fixture.AddAlertAsync("learning", rawJson: LearningPayload());
+            await fixture.Store.GetAlertGraphRecordsAsync(Now.AddDays(-1));
+            await fixture.Store.GetAlertGraphRecordsAsync(Now.AddDays(-1));
+        }
+        Assert.Equal(path == "ingestion" ? 1 : 0, notifications);
+        await using var verify = fixture.Factory.CreateDbContext();
+        var entry = await verify.ComputerInventory.SingleAsync();
+        Assert.Equal("sub", entry.SubscriptionId);
+        Assert.Equal("DC01", entry.Computer);
+        Assert.Equal("known.example", entry.Domain);
+        Assert.Equal(populated ? "Known site" : null, entry.Site);
+        Assert.Equal(populated ? "registered-rg" : null, entry.ResourceGroup);
+        Assert.Equal(populated ? "Custom role" : null, entry.Role);
+        Assert.True(entry.Maintenance);
+        Assert.Equal(Now, entry.LastHeartbeatAt);
+        Assert.Equal("10.0.0.1", entry.PrivateIP);
+        Assert.Equal(8.25, entry.NtdsFileSizeInGb);
+        Assert.Equal("[]", entry.CertificatesJson);
+        Assert.Equal("[]", entry.ServicesJson);
+        Assert.Single(await verify.Alerts.ToArrayAsync());
+        Assert.Single(await verify.ParsedAlerts.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task RcaFailureRollsBackAlertHistoryParsedInventoryAndAuditWithoutNotifyingFacadeSubscribers()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddInventoryAsync();
+        await using (var context = fixture.Factory.CreateDbContext())
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TRIGGER FailRca BEFORE INSERT ON RootCauseAnalyses
+                BEGIN SELECT RAISE(ABORT, 'RCA failed'); END;
+                """);
+        var notifications = 0;
+        fixture.Store.Changed += () =>
+        {
+            using var verify = fixture.Factory.CreateDbContext();
+            using var transaction = verify.Database.BeginTransaction();
+            Assert.Single(verify.Alerts.ToArray());
+            Assert.Single(verify.AlertHistory.ToArray());
+            Assert.Single(verify.ParsedAlerts.ToArray());
+            Assert.Single(verify.ComputerInventory.ToArray());
+            Assert.Single(verify.RootCauseAnalyses.ToArray());
+            notifications++;
+        };
+        using var payload = JsonDocument.Parse(LearningPayload());
+        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Store.AddAsync(payload.RootElement));
+        Assert.Equal(0, notifications);
+        await using (var verify = fixture.Factory.CreateDbContext())
+        {
+            Assert.Empty(await verify.Alerts.ToArrayAsync());
+            Assert.Empty(await verify.AlertHistory.ToArrayAsync());
+            Assert.Empty(await verify.ParsedAlerts.ToArrayAsync());
+            Assert.Single(await verify.ComputerInventory.ToArrayAsync());
+            Assert.Empty(await verify.LogbookEntries.ToArrayAsync());
+            Assert.Empty(await verify.RootCauseAnalyses.ToArrayAsync());
+            Assert.Empty(await verify.RcaAlertLinks.ToArrayAsync());
+            await verify.Database.ExecuteSqlRawAsync("DROP TRIGGER FailRca");
+        }
+        Assert.True((await fixture.Store.AddAsync(payload.RootElement)).Created);
+        Assert.Equal(1, notifications);
+    }
+
+    private static string LearningPayload() => JsonSerializer.Serialize(new
+    {
+        alertId = "learning", alertRule = "DCDiag", monitorCondition = "Fired",
+        targetSubscriptionId = "sub", targetResourceName = "DC01", targetResourceGroup = "rg",
+        queryResult = new
+        {
+            type = "DCDiag", rowCount = 1,
+            columns = new[] { new { name = "Computer" }, new { name = "Site" }, new { name = "Status" } },
+            rows = new[] { new[] { "DC01", "Learned site", """{"Connectivity":"Failed"}""" } }
+        }
+    });
+
+    [Theory]
+    [InlineData("DCDiag", false)]
+    [InlineData("DCDiag", true)]
+    [InlineData("DCPort", false)]
+    [InlineData("DCPort", true)]
+    [InlineData("ScheduledKql", false)]
+    [InlineData("ScheduledKql", true)]
+    [InlineData("Unclassified", false)]
+    [InlineData("Unclassified", true)]
+    public async Task NonHeartbeatAlertsCannotDiscoverSystemsEvenWhenSuppressed(string type, bool suppressed)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        if (suppressed)
+            await fixture.Store.SaveAlertRuleAsync(new()
+            {
+                Name = "Suppress non-heartbeat", RuleType = AlertRuleTypes.Suppression,
+                QueryResultType = type, ConditionType = AlertRuleConditionTypes.AnyMatchingAlert
+            });
+        using var payload = JsonDocument.Parse(LearningPayload().Replace("DCDiag", type, StringComparison.Ordinal));
+        await fixture.Store.AddAsync(payload.RootElement);
+        await fixture.Store.AddAsync(payload.RootElement);
+        using var resolved = JsonDocument.Parse(payload.RootElement.GetRawText().Replace("Fired", "Resolved", StringComparison.Ordinal));
+        await fixture.Store.AddAsync(resolved.RootElement);
+        Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
+        Assert.Empty(await fixture.Store.GetAlertGraphRecordsAsync(Now.AddDays(-1)));
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.All(await context.ParsedAlerts.ToArrayAsync(), parsed =>
+        {
+            Assert.Null(parsed.InventorySubscriptionId);
+            Assert.Null(parsed.InventoryComputer);
+        });
+    }
+
+    [Fact]
+    public async Task HeartbeatIsTheOnlyDiscoverySourceAndLinksPreviouslyUnknownAlerts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        using var alert = JsonDocument.Parse(LearningPayload());
+        await fixture.Store.AddAsync(alert.RootElement);
+        Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
+        using var heartbeat = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            alertId = "heartbeat-discovery", alertRule = InventoryHeartbeatBatch.AlertName,
+            queryResult = new
+            {
+                type = InventoryHeartbeatBatch.QueryResultType, rowCount = 1,
+                columns = new[]
+                {
+                    new { name = "SubscriptionId" }, new { name = "Computer" }, new { name = "Domain" },
+                    new { name = "Site" }, new { name = "LastHeartbeat" }, new { name = "Services" }
+                },
+                rows = new[] { new object[] { "sub", "DC01", "heartbeat.example", "Heartbeat site", Now.ToString("O"),
+                    new[] { new InventoryService("NTDS", 1) } } }
+            }
+        }));
+        Assert.True((await fixture.Store.AddAsync(heartbeat.RootElement)).Suppressed);
+        await fixture.Store.AddAsync(alert.RootElement);
+        var entry = Assert.Single(await fixture.Store.GetComputerInventoryAsync());
+        Assert.Equal("heartbeat.example", entry.Domain);
+        Assert.Equal("Heartbeat site", entry.Site);
+        Assert.Equal("Domain Controller", entry.Role);
+        Assert.Null(entry.ResourceGroup);
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.Single(await context.Alerts.ToArrayAsync());
+        var parsed = Assert.Single(await context.ParsedAlerts.ToArrayAsync());
+        Assert.Equal("sub", parsed.InventorySubscriptionId);
+        Assert.Equal("DC01", parsed.InventoryComputer);
+    }
+
+    [Fact]
+    public async Task DisabledHeartbeatRuleDoesNotFallBackToLearningFromTheAlertTarget()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rule = Assert.Single(await fixture.Store.GetAllAlertRulesAsync(),
+            candidate => candidate.RuleType == AlertRuleTypes.InventoryStatus);
+        rule.Enabled = false;
+        await fixture.Store.SaveAlertRuleAsync(rule);
+        using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            alertId = "disabled-heartbeat", alertRule = InventoryHeartbeatBatch.AlertName,
+            targetSubscriptionId = "sub", targetResourceName = "DC01",
+            queryResult = new
+            {
+                type = InventoryHeartbeatBatch.QueryResultType,
+                columns = new[] { new { name = "SubscriptionId" }, new { name = "Computer" }, new { name = "LastHeartbeat" } },
+                rows = new[] { new[] { "sub", "DC01", Now.ToString("O") } }
+            }
+        }));
+        await fixture.Store.AddAsync(payload.RootElement);
+        Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
+    }
+
+    [Fact]
+    public async Task AlertRoleAssignmentRulesCannotBeEnabledAgain()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rule = Assert.Single(await fixture.Store.GetAllAlertRulesAsync(),
+            candidate => candidate.QueryResultType == "DCDiag");
+        Assert.False(rule.Enabled);
+        rule.Enabled = true;
+        var error = await Assert.ThrowsAsync<AlertRuleException>(() => fixture.Store.SaveAlertRuleAsync(rule));
+        Assert.Equal(AlertRuleErrorCode.RetiredRoleAssignment, error.Code);
+        Assert.Contains("retired", error.Message, StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("""{"queryResult":{"rowCount":0}}""", true)]
@@ -119,32 +381,18 @@ public sealed class InventorySafetyTests
     }
 
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(false, false, true)]
-    [InlineData(false, true, false)]
-    [InlineData(false, true, true)]
-    [InlineData(true, false, false)]
-    [InlineData(true, false, true)]
-    [InlineData(true, true, false)]
-    [InlineData(true, true, true)]
-    public async Task ZeroRowHistoryCannotLearnInventoryThroughPrefillOrBackfill(
-        bool backfill, bool dcPort, bool hasInventory)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ZeroRowHistoryCannotLearnInventoryThroughBackfill(
+        bool dcPort, bool hasInventory)
     {
         await using var fixture = await Fixture.CreateAsync();
         if (hasInventory)
             await fixture.AddInventoryAsync();
         await fixture.AddAlertAsync("zero-history", rawJson: Payload(dcPort ? "DCPort" : "DCDiag"));
-        if (backfill)
-            await fixture.Store.GetAlertGraphRecordsAsync(Now.AddDays(-1));
-        else
-        {
-            var result = await fixture.Store.PrefillComputerInventoryFromLastSevenDaysAsync();
-            Assert.Equal(0, result.SystemsCreated);
-            Assert.Equal(0, result.SitesFilled);
-            Assert.Equal(0, result.DomainsFilled);
-            Assert.Equal(0, result.ResourceGroupsFilled);
-            Assert.Equal(0, result.RolesAssigned);
-        }
+        await fixture.Store.GetAlertGraphRecordsAsync(Now.AddDays(-1));
         await using var context = fixture.Factory.CreateDbContext();
         var entries = await context.ComputerInventory.ToArrayAsync();
         Assert.Equal(hasInventory ? 1 : 0, entries.Length);
@@ -155,11 +403,8 @@ public sealed class InventorySafetyTests
             Assert.Null(entries[0].Role);
             Assert.Null(entries[0].ResourceGroup);
         }
-        if (backfill)
-        {
-            var parsed = Assert.Single(await context.ParsedAlerts.ToArrayAsync());
-            Assert.Equal(hasInventory ? "sub" : null, parsed.InventorySubscriptionId);
-        }
+        var parsed = Assert.Single(await context.ParsedAlerts.ToArrayAsync());
+        Assert.Equal(hasInventory ? "sub" : null, parsed.InventorySubscriptionId);
     }
 
     [Theory]
@@ -170,20 +415,46 @@ public sealed class InventorySafetyTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AddAlertAsync("legacy");
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.CountAsync(User(role)));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ResolveAsync(User(role), "RESOLVE"));
+        var error = await Assert.ThrowsAsync<MaintenanceAccessDeniedException>(() => fixture.Service.CountAsync(User(role)));
+        Assert.Equal("Only administrators may resolve legacy alerts.", error.Message);
+        Assert.IsAssignableFrom<UnauthorizedAccessException>(error);
+        await Assert.ThrowsAsync<MaintenanceAccessDeniedException>(() => fixture.Service.ResolveAsync(User(role), "RESOLVE"));
         await using var context = fixture.Factory.CreateDbContext();
         Assert.Empty(await context.LogbookEntries.ToArrayAsync());
         Assert.Equal("", (await context.Alerts.SingleAsync()).Comments);
     }
 
-    [Fact]
-    public async Task LegacyResolutionRequiresExactConfirmation()
+    [Theory]
+    [InlineData("")]
+    [InlineData("resolve")]
+    [InlineData(" RESOLVE")]
+    [InlineData("RESOLVE ")]
+    [InlineData("RESET")]
+    public async Task LegacyResolutionRequiresExactConfirmation(string confirmation)
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AddAlertAsync("legacy");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.ResolveAsync(User(), "resolve"));
+        var error = await Assert.ThrowsAsync<MaintenanceValidationException>(() => fixture.Service.ResolveAsync(User(), confirmation));
+        Assert.Equal(MaintenanceValidationCode.ConfirmationInvalid, error.Code);
+        Assert.Equal("Type RESOLVE exactly to confirm legacy alert resolution.", error.Message);
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
         Assert.Equal(1, await fixture.Service.CountAsync(User()));
+    }
+
+    [Fact]
+    public async Task WorkspaceAlertsAreNotLegacyInventoryCleanupCandidates()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAlertAsync("legacy");
+        var workspaceId = await fixture.AddAlertAsync("scheduled-query:workspace",
+            parsed: true, computer: "Workspace: production",
+            rawJson: """{"queryResult":{"type":"ScheduledKqlWorkspace"}}""");
+        Assert.Equal(1, await fixture.Service.CountAsync(User()));
+        Assert.Equal(1, await fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        await using var context = fixture.Factory.CreateDbContext();
+        var active = Assert.Single(AlertLifecycle.GetActiveAlerts(await context.Alerts.ToArrayAsync()));
+        Assert.Equal(workspaceId, active.Id);
+        Assert.Equal(0, await fixture.Service.CountAsync(User()));
     }
 
     [Fact]
@@ -276,6 +547,72 @@ public sealed class InventorySafetyTests
     }
 
     [Fact]
+    public async Task RcaFailureRollsBackLegacyResolutionAndRetryNotifiesOnlyAfterCommit()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddInventoryAsync();
+        await fixture.AddAlertAsync("one", parsed: true, comments: "Keep comment");
+        await fixture.AddAlertAsync("two");
+        RootCauseAnalysis original;
+        int changes;
+        string prompt;
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            await RcaAutomation.ReconcileAsync(context,
+                fixture.Services.GetRequiredService<AlertRuleEvaluator>(),
+                fixture.Services.GetRequiredService<QueryResultPresenter>(), Now.AddMinutes(-1), default);
+            await context.SaveChangesAsync();
+            original = await context.RootCauseAnalyses.AsNoTracking().SingleAsync();
+            changes = await context.RcaChanges.CountAsync();
+            prompt = (await context.RcaPrompts.SingleAsync()).RawPrompt;
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER FailLegacyRca BEFORE INSERT ON RcaChanges BEGIN SELECT RAISE(ABORT, 'RCA failed'); END;");
+        }
+        var notifications = 0;
+        fixture.Store.Changed += () =>
+        {
+            using var context = fixture.Factory.CreateDbContext();
+            using var transaction = context.Database.BeginTransaction();
+            Assert.Equal(2, context.LogbookEntries.Count());
+            Assert.All(context.ParsedAlerts.ToArray(), record => Assert.Equal(Now, record.ResolvedAt));
+            Assert.False(context.RootCauseAnalyses.Single().IsActive);
+            notifications++;
+        };
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        Assert.Equal(0, notifications);
+        Assert.Equal(2, await fixture.Service.CountAsync(User()));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            Assert.Equal("Keep comment", (await context.Alerts.SingleAsync(alert => alert.AlertId == "one")).Comments);
+            Assert.Equal("", (await context.Alerts.SingleAsync(alert => alert.AlertId == "two")).Comments);
+            Assert.Empty(await context.LogbookEntries.ToArrayAsync());
+            Assert.Null((await context.ParsedAlerts.SingleAsync()).ResolvedAt);
+            Assert.Equal(JsonSerializer.Serialize(original),
+                JsonSerializer.Serialize(await context.RootCauseAnalyses.SingleAsync()));
+            Assert.Equal(changes, await context.RcaChanges.CountAsync());
+            Assert.Equal(prompt, (await context.RcaPrompts.SingleAsync()).RawPrompt);
+            Assert.Equal(2, await context.RcaAlertLinks.CountAsync());
+            Assert.Equal("known.example", (await context.ComputerInventory.SingleAsync()).Domain);
+            await context.Database.ExecuteSqlRawAsync("DROP TRIGGER FailLegacyRca;");
+        }
+
+        Assert.Equal(2, await fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        Assert.Equal(1, notifications);
+        Assert.Equal(0, await fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        Assert.Equal(1, notifications);
+        await using var check = fixture.Factory.CreateDbContext();
+        Assert.Equal(2, await check.Alerts.CountAsync());
+        Assert.Equal(2, await check.ParsedAlerts.CountAsync());
+        Assert.Equal(2, await check.LogbookEntries.CountAsync());
+        var rca = await check.RootCauseAnalyses.SingleAsync();
+        Assert.Equal(original.Id, rca.Id);
+        Assert.Equal("Open", rca.Status);
+        Assert.Equal(Now, rca.CriticalEndedAt);
+        Assert.Equal(prompt, (await check.RcaPrompts.SingleAsync()).RawPrompt);
+    }
+
+    [Fact]
     public async Task AuditFailureRollsBackAllLegacyResolutions()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -296,11 +633,15 @@ public sealed class InventorySafetyTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AddAlertAsync("one");
-        await fixture.AddAlertAsync("two", comments: new string('x', 4000));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        var id = await fixture.AddAlertAsync("two", comments: new string('x', 4000));
+        var error = await Assert.ThrowsAsync<MaintenanceValidationException>(() => fixture.Service.ResolveAsync(User(), "RESOLVE"));
+        Assert.Equal(MaintenanceValidationCode.CommentsTooLong, error.Code);
+        Assert.Equal(id, error.AlertId);
+        Assert.Equal($"Alert {id} has no room for the Resolved marker. Shorten its comments and retry. No alerts were changed.", error.Message);
         Assert.Equal(2, await fixture.Service.CountAsync(User()));
         await using var check = fixture.Factory.CreateDbContext();
         Assert.Empty(await check.LogbookEntries.ToArrayAsync());
+        Assert.Equal(new string('x', 4000), (await check.Alerts.SingleAsync(alert => alert.Id == id)).Comments);
     }
 
     [Fact]
@@ -310,9 +651,11 @@ public sealed class InventorySafetyTests
         await using var renderer = new HtmlRenderer(fixture.Services, fixture.Services.GetRequiredService<ILoggerFactory>());
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<LegacyAlertResolutionPanel>()).ToHtmlString());
-        Assert.Contains("Resolve legacy alerts", html);
-        Assert.Contains("Duplicate inventory entries", html);
-        Assert.DoesNotContain("Permanently reset database", html);
+        var text = fixture.Services.GetRequiredService<UiText>();
+        var decoded = System.Net.WebUtility.HtmlDecode(html);
+        Assert.Contains(text["LegacyAlerts.Title"], decoded);
+        Assert.Contains(text["LegacyAlerts.Description"], decoded);
+        Assert.DoesNotContain(text["DatabaseReset.Confirm"], decoded);
     }
 
     private static ClaimsPrincipal User(string? role = "Admin") => new(new ClaimsIdentity(
@@ -376,8 +719,9 @@ public sealed class InventorySafetyTests
                 .AddSingleton(new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions")))
                 .AddSingleton<AlertRuleEvaluator>().AddSingleton<AlertStore>()
                 .AddSingleton<AuthenticationStateProvider, AdminState>()
-                .AddSingleton<LegacyAlertResolutionService>().BuildServiceProvider();
-            return new(connection, services, factory);
+                .AddSingleton<LegacyAlertResolutionService>();
+            services.AddUiLocalization();
+            return new(connection, services.BuildServiceProvider(), factory);
         }
 
         public async Task AddInventoryAsync()

@@ -4,6 +4,33 @@ namespace MonitoringApp.Tests;
 
 public sealed class InventoryHeartbeatBatchTests
 {
+    [Theory]
+    [InlineData("LastBootTime", "\"2026-11-08T12:30:00+02:00\"", "2026-11-08T10:30:00Z")]
+    [InlineData("lastboottime", "\"2026-11-08T10:30:00Z\"", "2026-11-08T10:30:00Z")]
+    [InlineData("LastBootTime", "\"2026-11-08T10:30:00\"", "2026-11-08T10:30:00Z")]
+    [InlineData("LastBootTime", "null", null)]
+    [InlineData("LastBootTime", "\"\"", null)]
+    public void ParsesOptionalBootTimeAsUtc(string column, string value, string? expected)
+    {
+        using var document = JsonDocument.Parse($$$"""
+            {"queryResult":{"columns":[{"name":"SubscriptionId"},{"name":"Computer"},{"name":"LastHeartbeat"},{"name":"{{{column}}}"}],
+            "rows":[["sub","DC01","2026-11-09T08:00:00Z",{{{value}}}]]}}
+            """);
+        var observation = Assert.Single(InventoryHeartbeatBatch.Parse(document.RootElement));
+        Assert.Equal(expected is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(expected), observation.LastBootTime);
+        if (observation.LastBootTime.HasValue) Assert.Equal(TimeSpan.Zero, observation.LastBootTime.Value.Offset);
+    }
+
+    [Fact]
+    public void RejectsInvalidBootTimeRatherThanTreatingItAsMissing()
+    {
+        using var document = JsonDocument.Parse("""
+            {"queryResult":{"columns":[{"name":"SubscriptionId"},{"name":"Computer"},{"name":"LastHeartbeat"},{"name":"LastBootTime"}],
+            "rows":[["sub","DC01","2026-11-09T08:00:00Z","invalid"]]}}
+            """);
+        Assert.Throws<InvalidOperationException>(() => InventoryHeartbeatBatch.Parse(document.RootElement));
+    }
+
   [Fact]
   public void RecognizesStoredLegacyInventoryAlertsByNameOrPayloadType()
   {
@@ -149,6 +176,7 @@ public sealed class InventoryHeartbeatBatchTests
         Assert.Null(observation.NtdsFileSizeInGb);
         Assert.False(observation.HasNtdsFileSizeData);
         Assert.Null(observation.CertificatesJson);
+        Assert.Null(observation.LastBootTime);
         Assert.NotNull(observation.ServicesJson);
     }
 

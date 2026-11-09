@@ -1,0 +1,50 @@
+@inject UiText Text
+
+@for (var index = 0; index < Tables.Count; index++)
+{
+    var tableIndex = index;
+    var sourceTables = Tables;
+    var table = Tables[index];
+    var page = Math.Min(pages.GetValueOrDefault(index), Math.Max(0, (table.Rows.Count - 1) / PageSize));
+    @if (table.Rows.Count > PageSize)
+    {
+        <nav class="analysis-table-pagination" aria-label="@Text.Format("AnalysisResults.TablePages", table.Workspace)">
+            <button disabled="@(page == 0)" @onclick="() => ChangePageForTables(sourceTables, tableIndex, -1)">@Text["Common.Previous"]</button>
+            <span>@Text.Format("AnalysisResults.Rows", page * PageSize + 1, Math.Min((page + 1) * PageSize, table.Rows.Count), table.Rows.Count)</span>
+            <button disabled="@((page + 1) * PageSize >= table.Rows.Count)" @onclick="() => ChangePageForTables(sourceTables, tableIndex, 1)">@Text["Common.Next"]</button>
+        </nav>
+    }
+    <div class="analysis-result-table" tabindex="0" role="region" aria-label="@Text.Format("AnalysisResults.TableResult", table.Workspace)">
+        <table>
+            <caption>@table.Workspace · @(index + 1)</caption>
+            <thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column.Name</th> }</tr></thead>
+            <tbody>
+                @foreach (var row in table.Rows.Skip(page * PageSize).Take(PageSize))
+                {
+                    <tr>@foreach (var cell in row) { <td>@cell</td> }</tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AnalysisQueryTable> Tables { get; set; } = [];
+    private const int PageSize = 50;
+    private readonly Dictionary<int, int> pages = [];
+    private IReadOnlyList<AnalysisQueryTable>? previous;
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(previous, Tables)) pages.Clear();
+        previous = Tables;
+    }
+    private void ChangePageForTables(IReadOnlyList<AnalysisQueryTable> source, int index, int direction)
+    {
+        if (ReferenceEquals(source, Tables)) ChangePage(index, direction);
+    }
+    private void ChangePage(int index, int direction)
+    {
+        if (index < 0 || index >= Tables.Count) return;
+        pages[index] = Math.Clamp(pages.GetValueOrDefault(index) + direction, 0, Math.Max(0, (Tables[index].Rows.Count - 1) / PageSize));
+    }
+}

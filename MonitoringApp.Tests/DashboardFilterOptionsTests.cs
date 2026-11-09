@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using MonitoringApp.Components.Pages;
 using MonitoringApp.Migrations;
 
@@ -75,8 +77,11 @@ public sealed class DashboardFilterOptionsTests
     [InlineData("{")]
     public void RejectsMalformedOrMisspelledSettingsRatherThanSilentlyUsingDefaults(string json)
     {
-        Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DatabaseSettingsValidationException>(() =>
             DatabaseSettingsLoader.Deserialize<DashboardFilterOptions>(DatabaseSettingsLoader.DashboardFilters, json));
+        Assert.Equal(json == "null" ? DatabaseSettingsValidationCode.JsonNull : DatabaseSettingsValidationCode.JsonInvalid, error.Code);
+        Assert.Equal(DatabaseSettingsLoader.DashboardFilters, error.SettingName);
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
     }
 
     [Fact]
@@ -114,8 +119,15 @@ public sealed class DashboardFilterOptionsTests
         await using var fixture = await SettingsFixture.CreateAsync();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var page = new AdminSettings();
-        typeof(AdminSettings).GetProperty("DbContextFactory", flags)!.SetValue(page, fixture.Factory);
-        typeof(AdminSettings).GetProperty("LogAnalyticsOptions", flags)!.SetValue(page, Workspaces);
+        var services = new ServiceCollection().AddLogging();
+        services.AddUiLocalization();
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var text = scope.ServiceProvider.GetRequiredService<UiText>();
+        typeof(AdminSettings).GetProperty("Text", flags)!.SetValue(page, text);
+        typeof(AdminSettings).GetProperty("Logger", flags)!.SetValue(page, scope.ServiceProvider.GetRequiredService<ILogger<AdminSettings>>());
+        typeof(AdminSettings).GetProperty("SettingsService", flags)!
+            .SetValue(page, new DatabaseSettingsService(fixture.Factory, Workspaces));
         var field = typeof(AdminSettings).GetField("dashboardFiltersJson", flags)!;
         var error = typeof(AdminSettings).GetField("errorMessage", flags)!;
 
@@ -125,7 +137,7 @@ public sealed class DashboardFilterOptionsTests
         field.SetValue(page, """{"Workspace":"workspace-b","Domain":"beta.example","Site":"South","Role":"Domain Controller"}""");
         await InvokeAsync("SaveAsync");
         Assert.Null(error.GetValue(page));
-        Assert.Contains("Restart", Assert.IsType<string>(typeof(AdminSettings).GetField("statusMessage", flags)!.GetValue(page)));
+        Assert.Equal(text["AdminSettings.Saved"], Assert.IsType<string>(typeof(AdminSettings).GetField("statusMessage", flags)!.GetValue(page)));
         await using (var context = fixture.Factory.CreateDbContext())
         {
             var stored = await context.Settings.SingleAsync(setting => setting.Name == DatabaseSettingsLoader.DashboardFilters);
@@ -141,7 +153,8 @@ public sealed class DashboardFilterOptionsTests
             before = await context.Settings.ToDictionaryAsync(setting => setting.Name, setting => setting.JsonValue);
         field.SetValue(page, """{"Workspace":"unknown"}""");
         await InvokeAsync("SaveAsync");
-        Assert.Contains("Workspace must match", Assert.IsType<string>(error.GetValue(page)));
+        Assert.Equal(text.Format("AdminSettings.Validation.InvalidValues", text["AdminSettings.DashboardDefaults"]),
+            Assert.IsType<string>(error.GetValue(page)));
         await using (var context = fixture.Factory.CreateDbContext())
         {
             var after = await context.Settings.ToDictionaryAsync(setting => setting.Name, setting => setting.JsonValue);

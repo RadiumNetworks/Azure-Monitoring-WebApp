@@ -8,6 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="MonitoringApp.Tests" />
+    <EmbeddedResource Include="Infrastructure\Localization\QueryTemplateCatalog.v*.json"
+                      LogicalName="MonitoringApp.%(Filename)%(Extension)" />
+    <Content Remove="Infrastructure\Localization\QueryTemplateCatalog.v*.json" />
+    <EmbeddedResource Include="Services\AgentAnalysis\Templates\*.en.txt"
+                      LogicalName="MonitoringApp.AgentPrompts.%(Filename)%(Extension)" WithCulture="false" />
+    <Content Remove="Services\AgentAnalysis\Templates\*.en.txt" />
+    <None Remove="Services\AgentAnalysis\Templates\*.en.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.6.0" />
     <PackageReference Include="Azure.Monitor.Query.Logs" Version="1.0.0" />
@@ -23,12 +34,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="AnalysisQueries\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+    <Content Remove="doc\**" />
+    <Content Remove="Services\KQL\Templates\ActiveDirectory\**\*.json" />
+    <Content Include="Services\KQL\Templates\ActiveDirectory\**\*.json"
+             Link="AnalysisQueries\ActiveDirectory\%(RecursiveDir)%(Filename)%(Extension)"
+             TargetPath="AnalysisQueries\ActiveDirectory\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Remove="Services\KQL\Templates\Scheduled\**\*.json" />
+    <Content Include="Services\KQL\Templates\Scheduled\**\*.json"
+             Link="AnalysisQueries\Scheduled\%(RecursiveDir)%(Filename)%(Extension)"
+             TargetPath="AnalysisQueries\Scheduled\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="AlertDefinitions\**\*.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="Database\**\*.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Remove="Services\KQL\Templates\Support\**\*.json" />
+    <Content Include="Services\KQL\Templates\Support\**\*.json"
+             Link="AnalysisQueries\Support\%(RecursiveDir)%(Filename)%(Extension)"
+             TargetPath="AnalysisQueries\Support\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Services\EFCore\Scripts\*.sql;Services\EFCore\Scripts\*.ps1"
+          TargetPath="Database\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="DemoData\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Deployment\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Remove="publish\**" />
+    <Content Remove="bin\**;obj\**" />
+    <None Remove="bin\**;obj\**" />
   </ItemGroup>
 
   <Target Name="CreatePublishLogDirectory" AfterTargets="Publish">

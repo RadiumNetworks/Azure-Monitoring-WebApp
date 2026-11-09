@@ -13,11 +13,11 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\AlertConsoleUrlResolver.cs" Link="Configuration\AlertConsoleUrlResolver.cs" />
-    <None Include="..\alertconsole.local.json"
+    <None Include="..\config\alertconsole.local.json"
           Link="alertconsole.local.json"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="Never"
-          Condition="Exists('..\alertconsole.local.json')" />
+          Condition="Exists('..\config\alertconsole.local.json')" />
   </ItemGroup>
 
 </Project>

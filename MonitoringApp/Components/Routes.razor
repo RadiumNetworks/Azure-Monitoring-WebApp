@@ -1,6 +1,26 @@
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        @if (Attribute.IsDefined(routeData.PageType, typeof(AllowAnonymousAttribute), inherit: true))
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        }
+        else
+        {
+            <AuthorizeView Policy="ApplicationAccess" Context="applicationState">
+                <Authorized>
+                    <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+                        <NotAuthorized>
+                            <MonitoringApp.Components.Pages.AccessDenied />
+                        </NotAuthorized>
+                    </AuthorizeRouteView>
+                </Authorized>
+                <NotAuthorized>
+                    <LayoutView Layout="typeof(LoginLayout)">
+                        <MonitoringApp.Components.Pages.AccessDenied />
+                    </LayoutView>
+                </NotAuthorized>
+            </AuthorizeView>
+        }
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

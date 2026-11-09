@@ -1,3 +1,5 @@
+@inject UiText Text
+
 @foreach (var resultRow in Rows)
 {
     <div class="query-result-row">
@@ -19,7 +21,7 @@
         </div>
         @if (resultRow.Alerts.Count > 0)
         {
-            <div class="failed-tests" aria-label="Alert details">
+            <div class="failed-tests" aria-label="@Text["QueryResults.AlertDetails"]">
                 @foreach (var item in resultRow.Alerts)
                 {
                     <span><strong>@item.Label</strong> @item.Value</span>

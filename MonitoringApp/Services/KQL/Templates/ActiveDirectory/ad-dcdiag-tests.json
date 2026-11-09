@@ -1,0 +1,13 @@
+{
+  "key": "ad-dcdiag-tests",
+  "name": "DCDiag test status (one row per test)",
+  "description": "Latest results with one row per computer and test, showing result text and a status symbol.",
+  "category": "Active Directory",
+  "kql": "DCDiagData_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, Status) by Computer\r\n| extend Tests = todynamic(Status)\r\n| mv-expand Test = bag_keys(Tests)\r\n| extend TestName = tostring(Test)\r\n| project Timestamp = TimeGenerated, Computer, TestName,\r\n    Result = tostring(Tests[TestName]), Result__Status = tostring(Tests[TestName])\r\n| order by Computer asc, TestName asc",
+  "visualizationType": "Table",
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

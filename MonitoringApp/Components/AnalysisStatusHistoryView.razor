@@ -1,15 +1,17 @@
 @using System.Globalization
+@inject UiText Text
+@inject QueryTextPresentation QueryText
 
 @if (Result.BinMinutes is not > 0)
 {
-    <div class="admin-message admin-message-error">Status history requires the execution bin interval.</div>
+    <div class="admin-message admin-message-error">@Text["AnalysisResults.HistoryIntervalRequired"]</div>
 }
 else
 {
-    <p class="cell-secondary analysis-history-description">History in UTC, @Result.BinMinutes-minute bins. Gaps mean no observations, not OK. Colors use visualization settings, not alert rules.</p>
+    <p class="cell-secondary analysis-history-description">@Text.Format("AnalysisResults.HistoryDescription", Result.BinMinutes.Value.ToString(CultureInfo.CurrentCulture))</p>
     var duration = Math.Max((Result.To - Result.From).TotalSeconds, 1);
     var seriesList = Result.Series.Where(series => AnalysisVisualization.Column(Options, series.Dimension ?? series.Name)?.Hidden != true).ToArray();
-    <svg class="analysis-status-history" viewBox="@($"0 0 1000 {70 + seriesList.Length * 48}")" role="img" aria-label="@($"{Result.Name}: status history in UTC")">
+    <svg class="analysis-status-history" viewBox="@($"0 0 1000 {70 + seriesList.Length * 48}")" role="img" aria-label="@Text.Format("AnalysisResults.HistoryLabel", QueryText.Name(Result))">
         <text x="310" y="20">@Result.From.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</text>
         <text x="990" y="20" text-anchor="end">@Result.To.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</text>
         @for (var index = 0; index < seriesList.Length; index++)

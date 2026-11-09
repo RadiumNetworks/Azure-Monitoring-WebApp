@@ -1,0 +1,26 @@
+@baseUrl = https://localhost:7150
+@antiforgeryCookie = replace-with-cookie-from-login-page
+@antiforgeryToken = replace-with-hidden-form-token-from-login-page
+
+### Get the page and its language form (requires a configured application database)
+GET {{baseUrl}}/login
+
+### Explicit German selection; returns a local redirect and sets only the UI cookie
+POST {{baseUrl}}/ui/language
+Content-Type: application/x-www-form-urlencoded
+Cookie: {{antiforgeryCookie}}
+
+Culture=de-DE&ReturnUrl=%2Flogin&__RequestVerificationToken={{antiforgeryToken}}
+
+### Invalid culture: 400, no language cookie written
+POST {{baseUrl}}/ui/language
+Content-Type: application/x-www-form-urlencoded
+Cookie: {{antiforgeryCookie}}
+
+Culture=fr-FR&ReturnUrl=%2Flogin&__RequestVerificationToken={{antiforgeryToken}}
+
+### Missing antiforgery token: 400
+POST {{baseUrl}}/ui/language
+Content-Type: application/x-www-form-urlencoded
+
+Culture=en-US&ReturnUrl=%2Flogin

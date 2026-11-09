@@ -1,0 +1,12 @@
+{
+  "name": "Kerberos authentications stopped",
+  "categoryName": "Authentication",
+  "scope": "SelectedSystems",
+  "kql": "Perf\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated >= _WindowStart and TimeGenerated < _WindowEnd\n| where ObjectName == \"Security System-Wide Statistics\" and CounterName == \"Kerberos Authentications\"\n| summarize Value = avg(CounterValue) by Series = Computer",
+  "intervalMinutes": 5,
+  "windowMinutes": 5,
+  "ingestionDelayMinutes": 2,
+  "comparison": "=",
+  "threshold": 0,
+  "severity": "Sev2"
+}

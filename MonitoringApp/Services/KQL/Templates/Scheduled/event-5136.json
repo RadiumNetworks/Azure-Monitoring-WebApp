@@ -1,0 +1,12 @@
+{
+  "name": "Directory object change (5136)",
+  "categoryName": "Account Changes",
+  "scope": "Workspace",
+  "kql": "let _SecurityEvents = materialize(\n    Event\n    | where TimeGenerated >= _WindowStart and TimeGenerated < _WindowEnd\n    | where EventLog == \"Security\"\n    | project EventID, EventData\n);\nlet _Observations = toscalar(_SecurityEvents | count);\n_SecurityEvents\n| where EventID == 5136\n| extend eventdata = parse_xml(EventData)\n| extend User = tostring(eventdata.DataItem.EventData.Data[3][\"#text\"])\n| extend User = iff(User == \"-\", \"\", User)\n| summarize MatchingEvents = count(),\n            Users = make_set_if(User, isnotempty(User), 101),\n            UnparsedEvents = countif(isempty(User))\n| project Series = \"Workspace\",\n          Value = iff(_Observations > 0, todouble(MatchingEvents), real(null)),\n          EventId = 5136,\n          UsersTruncated = array_length(Users) > 100,\n          Users = tostring(array_sort_asc(array_slice(Users, 0, 99))),\n          UnparsedEvents",
+  "intervalMinutes": 5,
+  "windowMinutes": 5,
+  "ingestionDelayMinutes": 2,
+  "comparison": ">",
+  "threshold": 0,
+  "severity": "Sev2"
+}

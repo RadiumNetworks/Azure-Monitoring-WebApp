@@ -6,6 +6,58 @@ public sealed class InboxTargetOutputTests
     private static readonly TimeSpan DefaultAge = TimeSpan.FromMinutes(5);
 
     [Fact]
+    public void InventorySiteEnrichesInboxIdentityWithoutChangingAlertPayload()
+    {
+        var alert = Alert(" SUB-A ", "server01") with { DisplayIdentity = new("server01", ""), RawJson = """{"original":true}""" };
+        var inventory = Inventory(Now);
+        inventory.Site = " Configured site ";
+
+        var enriched = Assert.Single(InboxTargetOutput.WithInventorySites([alert], [inventory]));
+        var cell = Assert.Single(InboxTargetOutput.Build([alert], [alert], [inventory], Now, DefaultAge));
+
+        Assert.Equal("Configured site", enriched.SiteName);
+        Assert.Equal("server01 (Configured site)", enriched.TargetDisplayName);
+        Assert.Equal("Configured site", cell.Site);
+        Assert.Equal(alert.RawJson, enriched.RawJson);
+        Assert.Equal(alert.Id, enriched.Id);
+        Assert.Equal("", alert.SiteName);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void EmptyInventorySitePreservesPayloadSite(string? inventorySite)
+    {
+        var entry = Inventory(Now);
+        entry.Site = inventorySite;
+        var alert = Alert() with { DisplayIdentity = new("SERVER01", "Payload site") };
+
+        Assert.Equal("Payload site", Assert.Single(InboxTargetOutput.WithInventorySites([alert], [entry])).SiteName);
+        Assert.Equal("Payload site", Assert.Single(InboxTargetOutput.Build([alert], [alert], [entry], Now, DefaultAge)).Site);
+    }
+
+    [Fact]
+    public void InventorySiteNeverLeaksAcrossSubscriptionsOrIntoWorkspaceAlerts()
+    {
+        var first = Inventory(Now);
+        var second = Inventory(Now, "sub-b");
+        second.Site = "Site B";
+        var alerts = new[] { Alert(), Alert("sub-b"), Alert("sub-c") with { DisplayIdentity = new("SERVER01", "") } };
+        var enriched = InboxTargetOutput.WithInventorySites(alerts, [first, second]);
+        Assert.Equal(["Site A", "Site B", ""], enriched.Select(alert => alert.SiteName));
+
+        var workspace = Alert("") with
+        {
+            AlertId = "scheduled-query:workspace-test",
+            RawJson = """{"queryResult":{"type":"ScheduledKqlWorkspace"}}""",
+            DisplayIdentity = new("SERVER01", "")
+        };
+        var coincidentalInventory = Inventory(Now, "");
+        Assert.Equal("", Assert.Single(InboxTargetOutput.WithInventorySites([workspace], [coincidentalInventory])).SiteName);
+    }
+
+    [Fact]
     public void InventoryWithoutHeartbeatOrAlertsAppearsAsMissing()
     {
         var cell = Assert.Single(InboxTargetOutput.Build([], [], [Inventory(null)], Now, DefaultAge));
@@ -76,6 +128,7 @@ public sealed class InboxTargetOutputTests
         Assert.Equal(0, cell.Count);
         Assert.Equal(InboxTargetColor.Purple, cell.Color);
         Assert.Contains("heatmap-cell-service-health-alert", cell.CssClass, StringComparison.Ordinal);
+        Assert.Equal(["NTDS"], cell.NonRunningServices);
     }
 
     [Fact]
@@ -90,6 +143,42 @@ public sealed class InboxTargetOutputTests
         Assert.False(cell.HasServiceHealthAlert);
         Assert.Equal(1, cell.Count);
         Assert.Equal(InboxTargetColor.Yellow, cell.Color);
+        Assert.Equal(["NTDS"], cell.NonRunningServices);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ServiceNamesIncludeOnlyNonRunningServicesAndPreserveInventory(bool withAlert)
+    {
+        var inventory = Inventory(Now);
+        const string json = """
+            [{"Name":"NTDS","Status":1},{"Name":"DNS","Status":null},
+             {"Name":"Running","Status":4},{"Name":"ntds","Status":2},
+             {"Name":"Other <service> \" &","Status":7},{"Name":"","Status":1}]
+            """;
+        inventory.ServicesJson = json;
+        var alerts = withAlert ? new[] { Alert() } : [];
+        var cell = Assert.Single(InboxTargetOutput.Build(alerts, alerts, [inventory], Now, DefaultAge));
+        Assert.Equal(["DNS", "NTDS", "Other <service> \" &"], cell.NonRunningServices);
+        Assert.Equal(json, inventory.ServicesJson);
+        Assert.Equal(withAlert ? 1 : 0, cell.Count);
+    }
+
+    [Fact]
+    public void ServiceNamesUseLatestInventoryForTheCorrectSystem()
+    {
+        var old = Inventory(Now.AddMinutes(-2));
+        old.ServicesJson = """[{"Name":"Old service","Status":1}]""";
+        var current = Inventory(Now);
+        current.ServicesJson = """[{"Name":"Current service","Status":1}]""";
+        var other = Inventory(Now, "sub-b");
+        other.Domain = "Other domain";
+        other.ServicesJson = """[{"Name":"Other service","Status":1}]""";
+        var cells = InboxTargetOutput.Build([], [], [old, current, other], Now, DefaultAge);
+        Assert.Equal(["Current service"], cells.Single(cell => cell.SubscriptionId == current.SubscriptionId).NonRunningServices);
+        Assert.Equal(["Other service"], cells.Single(cell => cell.SubscriptionId == other.SubscriptionId).NonRunningServices);
+        Assert.Empty(Assert.Single(InboxTargetOutput.Build([Alert()], [Alert()], [], Now, DefaultAge)).NonRunningServices);
     }
 
     [Fact]
@@ -166,7 +255,7 @@ public sealed class InboxTargetOutputTests
         var cell = Assert.Single(InboxTargetOutput.Build([alert], [], [Inventory(null)], Now, DefaultAge));
 
         Assert.True(cell.MissingHeartbeat);
-        Assert.Equal("Old site", cell.Site);
+        Assert.Equal("Site A", cell.Site);
     }
 
     [Fact]

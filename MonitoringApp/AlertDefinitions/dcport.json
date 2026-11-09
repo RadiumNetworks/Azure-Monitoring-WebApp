@@ -1,6 +1,7 @@
 {
   "type": "DCPort",
   "label": "DC port check summary",
+  "labelKey": "QueryResults.DCPortSummary",
   "identity": {
     "targetColumns": ["RemoteSystem"],
     "siteColumns": ["RemoteSite"],
@@ -8,21 +9,21 @@
   },
   "collapseRows": true,
   "summary": [
-    { "operation": "row-count", "label": "failed checks", "singularLabel": "failed check", "tone": "failure" }
+    { "operation": "row-count", "label": "failed checks", "labelKey": "QueryResults.FailedChecks", "singularLabel": "failed check", "tone": "failure" }
   ],
   "row": {
     "title": "{RemoteSystem}",
     "metadata": [
-      { "column": "RemoteSite", "label": "Remote site" },
-      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
+      { "column": "RemoteSite", "label": "Remote site", "labelKey": "QueryResults.RemoteSite" },
+      { "column": "TimeGenerated", "label": "Observed", "labelKey": "QueryResults.Observed", "format": "datetime" }
     ],
     "alerts": [
-      { "column": "Status", "label": "Port status", "tone": "failure" }
+      { "column": "Status", "label": "Port status", "labelKey": "QueryResults.PortStatus", "tone": "failure" }
     ],
     "facts": [
-      { "column": "LocalSystem", "label": "Source" },
-      { "column": "Port", "label": "Port" },
-      { "column": "Protocol", "label": "Protocol" }
+      { "column": "LocalSystem", "label": "Source", "labelKey": "QueryResults.Source" },
+      { "column": "Port", "label": "Port", "labelKey": "QueryResults.Port" },
+      { "column": "Protocol", "label": "Protocol", "labelKey": "QueryResults.Protocol" }
     ],
     "details": []
   }

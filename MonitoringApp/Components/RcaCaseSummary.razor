@@ -1,15 +1,16 @@
 @inject RcaDisplayOptions Display
+@inject UiText Text
 
 <button class="rca-case @(Selected ? "selected" : null)" type="button"
         style="@Display.Style(Case)" aria-pressed="@(Selected ? "true" : "false")" disabled="@Busy"
-        title="Open RCA @Case.Id" @onclick="() => OnSelected.InvokeAsync(Case)">
+        title="@Text.Format("Rca.OpenCase", Case.Id)" @onclick="() => OnSelected.InvokeAsync(Case)">
     <span class="rca-case-heading">
         <strong>@Case.CategoryName</strong>
-        <span class="rca-case-status">@RcaStatuses.Label(Case.Status)</span>
+        <span class="rca-case-status">@(RcaStatuses.All.Contains(Case.Status) ? Text[$"Inbox.RcaStatus.{Case.Status}"] : Case.Status)</span>
     </span>
     <span class="rca-case-meta">
-        <span>@(Case.IsActive ? "Critical" : "No longer critical")</span>
-        <span class="rca-case-assignee" title="@Case.AssignedTo">@(string.IsNullOrWhiteSpace(Case.AssignedTo) ? "Unassigned" : Case.AssignedTo)</span>
+        <span>@Text[Case.IsActive ? "Rules.Critical" : "Rca.NoLongerCritical"]</span>
+        <span class="rca-case-assignee" title="@Case.AssignedTo">@(string.IsNullOrWhiteSpace(Case.AssignedTo) ? Text["Inbox.RcaUnassigned"] : Case.AssignedTo)</span>
     </span>
     <time datetime="@Case.CreatedAt.ToString("O")">@Case.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'")</time>
 </button>

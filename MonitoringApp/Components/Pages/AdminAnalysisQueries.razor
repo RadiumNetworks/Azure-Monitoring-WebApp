@@ -1,6 +1,8 @@
 @page "/admin/analysis-queries"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "AdminAccess")]
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
 @inject AnalysisQueryRegistry Registry
 @inject AnalysisQueryCategoryService Categories
 @inject ApplicationAuthenticationOptions AuthenticationOptions
@@ -8,27 +10,30 @@
 @inject CrossTenantLogAnalyticsOptions Options
 @inject AlertStore AlertStore
 @inject AnalysisQueryRunner QueryRunner
+@inject UiText Text
+@inject QueryTextPresentation QueryText
+@inject ILogger<AdminAnalysisQueries> Logger
 
-<PageTitle>Analysis Query Administration</PageTitle>
+<PageTitle>@Text["AdminAnalysisQueries.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Analysis queries</h1>
-        <p class="subtitle">Author, validate, version, and publish the KQL available to operators.</p>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["Navigation.AnalysisQueries"]</h1>
+        <p class="subtitle">@Text["AdminAnalysisQueries.Description"]</p>
     </div>
     <div class="admin-heading-actions">
         @if (!isBusy && queries.Count > 0)
         {
             <a class="admin-secondary" href="api/admin/analysis-queries/export" data-enhance-nav="false"
-               title="Exports all saved drafts, including disabled queries. Unsaved editor changes are not included.">Export queries (ZIP)</a>
+               title="@Text["AdminAnalysisQueries.ExportHelp"]">@Text["AdminAnalysisQueries.Export"]</a>
         }
         else
         {
-            <button class="admin-secondary" type="button" disabled>Export queries (ZIP)</button>
+            <button class="admin-secondary" type="button" disabled>@Text["AdminAnalysisQueries.Export"]</button>
         }
-        <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="InstallAdLibraryAsync">Install AD query library</button>
-        <button class="admin-primary" type="button" disabled="@isBusy" @onclick="BeginCreate">Create query</button>
+        <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="InstallAdLibraryAsync">@Text["AdminAnalysisQueries.InstallLibrary"]</button>
+        <button class="admin-primary" type="button" disabled="@ActionsUnavailable" @onclick="BeginCreate">@Text["AdminAnalysisQueries.Create"]</button>
     </div>
 </section>
 
@@ -40,26 +45,33 @@
 {
     <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
 }
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="admin-message admin-message-error" role="alert">@loadError</div>
+}
+
+<QueryJsonImport Busy="@ActionsUnavailable" OnImport="ImportJsonAsync"
+                 Description="@Text["QueryImport.AnalysisDescription"]" />
 
 <div class="admin-workspace admin-analysis-workspace @(editing is not null ? "editing-draft" : null)">
     <section class="admin-rule-list" aria-labelledby="analysis-query-list">
         <div class="admin-section-heading">
-            <div><h2 id="analysis-query-list">Query registry</h2><span>@queries.Count definitions</span></div>
+            <div><h2 id="analysis-query-list">@Text["AdminAnalysisQueries.Registry"]</h2><span>@Text.Plural("AdminAnalysisQueries.Definitions", queries.Count)</span></div>
             <div class="admin-card-actions">
                 <button class="admin-secondary" type="button" aria-expanded="@(!registryCollapsed)" aria-controls="analysis-query-cards"
-                        @onclick="() => registryCollapsed = !registryCollapsed">@(registryCollapsed ? "Expand registry" : "Minimize registry")</button>
-                <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => RunAsync(LoadAsync)">Refresh</button>
+                        @onclick="() => registryCollapsed = !registryCollapsed">@(registryCollapsed ? Text["AdminAnalysisQueries.ExpandRegistry"] : Text["AdminAnalysisQueries.MinimizeRegistry"])</button>
+                <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="RefreshAsync">@Text["Common.Refresh"]</button>
             </div>
         </div>
-        <section class="analysis-category-manager" aria-label="Assign workspaces to all queries">
-            <h3>Workspace assignment for all queries</h3>
-            <p>Enable the selected workspaces for all saved queries at once. Other workspace assignments, query content and version history are preserved. New assignments require validation; this action does not validate queries or publish new versions.</p>
+        <section class="analysis-category-manager" aria-label="@Text["AdminAnalysisQueries.BulkWorkspaceLabel"]">
+            <h3>@Text["AdminAnalysisQueries.BulkWorkspaceTitle"]</h3>
+            <p>@Text["AdminAnalysisQueries.BulkWorkspaceHelp"]</p>
             @if (editing is not null)
             {
-                <p>Save your changes and close the query editor before applying bulk workspace assignments.</p>
+                <p>@Text["AdminAnalysisQueries.BulkWorkspaceEditorHint"]</p>
             }
-            <fieldset class="admin-fieldset" disabled="@(isBusy || editing is not null)">
-                <legend>Target workspaces</legend>
+            <fieldset class="admin-fieldset" disabled="@(ActionsUnavailable || editing is not null)">
+                <legend>@Text["AdminAnalysisQueries.TargetWorkspaces"]</legend>
                 @foreach (var workspace in Options.Workspaces.OrderBy(workspace => workspace.DisplayName))
                 {
                     <label class="admin-check">
@@ -70,33 +82,33 @@
                 }
                 @if (Options.Workspaces.Length == 0)
                 {
-                    <small>No Log Analytics workspaces are configured.</small>
+                    <small>@Text["AdminAnalysisQueries.NoWorkspaces"]</small>
                 }
                 <label class="admin-check admin-field-wide">
                     <input type="checkbox" @bind="bulkIncludeDisabledQueries" />
-                    <span>Include disabled queries and re-enable them</span>
+                    <span>@Text["AdminAnalysisQueries.IncludeDisabled"]</span>
                 </label>
                 @if (bulkIncludeDisabledQueries)
                 {
-                    <small>Re-enabling queries can restore access to their existing published versions on previously validated workspaces.</small>
+                    <small>@Text["AdminAnalysisQueries.ReenableWarning"]</small>
                 }
                 <div class="admin-form-actions">
                     <button class="admin-primary" type="button"
-                            disabled="@(isBusy || editing is not null || queries.Count == 0 || bulkWorkspaceKeys.Count == 0)"
-                            @onclick="AssignWorkspacesToAllAsync">Apply to all queries</button>
+                            disabled="@(ActionsUnavailable || editing is not null || queries.Count == 0 || bulkWorkspaceKeys.Count == 0)"
+                            @onclick="AssignWorkspacesToAllAsync">@Text["AdminAnalysisQueries.ApplyWorkspaces"]</button>
                 </div>
             </fieldset>
         </section>
-        <section class="analysis-category-manager" aria-label="Manage query categories">
-            <h3>Manage categories</h3>
-            <p>Use nested categories to organize both the registry and library. Move queries by dragging a card onto a category heading or using its category selection. Published queries move without republishing.</p>
+        <section class="analysis-category-manager" aria-label="@Text["AdminAnalysisQueries.CategoryManagerLabel"]">
+            <h3>@Text["AdminAnalysisQueries.ManageCategories"]</h3>
+            <p>@Text["AdminAnalysisQueries.CategoriesHelp"]</p>
             <form class="admin-form" @onsubmit="SaveCategoryAsync" @onsubmit:preventDefault>
-                <label class="admin-field"><span>@(categoryToEdit is null ? "New category" : "Category name")</span>
-                    <input required maxlength="128" disabled="@isBusy" @bind="categoryName" />
+                <label class="admin-field"><span>@(categoryToEdit is null ? Text["AdminAnalysisQueries.NewCategory"] : Text["Rules.Editor.CategoryName"])</span>
+                    <input required maxlength="128" disabled="@ActionsUnavailable" @bind="categoryName" />
                 </label>
-                <label class="admin-field"><span>Parent category</span>
-                    <select disabled="@isBusy" @bind="categoryParent">
-                        <option value="">Top level</option>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.ParentCategory"]</span>
+                    <select disabled="@ActionsUnavailable" @bind="categoryParent">
+                        <option value="">@Text["AdminAnalysisQueries.TopLevel"]</option>
                         @foreach (var path in categoryPaths.Where(path => categoryToEdit is null || !AnalysisQueryCategories.IsWithin(path, categoryToEdit)))
                         {
                             <option value="@path">@path</option>
@@ -104,30 +116,30 @@
                     </select>
                 </label>
                 <div class="admin-card-actions">
-                    <button class="admin-primary" type="submit" disabled="@isBusy">@(categoryToEdit is null ? "Create category" : "Save category")</button>
-                    <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => BeginCategoryCreate()">Clear / cancel</button>
+                    <button class="admin-primary" type="submit" disabled="@ActionsUnavailable">@(categoryToEdit is null ? Text["AdminAnalysisQueries.CreateCategory"] : Text["AdminAnalysisQueries.SaveCategory"])</button>
+                    <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginCategoryCreate()">@Text["AdminAnalysisQueries.ClearCategory"]</button>
                 </div>
             </form>
         </section>
         <div id="analysis-query-cards" hidden="@registryCollapsed">
-            <AnalysisQueryCategoryTree Nodes="RegistryCategories" AllowDrop="@(!isBusy)" CategoryDrop="DropQueryAsync">
+            <AnalysisQueryCategoryTree Nodes="RegistryCategories" AllowDrop="@(!ActionsUnavailable)" CategoryDrop="DropQueryAsync">
                 <CategoryActions Context="category">
-                    <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => BeginCategoryCreate(category.Path)">Add subcategory</button>
-                    <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => BeginCategoryEdit(category.Path)">Rename / move</button>
-                    <button class="admin-danger" type="button" disabled="@(isBusy || category.QueryCount != 0 || category.Children.Count != 0)"
-                            @onclick="() => DeleteCategoryAsync(category.Path)">Delete empty category</button>
+                    <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginCategoryCreate(category.Path)">@Text["AdminAnalysisQueries.AddSubcategory"]</button>
+                    <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginCategoryEdit(category.Path)">@Text["AdminAnalysisQueries.RenameMoveCategory"]</button>
+                    <button class="admin-danger" type="button" disabled="@(ActionsUnavailable || category.QueryCount != 0 || category.Children.Count != 0)"
+                            @onclick="() => DeleteCategoryAsync(category.Path)">@Text["AdminAnalysisQueries.DeleteEmptyCategory"]</button>
                 </CategoryActions>
                 <QueryContent Context="query">
                 <article class="admin-rule-card @(editing?.Id == query.Id ? "selected" : null)" @key="query.Id"
-                         draggable="@(!isBusy ? "true" : "false")" @ondragstart="() => draggedQueryId = query.Id"
+                         draggable="@(!ActionsUnavailable ? "true" : "false")" @ondragstart="() => draggedQueryId = query.Id"
                          @ondragend="() => draggedQueryId = null">
-                    <button class="collapsible-card-toggle" type="button" disabled="@isBusy" @onclick="() => BeginEdit(query)">
-                        <strong>@query.Name</strong>
+                    <button class="collapsible-card-toggle" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginEdit(query)">
+                        <strong>@QueryText.Name(query)</strong>
                         <span>@query.Category · v@(query.Version) · @query.Status</span>
                     </button>
                     <div class="collapsible-card-details">
-                        <label class="admin-field"><span>Category (applies immediately)</span>
-                            <select value="@CategorySelection(query)" disabled="@isBusy"
+                        <label class="admin-field"><span>@Text["AdminAnalysisQueries.CardCategory"]</span>
+                            <select value="@CategorySelection(query)" disabled="@ActionsUnavailable"
                                     @onchange="args => MoveQueryAsync(query.Id, args.Value?.ToString() ?? string.Empty)">
                                 @foreach (var path in categoryPaths)
                                 {
@@ -138,16 +150,16 @@
                         <div class="collapsible-card-toolbar">
                             <span class="admin-status @(query.Enabled ? "enabled" : "disabled")">@query.Status</span>
                             <div class="admin-card-actions">
-                                <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => ValidateAsync(query.Id)">Validate</button>
-                                <button class="admin-primary" type="button" disabled="@(isBusy || query.Status != AnalysisQueryStatuses.Validated)" @onclick="() => PublishAsync(query.Id)">Publish</button>
-                                <button class="admin-secondary" type="button" disabled="@(isBusy || query.PublishedVersionId is null)" @onclick="() => queryToUnpublish = query">Unpublish</button>
-                                <button class="admin-danger" type="button" disabled="@isBusy" @onclick="() => DisableAsync(query.Id)">Disable</button>
+                                <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => ValidateAsync(query.Id)">@Text["AdminAnalysisQueries.Validate"]</button>
+                                <button class="admin-primary" type="button" disabled="@(ActionsUnavailable || query.Status != AnalysisQueryStatuses.Validated)" @onclick="() => PublishAsync(query.Id)">@Text["AdminAnalysisQueries.Publish"]</button>
+                                <button class="admin-secondary" type="button" disabled="@(ActionsUnavailable || query.PublishedVersionId is null)" @onclick="() => queryToUnpublish = query">@Text["AdminAnalysisQueries.Unpublish"]</button>
+                                <button class="admin-danger" type="button" disabled="@ActionsUnavailable" @onclick="() => DisableAsync(query.Id)">@Text["AdminAnalysisQueries.Disable"]</button>
                             </div>
                         </div>
                         @foreach (var workspace in query.Workspaces.OrderBy(item => item.WorkspaceKey))
                         {
                             <div class="cell-secondary">
-                                @workspace.WorkspaceKey: @(workspace.Enabled ? workspace.LastValidationStatus : "Disabled")
+                                @workspace.WorkspaceKey: @(workspace.Enabled ? workspace.LastValidationStatus : Text["Common.Disabled"])
                                 @if (!string.IsNullOrWhiteSpace(workspace.LastValidationMessage))
                                 {
                                     <span>· @workspace.LastValidationMessage</span>
@@ -165,21 +177,21 @@
         @if (editing is null)
         {
             <div class="admin-editor-placeholder">
-                <strong>Select or create a query</strong>
-                <span>Only successfully validated and published queries become available to operators.</span>
+                <strong>@Text["AdminAnalysisQueries.SelectQuery"]</strong>
+                <span>@Text["AdminAnalysisQueries.SelectQueryHelp"]</span>
             </div>
         }
         else
         {
             <div class="admin-section-heading">
-                <div><p class="eyebrow">Draft</p><h2 id="analysis-query-editor">@editing.Name</h2></div>
+                <div><p class="eyebrow">@Text["AdminAnalysisQueries.Draft"]</p><h2 id="analysis-query-editor">@QueryText.Name(editing)</h2></div>
             </div>
             <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault @oninput="ClearTestResult">
-                <fieldset class="analysis-query-fields" disabled="@isBusy">
-                <label class="admin-field"><span>Key</span><input required maxlength="128" @bind="editing.Key" /></label>
-                <label class="admin-field"><span>Name</span><input required maxlength="256" @bind="editing.Name" /></label>
-                <label class="admin-field"><span>Category path</span><input required maxlength="128" list="analysis-category-paths" @bind="editing.Category" />
-                    <small>Use / for subcategories. Category changes apply to the library immediately on save.</small>
+                <fieldset class="analysis-query-fields" disabled="@ActionsUnavailable">
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.Key"]</span><input required maxlength="128" @bind="editing.Key" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.Name"]</span><input required maxlength="256" @bind="editing.Name" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.CategoryPath"]</span><input required maxlength="128" list="analysis-category-paths" @bind="editing.Category" />
+                    <small>@Text["AdminAnalysisQueries.CategoryPathHelp"]</small>
                 </label>
                 <datalist id="analysis-category-paths">
                     @foreach (var path in categoryPaths)
@@ -187,39 +199,39 @@
                         <option value="@path"></option>
                     }
                 </datalist>
-                <label class="admin-field"><span>Unit</span><input maxlength="64" @bind="editing.Unit" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.Unit"]</span><input maxlength="64" @bind="editing.Unit" /></label>
                 <label class="admin-field">
-                    <span>Query scope</span>
+                    <span>@Text["AdminAnalysisQueries.Scope"]</span>
                     <select @bind="editing.Scope">
-                        <option value="@AnalysisQueryScopes.SelectedSystems">Selected systems (default)</option>
-                        <option value="@AnalysisQueryScopes.Workspace">Workspace-wide (all environments in routed workspaces)</option>
+                        <option value="@AnalysisQueryScopes.SelectedSystems">@Text["AdminAnalysisQueries.ScopeSelectedSystems"]</option>
+                        <option value="@AnalysisQueryScopes.Workspace">@Text["AdminAnalysisQueries.ScopeWorkspace"]</option>
                     </select>
                 </label>
                 @if (editing.Scope == AnalysisQueryScopes.Workspace)
                 {
                     <div class="admin-message admin-message-warning admin-field-wide" role="status">
-                        Workspace-wide: selected systems choose the workspaces only. The query can return data from all systems/domains in those workspaces. Enabled workspaces, validation and role requirements still apply. Use _TimePeriod; _SelectedSystems is optional.
+                        @Text["AdminAnalysisQueries.ScopeWorkspaceWarning"]
                     </div>
                 }
-                <label class="admin-field"><span>Visualization</span>
-                    <select @bind="editing.VisualizationType">
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.Visualization"]</span>
+                    <select @bind:get="editing.VisualizationType" @bind:set="ChangeVisualization">
                         @foreach (var visualization in AnalysisQueryVisualizationTypes.All)
                         {
                             <option value="@visualization">@visualization</option>
                         }
                     </select>
                 </label>
-                <label class="admin-field admin-field-wide"><span>Description</span><textarea maxlength="2000" rows="3" @bind="editing.Description"></textarea></label>
+                <label class="admin-field admin-field-wide"><span>@Text["AdminAnalysisQueries.EditorDescription"]</span><textarea maxlength="2000" rows="3" @bind="editing.Description"></textarea></label>
                 <label class="admin-field admin-field-wide">
-                    <span>Visualization options (JSON)</span>
+                    <span>@Text["AdminAnalysisQueries.VisualizationJson"]</span>
                     <textarea class="analysis-json-editor" rows="12" maxlength="65536" spellcheck="false" wrap="off" @bind="editing.VisualizationJson"></textarea>
-                    <small>Optional settings as an object ({} keeps defaults): color, minimum/maximum, decimals, cellDisplay (Text, ColorText, ColorBackground), wrapText, thresholds, valueMappings and columns. For Stat: statTitleFontSize and statValueFontSize (8-72 pixels). Colors: green, red, yellow, orange, blue, purple, gray, teal or #RRGGBB. Thresholds must be increasing. Settings are validated and published with the query.</small>
+                    <small>@Text.Format("AdminAnalysisQueries.VisualizationHelp")</small>
                 </label>
-                <label class="admin-field"><span>Default range (minutes)</span><input type="number" min="5" max="43200" @bind="editing.DefaultTimeRangeMinutes" /></label>
-                <label class="admin-field"><span>Maximum range (minutes)</span><input type="number" min="5" max="43200" @bind="editing.MaxTimeRangeMinutes" /></label>
-                <label class="admin-field"><span>Bin size (minutes)</span><input type="number" min="1" max="1440" @bind="editing.DefaultBinMinutes" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.DefaultRange"]</span><input type="number" min="5" max="43200" @bind="editing.DefaultTimeRangeMinutes" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.MaximumRange"]</span><input type="number" min="5" max="43200" @bind="editing.MaxTimeRangeMinutes" /></label>
+                <label class="admin-field"><span>@Text["AdminAnalysisQueries.BinSize"]</span><input type="number" min="1" max="1440" @bind="editing.DefaultBinMinutes" /></label>
                 <label class="admin-field">
-                    <span>Minimum role</span>
+                    <span>@Text["AdminAnalysisQueries.MinimumRole"]</span>
                     <select @bind="editing.MinimumRole">
                         @foreach (var role in SqlAuthenticationRoles.All.Where(role => role != SqlAuthenticationRoles.Reader))
                         {
@@ -228,39 +240,49 @@
                     </select>
                 </label>
                 <fieldset class="admin-field admin-field-wide">
-                    <legend>Allowed Log Analytics workspaces</legend>
+                    <legend>@Text["AdminAnalysisQueries.AllowedWorkspaces"]</legend>
                     @foreach (var workspace in editing.Workspaces)
                     {
-                        var configured = Options.Workspaces.Single(item => item.Key == workspace.WorkspaceKey);
-                        <label class="admin-check">
-                            <input type="checkbox" @bind="workspace.Enabled" @bind:after="WorkspaceAssignmentsChanged" />
-                            <span>@configured.DisplayName (@configured.Key)</span>
-                        </label>
+                        var configured = Options.Workspaces.SingleOrDefault(item =>
+                            item.Key.Equals(workspace.WorkspaceKey, StringComparison.OrdinalIgnoreCase));
+                        @if (configured is null)
+                        {
+                            <p role="alert">@Text.Format("AdminAnalysisQueries.UnavailableWorkspace", workspace.WorkspaceKey)</p>
+                            <button class="admin-secondary" type="button" disabled="@ActionsUnavailable"
+                                    @onclick="() => RemoveUnavailableWorkspace(workspace)">@Text["AdminAnalysisQueries.RemoveUnavailableWorkspace"]</button>
+                        }
+                        else
+                        {
+                            <label class="admin-check">
+                                <input type="checkbox" @bind="workspace.Enabled" @bind:after="WorkspaceAssignmentsChanged" />
+                                <span>@configured.DisplayName (@configured.Key)</span>
+                            </label>
+                        }
                     }
                     @if (Options.Workspaces.Length == 0)
                     {
-                        <small>No Log Analytics workspaces are configured.</small>
+                        <small>@Text["AdminAnalysisQueries.NoWorkspaces"]</small>
                     }
                 </fieldset>
                 <label class="admin-field admin-field-wide">
                     <span>KQL</span>
                     <textarea class="analysis-kql-editor" required rows="18" @bind="editing.Kql"></textarea>
-                    <small>System-scoped queries must use _SelectedSystems. Workspace-wide queries must use _TimePeriod and do not require a Computer column. Lines/status histories use _BinSize and return Timestamp, Series, Value (optional Label/Dimension). Honeycombs/bars/gauges return Series, Value. Statistics return Series, numeric or null Value (optional Dimension/Unit). Tables keep all columns; add ColumnName__Status (OK/Warning/Error/Unknown) for icons. Visualization columns match table column names, or Dimension/Series for charts/statistics.</small>
+                    <small>@Text["AdminAnalysisQueries.KqlHelp"]</small>
                 </label>
                 <div class="admin-form-actions">
-                    <button class="admin-secondary" type="button" disabled="@(!CanTest)" @onclick="TestAsync">@(isBusy ? "Working..." : "Test query")</button>
+                    <button class="admin-secondary" type="button" disabled="@(!CanTest)" @onclick="TestAsync">@(isBusy ? Text["AdminAnalysisQueries.Working"] : Text["AdminAnalysisQueries.TestQuery"])</button>
                 </div>
                 <fieldset class="admin-field admin-field-wide analysis-query-test">
-                    <legend>Test current draft</legend>
-                    <p>Run the current editor content without saving or publishing. This test does not replace workspace validation.</p>
+                    <legend>@Text["AdminAnalysisQueries.TestDraft"]</legend>
+                    <p>@Text["AdminAnalysisQueries.TestHelp"]</p>
                     @if (!Options.Enabled)
                     {
-                        <div class="admin-message admin-message-warning">Live Log Analytics is disabled. Configure and enable it before testing.</div>
+                        <div class="admin-message admin-message-warning">@Text["AdminAnalysisQueries.LiveDisabled"]</div>
                     }
                     <label class="admin-field">
-                        <span>Test workspace</span>
+                        <span>@Text["AdminAnalysisQueries.TestWorkspace"]</span>
                         <select @bind="testWorkspaceKey" @bind:after="TestWorkspaceChanged">
-                            <option value="">Select a workspace</option>
+                            <option value="">@Text["AdminAnalysisQueries.SelectWorkspace"]</option>
                             @foreach (var workspace in Options.Workspaces.Where(item => editing.Workspaces.Any(
                                 assignment => assignment.Enabled && assignment.WorkspaceKey == item.Key)))
                             {
@@ -269,7 +291,7 @@
                         </select>
                     </label>
                     <details class="analysis-system-dropdown">
-                        <summary>Systems for _SelectedSystems (@testSystemKeys.Count selected)</summary>
+                        <summary>@Text.Plural("AdminAnalysisQueries.SelectedSystems", testSystemKeys.Count)</summary>
                         <div class="analysis-system-grid">
                             @foreach (var system in TestSystems)
                             {
@@ -283,17 +305,17 @@
                             }
                             @if (!TestSystems.Any())
                             {
-                                <p>No inventory systems route to this workspace.</p>
+                                <p>@Text["AdminAnalysisQueries.NoTestSystems"]</p>
                             }
                         </div>
                     </details>
                     <AnalysisExecutionSelections @bind-TimeRangeMinutes="testTimeRangeMinutes" @bind-BinMinutes="testBinMinutes"
                         @bind-GroupBy="testGroupBy" MaxTimeRangeMinutes="editing.MaxTimeRangeMinutes"
-                        ShowGrouping="@(editing.Kql.Contains("_GroupBy", StringComparison.Ordinal))" Changed="ClearTestResult" />
+                        ShowGrouping="@(editing.Kql.Contains("_GroupBy", StringComparison.Ordinal))" Disabled="@ActionsUnavailable" Changed="ClearTestResult" />
                 </fieldset>
                 <div class="admin-form-actions">
-                    <button class="admin-primary" type="submit" disabled="@isBusy">Save as draft</button>
-                    <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="CancelEdit">Cancel</button>
+                    <button class="admin-primary" type="submit" disabled="@ActionsUnavailable">@Text["AdminAnalysisQueries.SaveDraft"]</button>
+                    <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="CancelEdit">@Text["Common.Cancel"]</button>
                 </div>
                 </fieldset>
             </form>
@@ -303,7 +325,7 @@
     {
         <section class="admin-analysis-test-output" aria-labelledby="admin-test-execution">
             <div class="admin-section-heading">
-                <div><p class="eyebrow">Preview</p><h2 id="admin-test-execution">Test execution</h2></div>
+                <div><p class="eyebrow">@Text["AdminAnalysisQueries.Preview"]</p><h2 id="admin-test-execution">@Text["AdminAnalysisQueries.TestExecution"]</h2></div>
             </div>
             @if (testError is not null)
             {
@@ -312,19 +334,19 @@
             @if (testPreview is not null)
             {
                     <h3>@testPreview.WorkspaceDisplayName</h3>
-                    <p>Systems: @string.Join(", ", testPreview.Systems)</p>
+                    <p>@Text.Format("AdminAnalysisQueries.PreviewSystems", string.Join(", ", testPreview.Systems))</p>
                     <article class="analysis-execution-preview-card">
-                        <details open><summary>Effective KQL used for this test</summary><pre>@testPreview.EffectiveKql</pre></details>
+                        <details open><summary>@Text["AdminAnalysisQueries.TestKql"]</summary><pre>@testPreview.EffectiveKql</pre></details>
                     </article>
                     @if (testResult is not null)
                     {
-                        <p>@testResult.From.ToString("u") to @testResult.To.ToString("u") · @testResult.DurationMilliseconds ms</p>
+                        <p>@Text.Format("AdminAnalysisQueries.ExecutionSummary", testResult.From.ToString("u"), testResult.To.ToString("u"), testResult.DurationMilliseconds.ToString(CultureInfo.CurrentCulture))</p>
                         <AnalysisResultView Result="testResult" AllowTableView="true" @bind-ShowTable="showTestTable" />
                     }
             }
             else
             {
-                <p class="admin-editor-placeholder">Select a workspace and systems in the draft, then run Test query to see the effective KQL and results here.</p>
+                <p class="admin-editor-placeholder">@Text["AdminAnalysisQueries.TestEmptyPreview"]</p>
             }
         </section>
     }
@@ -333,13 +355,11 @@
 @if (queryToUnpublish is not null)
 {
     <section class="admin-message admin-message-warning" role="alertdialog" aria-labelledby="unpublish-query-heading">
-        <h2 id="unpublish-query-heading">Unpublish query for everyone?</h2>
-        <p><strong>@queryToUnpublish.Name</strong> will no longer be available for execution.
-            Existing widgets keep their configuration but cannot run this query until it is published again.
-            The draft and all previous versions are retained.</p>
+        <h2 id="unpublish-query-heading">@Text["AdminAnalysisQueries.WithdrawTitle"]</h2>
+        <p><LocalizedEmphasis ResourceKey="AdminAnalysisQueries.WithdrawBody" Value="@QueryText.Name(queryToUnpublish)" /></p>
         <div class="admin-card-actions">
-            <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => queryToUnpublish = null">Cancel</button>
-            <button class="admin-danger" type="button" disabled="@isBusy" @onclick="UnpublishAsync">Unpublish for everyone</button>
+            <button class="admin-secondary" type="button" disabled="@isBusy" @onclick="() => queryToUnpublish = null">@Text["Common.Cancel"]</button>
+            <button class="admin-danger" type="button" disabled="@ActionsUnavailable" @onclick="UnpublishAsync">@Text["AdminAnalysisQueries.WithdrawConfirm"]</button>
         </div>
     </section>
 }
@@ -358,6 +378,7 @@
     private string actor = string.Empty;
     private string? statusMessage;
     private string? errorMessage;
+    private string? loadError;
     private bool isBusy;
     private IReadOnlyList<ComputerInventoryEntry> inventory = [];
     private readonly HashSet<string> testSystemKeys = new(StringComparer.OrdinalIgnoreCase);
@@ -372,7 +393,8 @@
     private bool registryCollapsed;
     private readonly HashSet<string> bulkWorkspaceKeys = new(StringComparer.OrdinalIgnoreCase);
     private bool bulkIncludeDisabledQueries = true;
-    private bool CanTest => Options.Enabled && !isBusy && editing is not null &&
+    private bool ActionsUnavailable => isBusy || loadError is not null;
+    private bool CanTest => Options.Enabled && !ActionsUnavailable && editing is not null &&
         !string.IsNullOrWhiteSpace(testWorkspaceKey) && testSystemKeys.Count > 0;
     private IEnumerable<ComputerInventoryEntry> TestSystems => inventory
         .Where(RoutesToTestWorkspace).OrderBy(item => item.Computer);
@@ -382,17 +404,36 @@
         actor = CurrentUserIdentity.GetActor(
             (await AuthenticationStateTask).User,
             AuthenticationOptions.IsOpen);
-        await RunAsync(async () =>
-        {
-            inventory = await AlertStore.GetComputerInventoryAsync();
-            await LoadAsync();
-        });
+        await RefreshAsync();
     }
 
-    private async Task LoadAsync()
+    private async Task RefreshAsync()
     {
-        queries = await Registry.ListAsync();
-        categoryPaths = await Categories.ListAsync();
+        if (isBusy) return;
+        isBusy = true;
+        try { await ReloadDataAsync(); }
+        finally { isBusy = false; }
+    }
+
+    private async Task<bool> ReloadDataAsync()
+    {
+        try
+        {
+            var loadedInventory = await AlertStore.GetComputerInventoryAsync();
+            var loadedQueries = await Registry.ListAsync();
+            var loadedCategories = await Categories.ListAsync();
+            inventory = loadedInventory;
+            queries = loadedQueries;
+            categoryPaths = loadedCategories;
+            loadError = null;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not reload analysis query administration data.");
+            loadError = OperationError(exception, "AdminAnalysisQueries.Errors.LoadFailed");
+            return false;
+        }
     }
 
     private string CategorySelection(AnalysisQueryDefinition query) =>
@@ -421,37 +462,37 @@
             await Categories.CreateAsync(categoryName, categoryParent);
         else
             await Categories.UpdateAsync(categoryToEdit, categoryName, categoryParent, actor);
-        await LoadAsync();
-        if (syncEditingCategory && editing is not null && queries.FirstOrDefault(query => query.Id == editing.Id) is { } current)
-            editing.Category = current.Category;
+        statusMessage = Text["AdminAnalysisQueries.Status.CategorySaved"];
         BeginCategoryCreate();
-        statusMessage = "Category saved. Library organization is updated without publishing a new query version.";
-    });
+        if (await ReloadDataAsync() && syncEditingCategory && editing is not null && queries.FirstOrDefault(query => query.Id == editing.Id) is { } current)
+            editing.Category = current.Category;
+    }, "AdminAnalysisQueries.Errors.CategorySaveFailed");
 
     private async Task DeleteCategoryAsync(string path) => await RunAsync(async () =>
     {
         await Categories.DeleteAsync(path);
-        await LoadAsync();
         if (categoryToEdit == path) BeginCategoryCreate();
-        statusMessage = "Empty category deleted.";
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.CategoryDeleted"];
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.CategoryDeleteFailed");
 
     private async Task MoveQueryAsync(Guid id, string path) => await RunAsync(async () =>
     {
         await Categories.MoveQueryAsync(id, path, actor);
-        await LoadAsync();
-        if (editing?.Id == id)
+        statusMessage = Text["AdminAnalysisQueries.Status.QueryMoved"];
+        if (await ReloadDataAsync() && editing?.Id == id)
             editing.Category = queries.Single(query => query.Id == id).Category;
-        statusMessage = "Query moved. Refresh the library to see the new category; no republishing is needed.";
-    });
+    }, "AdminAnalysisQueries.Errors.MoveFailed");
 
     private async Task DropQueryAsync(string path)
     {
+        if (ActionsUnavailable) return;
         var id = draggedQueryId;
         draggedQueryId = null;
         if (id is null)
         {
-            errorMessage = "Drag a query card from this registry onto a category heading.";
+            Logger.LogWarning("An analysis query category drop has no query selection.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.DropRequired"];
             return;
         }
         await MoveQueryAsync(id.Value, path);
@@ -467,12 +508,8 @@
             DefaultBinMinutes = 15,
             MaxTimeRangeMinutes = 43200,
             UpdatedBy = actor,
-            Kql = """
-                Perf
-                | where Computer in~ (_SelectedSystems)
-                | summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer
-                | project Timestamp, Series, Value
-                """,
+            Kql = AnalysisQueryTemplates.NewDraftKql,
+            VisualizationJson = AnalysisVisualization.TemplateForEditing(AnalysisQueryVisualizationTypes.LineChart),
             Workspaces = Options.Workspaces.Select(workspace => new AnalysisQueryWorkspace
             {
                 WorkspaceKey = workspace.Key,
@@ -480,6 +517,27 @@
             }).ToList()
         };
         ResetTest();
+    }
+
+    private Task ImportJsonAsync(string json)
+    {
+        if (ActionsUnavailable) return Task.CompletedTask;
+        return RunAsync(() =>
+        {
+            QueryTemplateJson.ValidateImport(json);
+            var draft = AnalysisQueryTemplates.Parse(json);
+            draft.VisualizationJson = AnalysisVisualization.FormatForEditing(draft.VisualizationJson);
+            draft.UpdatedBy = actor;
+            draft.Workspaces = Options.Workspaces.Select(workspace => new AnalysisQueryWorkspace
+            {
+                WorkspaceKey = workspace.Key,
+                Enabled = true
+            }).ToList();
+            editing = draft;
+            ResetTest();
+            statusMessage = Text["AdminAnalysisQueries.Status.ImportOpened"];
+            return Task.CompletedTask;
+        }, "AdminAnalysisQueries.Errors.ImportFailed");
     }
 
     private void BeginEdit(AnalysisQueryDefinition query)
@@ -490,6 +548,7 @@
             Key = query.Key,
             Name = query.Name,
             Description = query.Description,
+            StandardTextProvenanceJson = query.StandardTextProvenanceJson,
             Category = query.Category,
             Kql = query.Kql,
             Scope = query.Scope,
@@ -512,16 +571,47 @@
         FormatVisualizationOptions();
     }
 
+    private void ChangeVisualization(string? visualizationType)
+    {
+        if (editing is not { } draft)
+        {
+            Logger.LogWarning("No analysis query draft is selected for changing visualization.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.DraftRequired"];
+            return;
+        }
+        if (draft.VisualizationType == visualizationType) return;
+        try
+        {
+            if (visualizationType is null)
+                throw new InvalidOperationException("Select a supported analysis visualization type.");
+            var template = AnalysisVisualization.TemplateForEditing(visualizationType);
+            draft.VisualizationType = visualizationType;
+            draft.VisualizationJson = template;
+            ClearTestResult();
+        }
+        catch (InvalidOperationException exception)
+        {
+            Logger.LogWarning(exception, "Could not load analysis query visualization template.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.FormatFailed"];
+        }
+    }
+
     private void FormatVisualizationOptions()
     {
-        var draft = editing ?? throw new InvalidOperationException("Select or create a query first.");
+        if (editing is not { } draft)
+        {
+            Logger.LogWarning("No analysis query draft is selected for formatting.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.DraftRequired"];
+            return;
+        }
         try
         {
             draft.VisualizationJson = AnalysisVisualization.FormatForEditing(draft.VisualizationJson);
         }
         catch (Exception exception) when (exception is System.Text.Json.JsonException or InvalidOperationException)
         {
-            errorMessage = $"Visualization options could not be formatted; the original text is available for editing. {exception.Message}";
+            Logger.LogWarning(exception, "Could not format analysis query visualization options.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.FormatFailed"];
         }
     }
 
@@ -554,6 +644,26 @@
     {
         testSystemKeys.Clear();
         ClearTestResult();
+    }
+
+    private void RemoveUnavailableWorkspace(AnalysisQueryWorkspace workspace)
+    {
+        if (ActionsUnavailable) return;
+        if (editing is null)
+        {
+            Logger.LogWarning("No analysis query draft is selected for removing a workspace.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.DraftRequired"];
+            return;
+        }
+        if (Options.Workspaces.Any(item => item.Key.Equals(workspace.WorkspaceKey, StringComparison.OrdinalIgnoreCase)) ||
+            !editing.Workspaces.Remove(workspace))
+        {
+            Logger.LogWarning("The unavailable analysis query workspace selection changed.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.Changed"];
+            return;
+        }
+        errorMessage = null;
+        WorkspaceAssignmentsChanged();
     }
 
     private void WorkspaceAssignmentsChanged()
@@ -590,7 +700,12 @@
     private async Task TestAsync() => await RunAsync(async () =>
     {
         ClearTestResult();
-        var draft = editing ?? throw new InvalidOperationException("Select or create a query first.");
+        if (editing is not { } draft)
+        {
+            Logger.LogWarning("No analysis query draft is selected for testing.");
+            testError = errorMessage = Text["AdminAnalysisQueries.Errors.DraftRequired"];
+            return;
+        }
         var systems = TestSystems.Where(system => testSystemKeys.Contains(SystemKey(system))).ToArray();
         try
         {
@@ -601,26 +716,32 @@
         }
         catch (Exception exception)
         {
-            testError = exception.Message;
+            testError = OperationError(exception, "AdminAnalysisQueries.Errors.TestFailed");
             throw;
         }
-        statusMessage = "Draft test completed. Save, validate, and publish separately to make this query available to operators.";
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.TestCompleted"];
+    }, "AdminAnalysisQueries.Errors.TestFailed");
 
     private async Task SaveAsync() => await RunAsync(async () =>
     {
-        editing = await Registry.SaveDraftAsync(editing!, actor);
+        if (editing is null)
+        {
+            Logger.LogWarning("No analysis query draft is selected for saving.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.DraftRequired"];
+            return;
+        }
+        editing = await Registry.SaveDraftAsync(editing, actor);
         FormatVisualizationOptions();
-        statusMessage = "Draft saved. Workspace validation must be rerun before publishing.";
-        await LoadAsync();
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.DraftSaved"];
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.SaveFailed");
 
     private async Task InstallAdLibraryAsync() => await RunAsync(async () =>
     {
         var added = await Registry.InstallActiveDirectoryLibraryAsync(actor);
-        await LoadAsync();
-        statusMessage = $"Added {added} AD query draft(s); existing definitions were preserved. Select workspaces, test, validate and publish before use.";
-    });
+        statusMessage = Text.Plural("AdminAnalysisQueries.Status.LibraryAdded", added);
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.InstallFailed");
 
     private void ToggleBulkWorkspace(string key, ChangeEventArgs args)
     {
@@ -631,49 +752,80 @@
     private async Task AssignWorkspacesToAllAsync() => await RunAsync(async () =>
     {
         if (editing is not null)
-            throw new InvalidOperationException("Close the query editor before applying bulk workspace assignments.");
+        {
+            Logger.LogWarning("Bulk analysis workspace assignment requires a closed editor.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.CloseEditor"];
+            return;
+        }
         var result = await Registry.EnableWorkspacesForAllAsync(bulkWorkspaceKeys, bulkIncludeDisabledQueries, actor);
-        await LoadAsync();
-        statusMessage = $"Updated {result.UpdatedQueries} query/queries: enabled {result.EnabledAssignments} workspace assignment(s) and re-enabled {result.ReactivatedQueries} disabled query/queries. New workspace assignments require validation; no new query versions were published.";
-    });
+        statusMessage = Text.Format("AdminAnalysisQueries.Status.BulkApplied", result.UpdatedQueries, result.EnabledAssignments, result.ReactivatedQueries);
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.BulkFailed");
 
     private async Task ValidateAsync(Guid id) => await RunAsync(async () =>
     {
-        await Registry.ValidateAsync(id, actor);
-        statusMessage = "Workspace validation completed.";
-        await LoadAsync();
-    });
+        var result = await Registry.ValidateAsync(id, actor);
+        if (result.Status == AnalysisQueryStatuses.Validated)
+            statusMessage = Text["AdminAnalysisQueries.Status.Validated"];
+        else
+        {
+            Logger.LogWarning("Analysis query {QueryId} validation results were saved without successful validation.", id);
+            statusMessage = Text["AdminAnalysisQueries.Status.ValidationResultsSaved"];
+            errorMessage = Text["AdminAnalysisQueries.Errors.ValidationRejected"];
+        }
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.ValidateFailed");
 
     private async Task PublishAsync(Guid id) => await RunAsync(async () =>
     {
         await Registry.PublishAsync(id, actor);
-        statusMessage = "Query version published.";
-        await LoadAsync();
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.Published"];
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.PublishFailed");
 
     private async Task UnpublishAsync() => await RunAsync(async () =>
     {
-        var query = queryToUnpublish ?? throw new InvalidOperationException("Select a query to unpublish.");
+        if (queryToUnpublish is not { } query)
+        {
+            Logger.LogWarning("No analysis query is selected for withdrawal.");
+            errorMessage = Text["AdminAnalysisQueries.Errors.WithdrawRequired"];
+            return;
+        }
         await Registry.UnpublishAsync(query.Id, actor);
         queryToUnpublish = null;
-        await LoadAsync();
-        statusMessage = "Publication withdrawn for everyone. The draft and version history were retained. Validate and publish to release it again.";
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.Withdrawn"];
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.WithdrawFailed");
 
     private async Task DisableAsync(Guid id) => await RunAsync(async () =>
     {
         await Registry.DisableAsync(id, actor);
-        statusMessage = "Query disabled.";
-        await LoadAsync();
-    });
+        statusMessage = Text["AdminAnalysisQueries.Status.Disabled"];
+        await ReloadDataAsync();
+    }, "AdminAnalysisQueries.Errors.DisableFailed");
 
-    private async Task RunAsync(Func<Task> action)
+    private async Task RunAsync(Func<Task> action, string fallbackKey)
     {
+        if (ActionsUnavailable) return;
         isBusy = true;
         errorMessage = null;
         statusMessage = null;
         try { await action(); }
-        catch (Exception exception) { errorMessage = exception.Message; }
+        catch (Exception exception)
+        {
+            if (exception is QueryTemplateValidationException or AnalysisQueryValidationException or AnalysisValidationException or UnauthorizedAccessException or DbUpdateConcurrencyException)
+                Logger.LogWarning(exception, "Analysis query administration operation {Operation} failed.", fallbackKey);
+            else
+                Logger.LogError(exception, "Analysis query administration operation {Operation} failed.", fallbackKey);
+            errorMessage = OperationError(exception, fallbackKey);
+        }
         finally { isBusy = false; }
     }
+
+    private string OperationError(Exception exception, string fallbackKey) => exception switch
+    {
+        UnauthorizedAccessException => Text["AdminAnalysisQueries.Errors.NotAllowed"],
+        DbUpdateConcurrencyException => Text["AdminAnalysisQueries.Errors.Changed"],
+        _ => AnalysisErrorPresentation.Message(exception, Text, fallbackKey)
+    };
 }

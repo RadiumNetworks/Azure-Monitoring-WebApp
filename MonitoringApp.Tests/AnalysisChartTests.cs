@@ -159,16 +159,22 @@ public sealed class AnalysisChartTests
     private static async Task<string> RenderAsync(
         AnalysisQueryResponse response, bool allowTableView = false, bool showTable = false)
     {
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
         {
-            var rendered = await renderer.RenderComponentAsync<AnalysisResultView>(
-                ParameterView.FromDictionary(new Dictionary<string, object?>
-                {
-                    ["Result"] = response, ["AllowTableView"] = allowTableView, ["ShowTable"] = showTable
-                }));
-            return rendered.ToHtmlString();
+            var originalUi = CultureInfo.CurrentUICulture;
+            try
+            {
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+                var rendered = await renderer.RenderComponentAsync<AnalysisResultView>(
+                    ParameterView.FromDictionary(new Dictionary<string, object?>
+                    {
+                        ["Result"] = response, ["AllowTableView"] = allowTableView, ["ShowTable"] = showTable
+                    }));
+                return rendered.ToHtmlString();
+            }
+            finally { CultureInfo.CurrentUICulture = originalUi; }
         });
     }
 }

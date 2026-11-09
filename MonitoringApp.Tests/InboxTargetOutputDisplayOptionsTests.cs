@@ -146,9 +146,12 @@ public sealed class InboxTargetOutputDisplayOptionsTests
     [InlineData("not JSON")]
     public void RejectsMalformedSettingsExplicitly(string json)
     {
-        Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DatabaseSettingsValidationException>(() =>
             DatabaseSettingsLoader.Deserialize<InboxTargetOutputDisplayOptions>(
                 DatabaseSettingsLoader.InboxTargetOutputDisplay, json));
+        Assert.Equal(json == "null" ? DatabaseSettingsValidationCode.JsonNull : DatabaseSettingsValidationCode.JsonInvalid, error.Code);
+        Assert.Equal(DatabaseSettingsLoader.InboxTargetOutputDisplay, error.SettingName);
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
     }
 
     [Fact]

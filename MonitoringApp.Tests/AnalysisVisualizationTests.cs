@@ -16,6 +16,32 @@ namespace MonitoringApp.Tests;
 public sealed class AnalysisVisualizationTests
 {
     [Fact]
+    public void EveryVisualizationHasADistinctValidEditableTemplate()
+    {
+        var templates = AnalysisQueryVisualizationTypes.All.Select(AnalysisVisualization.TemplateForEditing).ToArray();
+        Assert.Equal(AnalysisQueryVisualizationTypes.All.Count, templates.Distinct().Count());
+        foreach (var template in templates)
+        {
+            Assert.Contains("\n", template);
+            Assert.True(template.Length <= 65536);
+            var options = AnalysisVisualization.Parse(template);
+            Assert.Equal(AnalysisVisualization.Serialize(options),
+                AnalysisVisualization.Serialize(AnalysisVisualization.Parse(AnalysisVisualization.Serialize(options))));
+        }
+        AnalysisVisualizationOptions Options(string type) => AnalysisVisualization.Parse(AnalysisVisualization.TemplateForEditing(type));
+        Assert.Equal("blue", Options(AnalysisQueryVisualizationTypes.LineChart).Color);
+        Assert.Equal("Value", Assert.Single(Options(AnalysisQueryVisualizationTypes.Table).Columns).Name);
+        Assert.Equal(new[] { 0d, 15d, 60d }, Options(AnalysisQueryVisualizationTypes.Honeycomb).Thresholds.Select(item => item.Value));
+        Assert.Equal(100, Options(AnalysisQueryVisualizationTypes.BarChart).Maximum);
+        Assert.Equal(0, Options(AnalysisQueryVisualizationTypes.BarGauge).Minimum);
+        Assert.Equal(100, Options(AnalysisQueryVisualizationTypes.BarGauge).Maximum);
+        Assert.Equal(14, Options(AnalysisQueryVisualizationTypes.Stat).StatTitleFontSize);
+        Assert.Equal(28, Options(AnalysisQueryVisualizationTypes.Stat).StatValueFontSize);
+        Assert.Equal(new[] { "0", "1" }, Options(AnalysisQueryVisualizationTypes.StatusHistory).ValueMappings.Select(item => item.Value));
+        Assert.Throws<InvalidOperationException>(() => AnalysisVisualization.TemplateForEditing("invalid"));
+    }
+
+    [Fact]
     public void EditorFormattingIndentsNestedJsonWithoutDroppingNullMappingsOrAddingDefaults()
     {
         const string compact = """{"columns":[{"name":"State","valueMappings":[{"value":null,"text":"Unknown","color":"gray"}]}]}""";
@@ -45,7 +71,7 @@ public sealed class AnalysisVisualizationTests
         Assert.Equal("{", draft.VisualizationJson);
         var error = Assert.IsType<string>(typeof(AdminAnalysisQueries)
             .GetField("errorMessage", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page));
-        Assert.Contains("original text is available for editing", error);
+        Assert.Equal(PageText(page)["AdminAnalysisQueries.Errors.FormatFailed"], error);
     }
 
     [Fact]
@@ -56,7 +82,7 @@ public sealed class AnalysisVisualizationTests
         Assert.Throws<InvalidOperationException>(() => AnalysisVisualization.FormatForEditing(compact));
         var (page, draft) = OpenRegistryEditor(compact);
         Assert.Equal(compact, draft.VisualizationJson);
-        Assert.Contains("editor limit", Assert.IsType<string>(typeof(AdminAnalysisQueries)
+        Assert.Equal(PageText(page)["AdminAnalysisQueries.Errors.FormatFailed"], Assert.IsType<string>(typeof(AdminAnalysisQueries)
             .GetField("errorMessage", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page)));
     }
 
@@ -64,11 +90,47 @@ public sealed class AnalysisVisualizationTests
     {
         var page = new AdminAnalysisQueries();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
+        typeof(AdminAnalysisQueries).GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
+        typeof(AdminAnalysisQueries).GetProperty("Logger", flags)!.SetValue(page, services.GetRequiredService<ILogger<AdminAnalysisQueries>>());
         typeof(AdminAnalysisQueries).GetProperty("Options", flags)!.SetValue(page, new CrossTenantLogAnalyticsOptions());
         var original = new AnalysisQueryDefinition { VisualizationJson = json };
         typeof(AdminAnalysisQueries).GetMethod("BeginEdit", flags)!.Invoke(page, [original]);
         Assert.Equal(json, original.VisualizationJson);
         return (page, Assert.IsType<AnalysisQueryDefinition>(typeof(AdminAnalysisQueries).GetField("editing", flags)!.GetValue(page)));
+    }
+
+    private static UiText PageText(AdminAnalysisQueries page) => Assert.IsType<UiText>(typeof(AdminAnalysisQueries)
+        .GetProperty("Text", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page));
+
+    [Fact]
+    public void NewRegistryDraftUsesTheCentralTemplateWithoutChangingEditorDefaults()
+    {
+        var page = new AdminAnalysisQueries();
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var options = CrossTenantLogAnalyticsOptionsTests.CreateValid();
+        typeof(AdminAnalysisQueries).GetProperty("Options", flags)!.SetValue(page, options);
+
+        typeof(AdminAnalysisQueries).GetMethod("BeginCreate", flags)!.Invoke(page, []);
+
+        var draft = Assert.IsType<AnalysisQueryDefinition>(
+            typeof(AdminAnalysisQueries).GetField("editing", flags)!.GetValue(page));
+        Assert.Equal(string.Join("\n",
+            "Perf",
+            "| where Computer in~ (_SelectedSystems)",
+            "| summarize Value = avg(CounterValue) by Timestamp = bin(TimeGenerated, _BinSize), Series = Computer",
+            "| project Timestamp, Series, Value"), draft.Kql.ReplaceLineEndings("\n"));
+        Assert.Equal(AnalysisQueryTemplates.NewDraftKql, draft.Kql);
+        Assert.Equal("New analysis query", draft.Name);
+        Assert.Equal("Percent", draft.Unit);
+        Assert.Equal(15, draft.DefaultBinMinutes);
+        Assert.Equal(43200, draft.MaxTimeRangeMinutes);
+        Assert.Equal(AnalysisQueryScopes.SelectedSystems, draft.Scope);
+        Assert.Equal(AnalysisQueryVisualizationTypes.LineChart, draft.VisualizationType);
+        Assert.Equal(AnalysisVisualization.TemplateForEditing(draft.VisualizationType), draft.VisualizationJson);
+        Assert.Equal(options.Workspaces.Length, draft.Workspaces.Count);
+        Assert.All(draft.Workspaces, workspace => Assert.True(workspace.Enabled));
+        Assert.Empty(AnalysisQueryValidator.ValidateKql(draft.Kql));
     }
 
     [Theory]
@@ -94,6 +156,17 @@ public sealed class AnalysisVisualizationTests
     [InlineData("""{"statTitleFontSize":12.5}""")]
     [InlineData("""{"statValueFontSize":"18px"}""")]
     [InlineData("""{"cellDisplay":"HTML"}""")]
+    [InlineData("""{"cellDisplay":"StatusIcon"}""")]
+    [InlineData("""{"columns":[{"name":"Test","cellDisplay":"StatusIcon"}]}""")]
+    [InlineData("""{"statusIcons":{"unknown":true}}""")]
+    [InlineData("""{"statusIcons":{"unknownSymbol":""}}""")]
+    [InlineData("""{"statusIcons":{"unknownSymbol":null}}""")]
+    [InlineData("""{"statusIcons":{"unknownColor":"red;color:blue"}}""")]
+    [InlineData("""{"statusIcons":{"mappings":null}}""")]
+    [InlineData("""{"statusIcons":{"mappings":[null]}}""")]
+    [InlineData("""{"statusIcons":{"mappings":[{"value":"passed"}]}}""")]
+    [InlineData("""{"statusIcons":{"mappings":[{"value":"passed","text":" "}]}}""")]
+    [InlineData("""{"statusIcons":{"mappings":[{"value":"passed","text":"+"},{"value":" PASSED ","text":"-"}]}}""")]
     [InlineData("""{"minimum":100,"maximum":100}""")]
     [InlineData("""{"maximum":-1}""")]
     [InlineData("""{"thresholds":[{"color":"red"}]}""")]
@@ -142,6 +215,57 @@ public sealed class AnalysisVisualizationTests
         Assert.Equal("No telemetry", AnalysisVisualization.Text(options, null, "Missing"));
         Assert.Equal("#ffffff", AnalysisVisualization.Foreground("#176b40"));
         Assert.Equal("#17211e", AnalysisVisualization.Foreground("#ffff00"));
+    }
+
+    [Fact]
+    public void StatusIconsRoundTripAndKeepMappingsSeparateFromOrdinaryTextAndColors()
+    {
+        var options = AnalysisVisualization.Parse("""
+            {"cellDisplay":"StatusIcon","statusIcons":{"unknownSymbol":"!","unknownColor":"orange",
+              "mappings":[{"value":"passed","text":"+","color":"#123456"},{"value":null,"text":"-","color":"blue"}]},
+              "columns":[{"name":"Computer","cellDisplay":"Text"},{"name":"Detail","cellDisplay":"ColorText"}]}
+            """);
+        options = AnalysisVisualization.Parse(AnalysisVisualization.Serialize(options));
+        Assert.Equal(("+", "#123456", " PASSED "), AnalysisVisualization.StatusIcon(options, " PASSED "));
+        Assert.Equal(("-", "#245b91", (string?)null), AnalysisVisualization.StatusIcon(options, null));
+        Assert.Equal(("!", "#a44912", "unrecognized"), AnalysisVisualization.StatusIcon(options, "unrecognized"));
+        Assert.Equal("!", AnalysisVisualization.TableText(options, "", "Test"));
+        Assert.Equal("+", AnalysisVisualization.TableText(options, "passed", "Test"));
+        Assert.Contains("color:#123456;", AnalysisVisualization.CellStyle(options, "passed", "Test"));
+        Assert.Equal("passed", AnalysisVisualization.TableText(options, "passed", "Computer"));
+        Assert.DoesNotContain("color:", AnalysisVisualization.CellStyle(options, "passed", "Computer"));
+        Assert.Equal("passed", AnalysisVisualization.TableText(options, "passed", "Detail"));
+        Assert.Null(AnalysisVisualization.Color(options, "passed", "Detail"));
+        Assert.Throws<InvalidOperationException>(() => AnalysisVisualization.Validate(new()
+        {
+            StatusIcons = new() { UnknownSymbol = new string('?', 33) }
+        }));
+        Assert.Throws<InvalidOperationException>(() => AnalysisVisualization.Validate(new()
+        {
+            StatusIcons = new() { Mappings = Enumerable.Range(0, 101).Select(index => new AnalysisValueMapping(index.ToString(), "+")).ToList() }
+        }));
+    }
+
+    [Fact]
+    public void PublishedStatusIconsRemainIndependentOfDraftChangesAndRetainNullMappings()
+    {
+        var definition = ActiveDirectoryAnalysisQueries.Create().Single(query => query.Key == "ad-dcdiag");
+        var options = AnalysisVisualization.Parse(definition.VisualizationJson);
+        options.StatusIcons!.Mappings.Add(new(null, "-", "blue"));
+        definition.VisualizationJson = AnalysisVisualization.Serialize(options);
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), Version = 1,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(definition))
+        };
+        definition.PublishedVersionId = version.Id;
+        definition.Versions.Add(version);
+        definition.VisualizationJson = "{}";
+        var published = AnalysisVisualization.Parse(AnalysisQueryRegistry.CreatePublishedDefinition(definition).VisualizationJson);
+        Assert.Equal("StatusIcon", published.CellDisplay);
+        Assert.Equal("-", AnalysisVisualization.StatusIcon(published, null).Symbol);
+        Assert.Equal(options.StatusIcons.Mappings, published.StatusIcons!.Mappings);
+        Assert.Null(AnalysisVisualization.Parse(definition.VisualizationJson).StatusIcons);
     }
 
     [Theory]
@@ -459,6 +583,80 @@ public sealed class AnalysisVisualizationTests
     }
 
     [Fact]
+    public async Task ClassicDcdiagTemplateRendersOneRowPerTestWithResultTextAndStatusSymbols()
+    {
+        var template = ActiveDirectoryAnalysisQueries.Create().Single(query => query.Key == "ad-dcdiag-tests");
+        var result = Response(AnalysisQueryVisualizationTypes.Table) with
+        {
+            Visualization = AnalysisVisualization.Parse(template.VisualizationJson),
+            Tables = [new("A", [new("Computer", "string"), new("TestName", "string"), new("Result", "string"), new("Result__Status", "string")],
+                [["DC01", "Advertising", "Passed", "Passed"], ["DC01", "Replications", "Failed", "Failed"]])]
+        };
+        var html = await RenderAsync(result);
+        Assert.Contains("Advertising</td>", html);
+        Assert.Contains("Replications</td>", html);
+        Assert.Contains("Passed", html);
+        Assert.Contains("Failed", html);
+        Assert.Contains("analysis-status-ok", html);
+        Assert.Contains("analysis-status-error", html);
+        Assert.DoesNotContain("Result__Status", html);
+        Assert.Equal(2, Count(html, "DC01</td>"));
+    }
+
+    [Fact]
+    public async Task StatusIconCellsShowOnlyConfiguredSymbolsWithoutLegacyCompanionsOrUnits()
+    {
+        var result = Response(AnalysisQueryVisualizationTypes.Table) with
+        {
+            Visualization = AnalysisVisualization.Parse("""
+                {"cellDisplay":"StatusIcon","statusIcons":{"unknownSymbol":"!","unknownColor":"gray",
+                  "mappings":[{"value":"Passed","text":"+","color":"green"},{"value":"Failed","text":"-","color":"red"}]},
+                  "columns":[{"name":"Computer","cellDisplay":"Text"},{"name":"Test","unit":"events"}]}
+                """),
+            Tables = [new("A", [new("Computer", "string"), new("Test", "string"), new("Test__Status", "string"), new("Status", "string")],
+                [["Passed", "Passed", "Failed", "Failed"], ["DC02", "unknown <state>", "Passed", null]])]
+        };
+        var html = await RenderAsync(result);
+        Assert.Equal(4, Count(html, "class=\"analysis-status\""));
+        Assert.Contains("title=\"Passed\">+</span>", System.Net.WebUtility.HtmlDecode(html));
+        Assert.Contains("title=\"Failed\">-</span>", html);
+        Assert.Contains("title=\"unknown &lt;state&gt;\">!</span>", html);
+        Assert.DoesNotContain("analysis-status-ok", html);
+        Assert.DoesNotContain("analysis-status-error", html);
+        Assert.DoesNotContain(" events", html);
+        Assert.DoesNotContain("Test__Status", html);
+        Assert.DoesNotContain("unknown <state>", html);
+        Assert.Contains("Passed</td>", html);
+        Assert.Contains("color:#176b40;", html);
+        Assert.Contains("color:#a12424;", html);
+        Assert.Contains("color:#53616d;", html);
+        var cells = System.Text.RegularExpressions.Regex.Matches(
+            html, @"<td[^>]*>(.*?)</td>", System.Text.RegularExpressions.RegexOptions.Singleline)
+            .Select(match => System.Net.WebUtility.HtmlDecode(
+                System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, "<[^>]+>", "")).Trim()).ToArray();
+        Assert.Equal(new[] { "Passed", "+", "-", "DC02", "!", "!" }, cells);
+    }
+
+    [Fact]
+    public async Task PerColumnStatusIconsEscapeConfiguredSymbolsAndLeaveOtherCellsAndLegacyStatusAlone()
+    {
+        var result = Response(AnalysisQueryVisualizationTypes.Table) with
+        {
+            Visualization = AnalysisVisualization.Parse("""
+                {"statusIcons":{"mappings":[{"value":"Passed","text":"<script>x</script>","color":"purple"}]},
+                  "columns":[{"name":"Test","cellDisplay":"StatusIcon"}]}
+                """),
+            Tables = [new("A", [new("Test", "string"), new("Status", "string")], [["Passed", "Failed"]])]
+        };
+        var html = await RenderAsync(result);
+        Assert.Contains("&lt;script&gt;x&lt;/script&gt;", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains("analysis-status-error", html);
+        Assert.Contains("Failed</td>", html);
+        Assert.Contains("color:#7040a0;", html);
+    }
+
+    [Fact]
     public async Task GaugeClampsOnlyItsLengthAndShowsActualValueAndThresholdColor()
     {
         var result = Response(AnalysisQueryVisualizationTypes.BarGauge) with
@@ -550,13 +748,21 @@ public sealed class AnalysisVisualizationTests
 
     private static async Task<string> RenderAsync(AnalysisQueryResponse response, bool table = false)
     {
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
-            (await renderer.RenderComponentAsync<AnalysisResultView>(
-                ParameterView.FromDictionary(new Dictionary<string, object?>
-                {
-                    ["Result"] = response, ["AllowTableView"] = table, ["ShowTable"] = table
-                }))).ToHtmlString());
+        {
+            var originalUi = CultureInfo.CurrentUICulture;
+            try
+            {
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+                return (await renderer.RenderComponentAsync<AnalysisResultView>(
+                    ParameterView.FromDictionary(new Dictionary<string, object?>
+                    {
+                        ["Result"] = response, ["AllowTableView"] = table, ["ShowTable"] = table
+                    }))).ToHtmlString();
+            }
+            finally { CultureInfo.CurrentUICulture = originalUi; }
+        });
     }
 }

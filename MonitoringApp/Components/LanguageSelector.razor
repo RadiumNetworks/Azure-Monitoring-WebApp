@@ -1,0 +1,30 @@
+@using System.Globalization
+@inject UiText Text
+@inject NavigationManager Navigation
+
+<section class="language-selector" data-language-selector data-current-culture="@CultureInfo.CurrentUICulture.Name">
+    <form method="post" action="@UiLocalization.ChangePath" data-language-form data-enhance="false">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@(new Uri(Navigation.Uri).PathAndQuery)" />
+        <label>
+            <span>@Text["Language.Title"]</span>
+            <select name="Culture" disabled>
+                <option value="en-US" selected="@(CultureInfo.CurrentUICulture.Name == UiLocalization.English)">@Text["Language.English"]</option>
+                <option value="de-DE" selected="@(CultureInfo.CurrentUICulture.Name == UiLocalization.German)">@Text["Language.German"]</option>
+            </select>
+        </label>
+        <button type="submit" class="admin-secondary" disabled>@Text["Language.Apply"]</button>
+    </form>
+    <p data-language-unavailable hidden role="alert">@Text["Language.BrowserUnavailable"]</p>
+    <p data-language-error hidden role="alert">@Text["Language.BrowserFailed"]</p>
+    <dialog aria-labelledby="language-warning-title" aria-describedby="language-warning-text">
+        <h2 id="language-warning-title">@Text["Language.WarningTitle"]</h2>
+        <p id="language-warning-text">@Text["Language.Warning"]</p>
+        <p data-language-error hidden role="alert">@Text["Language.BrowserFailed"]</p>
+        <div class="language-dialog-actions">
+            <button type="button" class="admin-secondary" data-language-cancel autofocus>@Text["Language.Cancel"]</button>
+            <button type="button" class="admin-primary" data-language-continue>@Text["Language.Continue"]</button>
+        </div>
+    </dialog>
+    <noscript>@Text["Language.ScriptRequired"]</noscript>
+</section>

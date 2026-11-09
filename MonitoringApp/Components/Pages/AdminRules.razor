@@ -2,18 +2,20 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "OperatorAccess")]
 @inject AlertStore AlertStore
+@inject UiText Text
+@inject ILogger<AdminRules> Logger
 
-<PageTitle>Alert Rule Administration</PageTitle>
+<PageTitle>@Text["Rules.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Alert rules</h1>
-        <p class="subtitle">Manage database rules that categorize or suppress inbox alerts, assign inventory roles, and configure global heartbeat freshness.</p>
+        <p class="eyebrow">@Text["Rules.Eyebrow"]</p>
+        <h1>@Text["Rules.Title"]</h1>
+        <p class="subtitle">@Text["Rules.Description"]</p>
     </div>
     <div class="admin-card-actions">
-        <a class="admin-secondary" href="admin/rules/queries">Scheduled KQL alert rules</a>
-        <button class="admin-primary" type="button" @onclick="BeginCreate">Create rule</button>
+        <a class="admin-secondary" href="admin/rules/queries">@Text["Rules.ScheduledRules"]</a>
+        <button class="admin-primary" type="button" @onclick="BeginCreate">@Text["Rules.Create"]</button>
     </div>
 </section>
 
@@ -30,21 +32,21 @@
     <section class="admin-rule-list" aria-labelledby="rules-heading">
         <div class="admin-section-heading">
             <div>
-                <h2 id="rules-heading">Current rules</h2>
+                <h2 id="rules-heading">@Text["Rules.Current"]</h2>
                 <span>@RuleCountLabel(rules.Count)</span>
             </div>
             <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadRulesAsync">
-                @(isLoading ? "Refreshing..." : "Refresh")
+                @Text[isLoading ? "Common.Refreshing" : "Common.Refresh"]
             </button>
         </div>
 
         @if (isLoading && rules.Count == 0)
         {
-            <p class="admin-empty">Loading alert rules...</p>
+            <p class="admin-empty">@Text["Rules.Loading"]</p>
         }
         else if (rules.Count == 0)
         {
-            <p class="admin-empty">No alert rules are configured.</p>
+            <p class="admin-empty">@Text["Rules.Empty"]</p>
         }
         else
         {
@@ -63,40 +65,46 @@
                             <div class="collapsible-card-details">
                                 <div class="collapsible-card-toolbar">
                                     <span class="admin-status @(rule.Enabled ? "enabled" : "disabled")">
-                                        @(rule.Enabled ? "Enabled" : "Disabled")
+                                        @Text[rule.Enabled ? "Common.Enabled" : "Common.Disabled"]
                                     </span>
                                     <div class="admin-card-actions">
-                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">Edit</button>
-                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(rule)">Delete</button>
+                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(rule)">@Text["Common.Edit"]</button>
+                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(rule)">@Text["Common.Delete"]</button>
                                     </div>
                                 </div>
                                 <dl class="admin-rule-summary">
-                                    @if (rule.RuleType != AlertRuleTypes.InventoryHeartbeatFreshness)
+                                    @if (rule.RuleType is not (AlertRuleTypes.InventoryHeartbeatFreshness or AlertRuleTypes.ReplicationInventoryWarning))
                                     {
-                                        <div><dt>Priority</dt><dd>@rule.Priority</dd></div>
+                                        <div><dt>@Text["Rules.Priority"]</dt><dd>@rule.Priority.ToString(System.Globalization.CultureInfo.CurrentUICulture)</dd></div>
                                     }
-                                    <div><dt>Type</dt><dd>@RuleTypeLabel(rule)</dd></div>
-                                    <div><dt>Condition</dt><dd>@ConditionLabel(rule)</dd></div>
+                                    <div><dt>@Text["Rules.Type"]</dt><dd>@RuleTypeLabel(rule)</dd></div>
+                                    <div><dt>@Text["Rules.Condition"]</dt><dd>@ConditionLabel(rule)</dd></div>
                                     @if (rule.RuleType == AlertRuleTypes.Categorization)
                                     {
-                                        <div><dt>Category</dt><dd>@rule.CategoryName</dd></div>
-                                        <div><dt>Scope</dt><dd>@(rule.ApplyToTarget ? "All alerts for target" : "Matching alert only")</dd></div>
-                                        <div><dt>Criticality</dt><dd>@(rule.IsCritical ? "Critical" : "Standard")</dd></div>
-                                        <div><dt>Analysis classification</dt><dd>@AnalysisClassificationLabel(rule.AnalysisClassification)</dd></div>
+                                        <div><dt>@Text["Rules.Category"]</dt><dd>@rule.CategoryName</dd></div>
+                                        <div><dt>@Text["Rules.Scope"]</dt><dd>@Text[rule.ApplyToTarget ? "Rules.Scope.AllTargetAlerts" : "Rules.Scope.MatchingAlert"]</dd></div>
+                                        <div><dt>@Text["Rules.Criticality"]</dt><dd>@Text[rule.IsCritical ? "Rules.Critical" : "Rules.Standard"]</dd></div>
+                                        <div><dt>@Text["Rules.AnalysisClassification"]</dt><dd>@AnalysisClassificationLabel(rule.AnalysisClassification)</dd></div>
                                     }
                                     else if (rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
                                     {
-                                        <div><dt>Scope</dt><dd>All inventory targets</dd></div>
-                                        <div><dt>Heartbeat freshness</dt><dd>@rule.Threshold minutes</dd></div>
-                                        <div><dt>Default when disabled or deleted</dt><dd>@InventoryHeartbeatFreshnessRule.DefaultMinutes minutes</dd></div>
+                                        <div><dt>@Text["Rules.Scope"]</dt><dd>@Text["Rules.Scope.AllInventoryTargets"]</dd></div>
+                                        <div><dt>@Text["Rules.HeartbeatFreshness"]</dt><dd>@Text.Plural("Rules.DurationMinutes", rule.Threshold)</dd></div>
+                                        <div><dt>@Text["Rules.DefaultWhenDisabledOrDeleted"]</dt><dd>@Text.Plural("Rules.DurationMinutes", InventoryHeartbeatFreshnessRule.DefaultMinutes)</dd></div>
+                                    }
+                                    else if (rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
+                                    {
+                                        <div><dt>@Text["Rules.Scope"]</dt><dd>@Text["Rules.Scope.ReplicationResults"]</dd></div>
+                                        <div><dt>@Text["Rules.Action"]</dt><dd>@Text["Rules.Action.ReplicationWarning"]</dd></div>
+                                        <div><dt>@Text["Rules.Inventory"]</dt><dd>@Text["Rules.Action.InventoryUnchanged"]</dd></div>
                                     }
                                     else if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
                                     {
-                                        <div><dt>Inventory role</dt><dd>@rule.InventoryRole</dd></div>
+                                        <div><dt>@Text["Rules.Action"]</dt><dd>@Text["Rules.Action.RetiredRoleAssignment"]</dd></div>
                                     }
                                     else
                                     {
-                                        <div><dt>Action</dt><dd>Update inventory without storing the alert</dd></div>
+                                        <div><dt>@Text["Rules.Action"]</dt><dd>@Text["Rules.Action.UpdateInventory"]</dd></div>
                                     }
                                 </dl>
                             </div>
@@ -111,8 +119,8 @@
         @if (editingRule is null)
         {
             <div class="admin-editor-placeholder">
-                <strong>Select or create a rule</strong>
-                <span>Choose an existing rule to update it, or create a new alert rule.</span>
+                <strong>@Text["Rules.Editor.PlaceholderTitle"]</strong>
+                <span>@Text["Rules.Editor.PlaceholderDescription"]</span>
             </div>
         }
         else
@@ -120,122 +128,133 @@
             var rule = editingRule;
             <div class="admin-section-heading">
                 <div>
-                    <p class="eyebrow">@(isCreating ? "New rule" : "Edit rule")</p>
-                    <h2 id="editor-heading">@(isCreating ? "Create alert rule" : rule.Name)</h2>
+                    <p class="eyebrow">@Text[isCreating ? "Rules.Editor.NewRule" : "Rules.Editor.EditRule"]</p>
+                    <h2 id="editor-heading">@(isCreating ? Text["Rules.Editor.CreateTitle"] : rule.Name)</h2>
                 </div>
             </div>
 
             <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
                 <label class="admin-field admin-field-wide">
-                    <span>Rule name</span>
+                    <span>@Text["Rules.Editor.Name"]</span>
                     <input required maxlength="256" @bind="rule.Name" />
-                    <small>A unique name used to identify this rule.</small>
+                    <small>@Text["Rules.Editor.NameHelp"]</small>
                 </label>
 
-                @if (rule.RuleType != AlertRuleTypes.InventoryHeartbeatFreshness)
+                @if (rule.RuleType is not (AlertRuleTypes.InventoryHeartbeatFreshness or AlertRuleTypes.ReplicationInventoryWarning))
                 {
                 <label class="admin-field">
-                    <span>Priority</span>
+                    <span>@Text["Rules.Priority"]</span>
                     <input type="number" min="0" required @bind="rule.Priority" />
-                    <small>Lower values are evaluated first.</small>
+                    <small>@Text["Rules.Editor.PriorityHelp"]</small>
                 </label>
                 }
 
                 <label class="admin-check">
-                    <input type="checkbox" @bind="rule.Enabled" />
-                    <span>Rule enabled</span>
+                    <input type="checkbox" disabled="@(rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)" @bind="rule.Enabled" />
+                    <span>@Text["Rules.Editor.Enabled"]</span>
                 </label>
 
                 <label class="admin-field admin-field-wide">
-                    <span>Rule type</span>
+                    <span>@Text["Rules.Editor.Type"]</span>
                     <select @bind="rule.RuleType" @bind:after="RuleTypeChanged">
-                        <option value="@AlertRuleTypes.Categorization">Categorize inbox alerts</option>
-                        <option value="@AlertRuleTypes.Suppression">Suppress from inbox after inventory update</option>
-                        <option value="@AlertRuleTypes.InventoryStatus">Update inventory status without storing the alert</option>
-                        <option value="@AlertRuleTypes.InventoryRoleAssignment">Assign computer inventory role</option>
-                        <option value="@AlertRuleTypes.InventoryHeartbeatFreshness" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness && existing.Id != rule.Id)">Inventory heartbeat freshness (global)</option>
+                        <option value="@AlertRuleTypes.Categorization">@Text["Rules.TypeOption.Categorization"]</option>
+                        <option value="@AlertRuleTypes.Suppression">@Text["Rules.TypeOption.Suppression"]</option>
+                        <option value="@AlertRuleTypes.InventoryStatus">@Text["Rules.TypeOption.InventoryStatus"]</option>
+                        @if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
+                        {
+                            <option value="@AlertRuleTypes.InventoryRoleAssignment">@Text["Rules.TypeOption.RetiredRoleAssignment"]</option>
+                        }
+                        <option value="@AlertRuleTypes.ReplicationInventoryWarning" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.ReplicationInventoryWarning && existing.Id != rule.Id)">@Text["Rules.TypeOption.ReplicationWarning"]</option>
+                        <option value="@AlertRuleTypes.InventoryHeartbeatFreshness" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness && existing.Id != rule.Id)">@Text["Rules.TypeOption.HeartbeatFreshness"]</option>
                     </select>
                 </label>
 
                 @if (rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness)
                 {
                     <fieldset class="admin-fieldset">
-                        <legend>Global inventory heartbeat freshness</legend>
+                        <legend>@Text["Rules.Editor.FreshnessLegend"]</legend>
                         <label class="admin-field admin-field-wide">
-                            <span>Heartbeat freshness limit (minutes)</span>
+                            <span>@Text["Rules.Editor.FreshnessLimit"]</span>
                             <input type="number" min="1" required @bind="rule.Threshold" />
-                            <small>Applies to all targets without open alerts. Heartbeats up to this age are current (green); older or missing heartbeats are stale (yellow). Changes take effect immediately without a restart.</small>
-                            <small>Only one global rule is allowed. Disabling or deleting it restores the default of @InventoryHeartbeatFreshnessRule.DefaultMinutes minutes.</small>
+                            <small>@Text["Rules.Editor.FreshnessHelp"]</small>
+                            <small>@Text.Plural("Rules.Editor.FreshnessDefaultHelp", InventoryHeartbeatFreshnessRule.DefaultMinutes)</small>
                         </label>
+                    </fieldset>
+                }
+                else if (rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
+                {
+                    <fieldset class="admin-fieldset">
+                        <legend>@Text["Rules.Editor.ReplicationLegend"]</legend>
+                        <p>@Text["Rules.Editor.ReplicationHelp"]</p>
+                        <p>@Text["Rules.Editor.ReplicationRetentionHelp"]</p>
                     </fieldset>
                 }
                 else
                 {
                 <fieldset class="admin-fieldset">
-                    <legend>Alert matching</legend>
+                    <legend>@Text["Rules.Editor.MatchingLegend"]</legend>
                     <label class="admin-field">
-                        <span>Alert name contains</span>
+                        <span>@Text["Rules.Editor.AlertNameContains"]</span>
                         <input maxlength="256" @bind="rule.AlertNameContains" />
-                        <small>Optional, case-insensitive text match.</small>
+                        <small>@Text["Rules.Editor.AlertNameHelp"]</small>
                     </label>
                     <label class="admin-field">
-                        <span>Query-result type</span>
+                        <span>@Text["Rules.Editor.QueryResultType"]</span>
                         <input maxlength="128" @bind="rule.QueryResultType" />
-                        <small>For example: DCPort or DCDiag. Leave empty to match only by alert name.</small>
+                        <small>@Text["Rules.Editor.QueryResultTypeHelp"]</small>
                     </label>
                     @if (rule.RuleType != AlertRuleTypes.InventoryRoleAssignment)
                     {
                         <label class="admin-field admin-field-wide">
-                            <span>Condition</span>
+                            <span>@Text["Rules.Condition"]</span>
                             <select @bind="rule.ConditionType">
                                 @if (rule.RuleType is AlertRuleTypes.Suppression or AlertRuleTypes.InventoryStatus)
                                 {
-                                    <option value="@AlertRuleConditionTypes.AnyMatchingAlert">Any alert matching the name and optional query type</option>
+                                    <option value="@AlertRuleConditionTypes.AnyMatchingAlert">@Text["Rules.ConditionOption.AnyMatchingAlert"]</option>
                                 }
-                                <option value="@AlertRuleConditionTypes.RowCountGreaterThan">Row count greater than threshold</option>
-                                <option value="@AlertRuleConditionTypes.RowCountEquals">Row count equals threshold</option>
-                                <option value="@AlertRuleConditionTypes.OnlyFailedItems">Only the specified items failed</option>
-                                <option value="@AlertRuleConditionTypes.NoFailedItems">No failed items are shown</option>
+                                <option value="@AlertRuleConditionTypes.RowCountGreaterThan">@Text["Rules.ConditionOption.RowCountGreaterThan"]</option>
+                                <option value="@AlertRuleConditionTypes.RowCountEquals">@Text["Rules.ConditionOption.RowCountEquals"]</option>
+                                <option value="@AlertRuleConditionTypes.OnlyFailedItems">@Text["Rules.ConditionOption.OnlyFailedItems"]</option>
+                                <option value="@AlertRuleConditionTypes.NoFailedItems">@Text["Rules.ConditionOption.NoFailedItems"]</option>
                                 @if (rule.RuleType == AlertRuleTypes.Categorization)
                                 {
-                                    <option value="@AlertRuleConditionTypes.DomainControllerPercentageInDomain">More than a percentage of DCs in a domain have alerts</option>
-                                    <option value="@AlertRuleConditionTypes.AllDomainControllersInSite">All DCs in a site have alerts</option>
+                                    <option value="@AlertRuleConditionTypes.DomainControllerPercentageInDomain">@Text["Rules.ConditionOption.DomainPercentage"]</option>
+                                    <option value="@AlertRuleConditionTypes.AllDomainControllersInSite">@Text["Rules.ConditionOption.AllSiteControllers"]</option>
                                 }
                             </select>
                         </label>
                         @if (rule.ConditionType is AlertRuleConditionTypes.RowCountGreaterThan or AlertRuleConditionTypes.RowCountEquals)
                         {
                             <label class="admin-field admin-field-wide">
-                                <span>Row-count threshold</span>
+                                <span>@Text["Rules.Editor.RowCountThreshold"]</span>
                                 <input type="number" min="0" required @bind="rule.Threshold" />
-                                <small>@(rule.ConditionType == AlertRuleConditionTypes.RowCountEquals
-                                    ? "The rule matches only when the result contains exactly this many rows. Use 0 for no failed DCPort checks."
-                                    : "The rule matches only when the result contains more rows than this value.")</small>
+                                <small>@Text[rule.ConditionType == AlertRuleConditionTypes.RowCountEquals
+                                    ? "Rules.Editor.RowCountEqualsHelp" : "Rules.Editor.RowCountGreaterHelp"]</small>
                             </label>
                         }
                         else if (rule.ConditionType == AlertRuleConditionTypes.DomainControllerPercentageInDomain)
                         {
                             <label class="admin-field admin-field-wide">
-                                <span>Domain-controller percentage</span>
+                                <span>@Text["Rules.Editor.DomainPercentage"]</span>
                                 <input type="number" min="0" max="100" required @bind="rule.Threshold" />
-                                <small>The rule matches when the percentage of DCs with active alerts is strictly greater than this value.</small>
+                                <small>@Text["Rules.Editor.DomainPercentageHelp"]</small>
                             </label>
                         }
                         else if (rule.ConditionType == AlertRuleConditionTypes.OnlyFailedItems)
                         {
                             <label class="admin-field admin-field-wide">
-                                <span>Failed item names</span>
+                                <span>@Text["Rules.Editor.FailedItemNames"]</span>
                                 <input required maxlength="256" @bind="rule.FailedItemName" />
-                                <small>Comma-separated. The rule matches when one or more of these items failed and no other item failed.</small>
+                                <small>@Text["Rules.Editor.FailedItemNamesHelp"]</small>
                             </label>
                         }
                     }
                     else
                     {
                         <label class="admin-field admin-field-wide">
-                            <span>Inventory role</span>
+                            <span>@Text["Rules.Editor.InventoryRole"]</span>
                             <input required maxlength="256" @bind="rule.InventoryRole" />
-                            <small>The matching alert assigns this role to its target computer.</small>
+                            <small>@Text["Rules.Editor.RetiredRoleHelp"]</small>
                         </label>
                     }
                 </fieldset>
@@ -244,48 +263,48 @@
                 @if (rule.RuleType == AlertRuleTypes.Categorization)
                 {
                     <fieldset class="admin-fieldset">
-                    <legend>Category presentation</legend>
+                    <legend>@Text["Rules.Editor.CategoryLegend"]</legend>
                     <label class="admin-field admin-field-wide">
-                        <span>Category name</span>
+                        <span>@Text["Rules.Editor.CategoryName"]</span>
                         <input required maxlength="256" @bind="rule.CategoryName" />
                     </label>
                     <label class="admin-field">
-                        <span>Tone</span>
+                        <span>@Text["Rules.Editor.Tone"]</span>
                         <select @bind="rule.Tone">
-                            <option value="info">Information</option>
-                            <option value="failure">Failure</option>
+                            <option value="info">@Text["Rules.Tone.Information"]</option>
+                            <option value="failure">@Text["Rules.Tone.Failure"]</option>
                         </select>
                     </label>
                     <label class="admin-field">
-                        <span>Analysis classification</span>
+                        <span>@Text["Rules.AnalysisClassification"]</span>
                         <select @bind="rule.AnalysisClassification">
-                            <option value="@AlertRuleAnalysisClassifications.None">Standard categorization</option>
-                            <option value="@AlertRuleAnalysisClassifications.SystemOutage">System outage</option>
-                            <option value="@AlertRuleAnalysisClassifications.Suppressed">Stored suppressed evidence</option>
+                            <option value="@AlertRuleAnalysisClassifications.None">@Text["Rules.Classification.Standard"]</option>
+                            <option value="@AlertRuleAnalysisClassifications.SystemOutage">@Text["Rules.Classification.SystemOutage"]</option>
+                            <option value="@AlertRuleAnalysisClassifications.Suppressed">@Text["Rules.Classification.Suppressed"]</option>
                         </select>
-                        <small>Stable meaning used by analysis independently of the editable category name.</small>
+                        <small>@Text["Rules.Editor.ClassificationHelp"]</small>
                     </label>
                     <div class="admin-check-group">
                         <label class="admin-check">
                             <input type="checkbox" @bind="rule.Collapsed" />
-                            <span>Collapsed by default</span>
+                            <span>@Text["Rules.Editor.Collapsed"]</span>
                         </label>
                         <label class="admin-check">
                             <input type="checkbox" @bind="rule.ApplyToTarget" />
-                            <span>Include all alerts for the target</span>
+                            <span>@Text["Rules.Editor.ApplyToTarget"]</span>
                         </label>
                         <label class="admin-check">
                             <input type="checkbox" @bind="rule.IsCritical" />
-                            <span>Mark matching alert lifecycle as critical</span>
+                            <span>@Text["Rules.Editor.Critical"]</span>
                         </label>
                     </div>
                     </fieldset>
                 }
 
                 <div class="admin-form-actions">
-                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
+                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">@Text["Common.Cancel"]</button>
                     <button class="admin-primary" type="submit" disabled="@isSaving">
-                        @(isSaving ? "Saving..." : isCreating ? "Create rule" : "Save changes")
+                        @Text[isSaving ? "Common.Saving" : isCreating ? "Rules.Create" : "Common.SaveChanges"]
                     </button>
                 </div>
             </form>
@@ -297,22 +316,16 @@
 {
     <div class="admin-dialog-backdrop" role="presentation">
         <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-rule-heading">
-            <p class="eyebrow">Permanent action</p>
-            <h2 id="delete-rule-heading">Delete alert rule?</h2>
+            <p class="eyebrow">@Text["Rules.Delete.Eyebrow"]</p>
+            <h2 id="delete-rule-heading">@Text["Rules.Delete.Title"]</h2>
             <p>
-                Delete <strong>@ruleToDelete.Name</strong>?
-                @(ruleToDelete.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness
-                    ? $"All targets will use the default heartbeat freshness limit of {InventoryHeartbeatFreshnessRule.DefaultMinutes} minutes."
-                    : ruleToDelete.RuleType == AlertRuleTypes.InventoryRoleAssignment
-                    ? "Matching alerts will no longer assign the inventory role."
-                    : ruleToDelete.RuleType == AlertRuleTypes.Suppression
-                        ? "Future matching alerts will be stored and shown in the inbox again."
-                        : $"Alerts assigned by this rule will no longer be placed in the {ruleToDelete.CategoryName} category.")
+                <LocalizedEmphasis ResourceKey="Rules.Delete.Confirmation" Value="@ruleToDelete.Name" />
+                @DeleteImpact(ruleToDelete)
             </p>
             <div class="admin-form-actions">
-                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
+                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">@Text["Common.Cancel"]</button>
                 <button class="admin-danger" type="button" disabled="@isDeleting" @onclick="DeleteAsync">
-                    @(isDeleting ? "Deleting..." : "Delete rule")
+                    @Text[isDeleting ? "Common.Deleting" : "Rules.Delete.Submit"]
                 </button>
             </div>
         </section>
@@ -333,17 +346,20 @@
 
     protected override Task OnInitializedAsync() => LoadRulesAsync();
 
-    private async Task LoadRulesAsync()
+    private async Task<bool> LoadRulesAsync()
     {
         isLoading = true;
         errorMessage = null;
         try
         {
             rules = await AlertStore.GetAllAlertRulesAsync();
+            return true;
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "Failed to load the alert rule editor.");
+            errorMessage = Text["Rules.Errors.LoadFailed"];
+            return false;
         }
         finally
         {
@@ -425,7 +441,7 @@
             var deleted = await AlertStore.DeleteAlertRuleAsync(deletedRule.Id);
             if (!deleted)
             {
-                errorMessage = "The alert rule no longer exists.";
+                errorMessage = Text["Rules.Delete.NotFound"];
                 return;
             }
 
@@ -436,12 +452,32 @@
             }
 
             ruleToDelete = null;
-            statusMessage = $"Rule '{deletedRule.Name}' was deleted.";
+            statusMessage = Text.Format("Rules.Delete.Success", deletedRule.Name);
+            if (!await LoadRulesAsync())
+            {
+                statusMessage = null;
+                errorMessage = Text["Rules.Errors.DeletedRefreshFailed"];
+            }
+        }
+        catch (AlertRuleException exception) when (exception.Code == AlertRuleErrorCode.DeletedNotificationFailed)
+        {
+            ruleToDelete = null;
+            if (editingRule?.Id == deletedRule.Id)
+            {
+                editingRule = null;
+                isCreating = false;
+            }
             await LoadRulesAsync();
+            ShowRuleError(exception);
+        }
+        catch (AlertRuleException exception)
+        {
+            ShowRuleError(exception);
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "The outcome of deleting alert rule {AlertRuleId} could not be confirmed.", deletedRule.Id);
+            errorMessage = Text["Rules.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -462,14 +498,30 @@
         try
         {
             var saved = await AlertStore.SaveAlertRuleAsync(editingRule);
-            statusMessage = $"Rule '{saved.Name}' was {(isCreating ? "created" : "updated")}.";
+            statusMessage = Text.Format(isCreating ? "Rules.Create.Success" : "Rules.Update.Success", saved.Name);
+            editingRule = null;
+            isCreating = false;
+            if (!await LoadRulesAsync())
+            {
+                statusMessage = null;
+                errorMessage = Text["Rules.Errors.SavedRefreshFailed"];
+            }
+        }
+        catch (AlertRuleException exception) when (exception.Code == AlertRuleErrorCode.SavedNotificationFailed)
+        {
             editingRule = null;
             isCreating = false;
             await LoadRulesAsync();
+            ShowRuleError(exception);
+        }
+        catch (AlertRuleException exception)
+        {
+            ShowRuleError(exception);
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "The outcome of saving an alert rule could not be confirmed.");
+            errorMessage = Text["Rules.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -498,37 +550,62 @@
         AnalysisClassification = source.AnalysisClassification
     };
 
-    private static string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness
-        ? $"Heartbeat older than {rule.Threshold} minutes or missing"
+    private void ShowRuleError(AlertRuleException exception)
+    {
+        Logger.LogWarning(exception, "Alert rule operation reported {ErrorCode}.", exception.Code);
+        var prefix = exception.Code is AlertRuleErrorCode.DuplicateReplicationWarning or
+            AlertRuleErrorCode.DuplicateHeartbeatFreshness or AlertRuleErrorCode.DuplicateName or
+            AlertRuleErrorCode.InvalidId or AlertRuleErrorCode.ChangeUnconfirmed or
+            AlertRuleErrorCode.SavedNotificationFailed or AlertRuleErrorCode.DeletedNotificationFailed
+                ? "Rules.Errors." : "Rules.Validation.";
+        errorMessage = Text.Format(prefix + exception.Code, exception.Arguments.ToArray());
+    }
+
+    private string DeleteImpact(AlertRule rule) => rule.RuleType switch
+    {
+        AlertRuleTypes.InventoryHeartbeatFreshness => Text.Plural("Rules.Delete.FreshnessImpact", InventoryHeartbeatFreshnessRule.DefaultMinutes),
+        AlertRuleTypes.InventoryRoleAssignment => Text["Rules.Delete.RetiredImpact"],
+        AlertRuleTypes.Suppression => Text["Rules.Delete.SuppressionImpact"],
+        AlertRuleTypes.InventoryStatus => Text["Rules.Delete.InventoryStatusImpact"],
+        AlertRuleTypes.ReplicationInventoryWarning => Text["Rules.Delete.ReplicationWarningImpact"],
+        _ => Text.Format("Rules.Delete.CategoryImpact", rule.CategoryName)
+    };
+
+    private string ConditionLabel(AlertRule rule) => rule.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness
+        ? Text.Plural("Rules.Condition.HeartbeatAge", rule.Threshold)
+        : rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning
+        ? Text["Rules.Condition.ReplicationWarning"]
         : rule.RuleType == AlertRuleTypes.InventoryRoleAssignment
-        ? $"{(string.IsNullOrWhiteSpace(rule.QueryResultType) ? "Matching alert" : rule.QueryResultType)} → {rule.InventoryRole}"
+        ? Text.Format("Rules.Condition.RoleAssignment",
+            string.IsNullOrWhiteSpace(rule.QueryResultType) ? Text["Rules.Condition.MatchingAlert"] : rule.QueryResultType, rule.InventoryRole)
         : rule.ConditionType switch
     {
-        AlertRuleConditionTypes.AnyMatchingAlert => "Any matching alert",
-        AlertRuleConditionTypes.RowCountGreaterThan => $"More than {rule.Threshold} rows",
-        AlertRuleConditionTypes.RowCountEquals => $"Exactly {rule.Threshold} rows",
-        AlertRuleConditionTypes.OnlyFailedItems => $"Only {rule.FailedItemName} failed",
-        AlertRuleConditionTypes.NoFailedItems => "No failed items shown",
-        AlertRuleConditionTypes.DomainControllerPercentageInDomain => $"More than {rule.Threshold}% of DCs in domain have alerts",
-        AlertRuleConditionTypes.AllDomainControllersInSite => "All DCs in site have alerts",
+        AlertRuleConditionTypes.AnyMatchingAlert => Text["Rules.Condition.AnyMatchingAlert"],
+        AlertRuleConditionTypes.RowCountGreaterThan => Text.Plural("Rules.Condition.RowCountGreaterThan", rule.Threshold),
+        AlertRuleConditionTypes.RowCountEquals => Text.Plural("Rules.Condition.RowCountEquals", rule.Threshold),
+        AlertRuleConditionTypes.OnlyFailedItems => Text.Format("Rules.Condition.OnlyFailedItems", rule.FailedItemName),
+        AlertRuleConditionTypes.NoFailedItems => Text["Rules.Condition.NoFailedItems"],
+        AlertRuleConditionTypes.DomainControllerPercentageInDomain => Text.Format("Rules.Condition.DomainPercentage", rule.Threshold),
+        AlertRuleConditionTypes.AllDomainControllersInSite => Text["Rules.Condition.AllSiteControllers"],
         _ => rule.ConditionType
     };
 
-    private static string RuleTypeLabel(AlertRule rule) => rule.RuleType switch
+    private string RuleTypeLabel(AlertRule rule) => Text[rule.RuleType switch
     {
-        AlertRuleTypes.InventoryHeartbeatFreshness => "Inventory heartbeat freshness",
-        AlertRuleTypes.InventoryRoleAssignment => "Inventory role",
-        AlertRuleTypes.InventoryStatus => "Inventory status",
-        AlertRuleTypes.Suppression => "Inbox suppression",
-        _ => "Categorization"
-    };
+        AlertRuleTypes.InventoryHeartbeatFreshness => "Rules.Type.HeartbeatFreshness",
+        AlertRuleTypes.ReplicationInventoryWarning => "Rules.Type.ReplicationWarning",
+        AlertRuleTypes.InventoryRoleAssignment => "Rules.Type.RetiredRoleAssignment",
+        AlertRuleTypes.InventoryStatus => "Rules.Type.InventoryStatus",
+        AlertRuleTypes.Suppression => "Rules.Type.Suppression",
+        _ => "Rules.Type.Categorization"
+    }];
 
-    private static string AnalysisClassificationLabel(string value) => value switch
+    private string AnalysisClassificationLabel(string value) => Text[value switch
     {
-        AlertRuleAnalysisClassifications.SystemOutage => "System outage",
-        AlertRuleAnalysisClassifications.Suppressed => "Stored suppressed evidence",
-        _ => "Standard categorization"
-    };
+        AlertRuleAnalysisClassifications.SystemOutage => "Rules.Classification.SystemOutage",
+        AlertRuleAnalysisClassifications.Suppressed => "Rules.Classification.Suppressed",
+        _ => "Rules.Classification.Standard"
+    }];
 
-    private static string RuleCountLabel(int count) => count == 1 ? "1 configured rule" : $"{count} configured rules";
+    private string RuleCountLabel(int count) => Text.Plural("Rules.Count", count);
 }

@@ -1,18 +1,20 @@
-<fieldset class="analysis-controls" disabled="@Disabled" aria-label="Dashboard grid size">
-    <legend>Grid size</legend>
+@inject UiText Text
+
+<fieldset class="analysis-controls" disabled="@Disabled" aria-label="@Text["AnalysisGrid.Label"]">
+    <legend>@Text["AnalysisGrid.Title"]</legend>
     <label>
-        <span>Columns</span>
+        <span>@Text["AnalysisGrid.Columns"]</span>
         <input type="number" min="2" max="6" value="@Document.Columns" @onchange="ChangeColumns" />
     </label>
     <label>
-        <span>Rows</span>
+        <span>@Text["Common.Rows"]</span>
         <input type="number" min="8" max="120" value="@Document.Rows" @onchange="ChangeRows" />
     </label>
     <label>
-        <span>Row height (px)</span>
+        <span>@Text["AnalysisGrid.RowHeight"]</span>
         <input type="number" min="64" max="132" value="@Document.RowHeight" @onchange="ChangeRowHeight" />
     </label>
-    <small>Widgets are rearranged to fit. Rows expand when needed to keep all widgets.</small>
+    <small>@Text["AnalysisGrid.Help"]</small>
     @if (validationError is not null)
     {
         <span role="alert">@validationError</span>
@@ -35,9 +37,10 @@
     private async Task Change(ChangeEventArgs args, int minimum, int maximum,
         Func<int, (int Columns, int Rows, int RowHeight)> update)
     {
+        if (Disabled) return;
         if (!int.TryParse(args.Value?.ToString(), out var value) || value < minimum || value > maximum)
         {
-            validationError = $"Enter a whole number between {minimum} and {maximum}.";
+            validationError = Text.Format("AnalysisGrid.WholeNumber", minimum, maximum);
             return;
         }
         validationError = null;

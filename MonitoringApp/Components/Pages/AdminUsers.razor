@@ -3,29 +3,41 @@
 @attribute [Authorize(Policy = "AdminAccess")]
 @inject ApplicationAuthenticationOptions AuthenticationOptions
 @inject SqlAuthenticationService AuthenticationService
+@inject UiText Text
+@inject ILogger<AdminUsers> Logger
 
-<PageTitle>Authentication Users</PageTitle>
+<PageTitle>@Text["AdminUsers.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Authentication users</h1>
-        <p class="subtitle">Create SQL login accounts, reset their passwords, or remove accounts that are no longer required.</p>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["AdminUsers.Title"]</h1>
+        <p class="subtitle">@Text["AdminUsers.Subtitle"]</p>
     </div>
     <div class="admin-heading-actions">
-        <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadUsersAsync">
-            @(isLoading ? "Refreshing..." : "Refresh")
+        <button class="admin-secondary" type="button" disabled="@IsBusy" @onclick="LoadUsersAsync">
+            @Text[isLoading ? "Common.Refreshing" : "Common.Refresh"]
         </button>
-        <button class="admin-primary" type="button" @onclick="BeginCreate">Create user</button>
+        <button class="admin-primary" type="button" disabled="@MutationBlocked" @onclick="BeginCreate">@Text["AdminUsers.Create"]</button>
     </div>
 </section>
 
-@if (!AuthenticationOptions.IsSql)
+@if (AuthenticationOptions.IsEntra)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        <LocalizedContent ResourceKey="AdminUsers.EntraWarning">
+            <Value0><strong>@Text["AdminUsers.EntraActive"]</strong></Value0>
+        </LocalizedContent>
+    </div>
+}
+else if (AuthenticationOptions.IsOpen)
 {
     <div class="admin-message admin-message-warning" role="alert">
-        <strong>Open authentication is active.</strong> This page is currently accessible without a login.
-        Create the first account, then select <strong>sql</strong> on the <a href="/admin/settings">Settings page</a>
-        and restart the application.
+        <LocalizedContent ResourceKey="AdminUsers.OpenWarning">
+            <Value0><strong>@Text["AdminUsers.OpenActive"]</strong></Value0>
+            <Value1><strong>sql</strong></Value1>
+            <Value2><a href="/admin/settings">@Text["AdminUsers.SettingsPage"]</a></Value2>
+        </LocalizedContent>
     </div>
 }
 
@@ -37,23 +49,30 @@
 {
     <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
 }
+@if (reloadRequired)
+{
+    <div class="admin-message admin-message-warning" role="status">@Text["AdminUsers.Errors.ReloadRequired"]</div>
+}
 
 <div class="admin-workspace">
         <section class="admin-rule-list" aria-labelledby="users-heading">
             <div class="admin-section-heading">
                 <div>
-                    <h2 id="users-heading">Current users</h2>
-                    <span>@UserCountLabel(users.Count)</span>
+                    <h2 id="users-heading">@Text["AdminUsers.CurrentUsers"]</h2>
+                    @if (hasLoaded)
+                    {
+                        <span>@UserCountLabel(users.Count)</span>
+                    }
                 </div>
             </div>
 
             @if (isLoading && users.Count == 0)
             {
-                <p class="admin-empty">Loading authentication users...</p>
+                <p class="admin-empty">@Text["AdminUsers.Loading"]</p>
             }
-            else if (users.Count == 0)
+            else if (hasLoaded && users.Count == 0)
             {
-                <p class="admin-empty">No authentication users are configured.</p>
+                <p class="admin-empty">@Text["AdminUsers.Empty"]</p>
             }
             else
             {
@@ -67,8 +86,8 @@
                                     <h3>@user.Username</h3>
                                 </div>
                                 <div class="admin-card-actions">
-                                    <button class="admin-secondary" type="button" @onclick="() => BeginEdit(user)">Edit</button>
-                                    <button class="admin-danger" type="button" @onclick="() => BeginDelete(user.Username)">Delete</button>
+                                    <button class="admin-secondary" type="button" disabled="@MutationBlocked" @onclick="() => BeginEdit(user)">@Text["Common.Edit"]</button>
+                                    <button class="admin-danger" type="button" disabled="@MutationBlocked" @onclick="() => BeginDelete(user.Username)">@Text["Common.Delete"]</button>
                                 </div>
                             </div>
                         </article>
@@ -81,22 +100,22 @@
             @if (editingUsername is null)
             {
                 <div class="admin-editor-placeholder">
-                    <strong>Select or create a user</strong>
-                    <span>Create a SQL login account or select an existing account to assign a new password.</span>
+                    <strong>@Text["AdminUsers.SelectUser"]</strong>
+                    <span>@Text["AdminUsers.SelectHint"]</span>
                 </div>
             }
             else
             {
                 <div class="admin-section-heading">
                     <div>
-                        <p class="eyebrow">@(isCreating ? "New user" : "Edit user")</p>
-                        <h2 id="user-editor-heading">@(isCreating ? "Create authentication user" : editingUsername)</h2>
+                        <p class="eyebrow">@Text[isCreating ? "AdminUsers.NewUser" : "AdminUsers.EditUser"]</p>
+                        <h2 id="user-editor-heading">@(isCreating ? Text["AdminUsers.CreateTitle"] : editingUsername)</h2>
                     </div>
                 </div>
 
-                <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <form class="admin-form" inert="@IsBusy" @onsubmit="SaveAsync" @onsubmit:preventDefault>
                     <label class="admin-field admin-field-wide">
-                        <span>Username</span>
+                        <span>@Text["Authentication.Username"]</span>
                         @if (isCreating)
                         {
                             <input required maxlength="128" autocomplete="off" @bind="editingUsername" />
@@ -105,31 +124,31 @@
                         {
                             <input value="@editingUsername" readonly />
                         }
-                        <small>Usernames must be unique. Existing usernames cannot be renamed.</small>
+                        <small>@Text["AdminUsers.UsernameHint"]</small>
                     </label>
                     <label class="admin-field admin-field-wide">
-                        <span>Role</span>
+                        <span>@Text["AdminUsers.Role"]</span>
                         <select required @bind="editingRole">
                             @foreach (var role in SqlAuthenticationRoles.All)
                             {
                                 <option value="@role">@role</option>
                             }
                         </select>
-                        <small>Reader: standard pages. Operator: additionally Rules and Inventory. Admin: all pages including Users.</small>
+                        <small>@Text["AdminUsers.RoleHint"]</small>
                     </label>
                     <label class="admin-field admin-field-wide">
-                        <span>@(isCreating ? "Password" : "New password")</span>
-                        <input type="password" required="@isCreating" maxlength="1024" autocomplete="new-password" @bind="password" />
-                        <small>@(isCreating ? "Required. The password is converted to a salted PBKDF2 hash before it is stored." : "Optional. Leave empty to keep the current password.")</small>
+                        <span>@Text[isCreating ? "Authentication.Password" : "AdminUsers.NewPassword"]</span>
+                        <input type="password" required="@PasswordRequired" maxlength="1024" autocomplete="new-password" @bind="password" @bind:event="oninput" />
+                        <small>@Text[isCreating ? "AdminUsers.PasswordRequiredHint" : "AdminUsers.PasswordOptionalHint"]</small>
                     </label>
                     <label class="admin-field admin-field-wide">
-                        <span>Confirm password</span>
-                        <input type="password" required maxlength="1024" autocomplete="new-password" @bind="passwordConfirmation" />
+                        <span>@Text["AdminUsers.ConfirmPassword"]</span>
+                        <input type="password" required="@PasswordRequired" maxlength="1024" autocomplete="new-password" @bind="passwordConfirmation" @bind:event="oninput" />
                     </label>
                     <div class="admin-form-actions">
-                        <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
-                        <button class="admin-primary" type="submit" disabled="@isSaving">
-                            @(isSaving ? "Saving..." : isCreating ? "Create user" : "Save changes")
+                        <button class="admin-secondary" type="button" disabled="@IsBusy" @onclick="CancelEdit">@Text["Common.Cancel"]</button>
+                        <button class="admin-primary" type="submit" disabled="@MutationBlocked">
+                            @Text[isSaving ? "Common.Saving" : isCreating ? "AdminUsers.Create" : "Common.SaveChanges"]
                         </button>
                     </div>
                 </form>
@@ -141,16 +160,15 @@
 {
     <div class="admin-dialog-backdrop" role="presentation">
         <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-heading">
-            <p class="eyebrow">Permanent action</p>
-            <h2 id="delete-user-heading">Delete authentication user?</h2>
+            <p class="eyebrow">@Text["Common.PermanentAction"]</p>
+            <h2 id="delete-user-heading">@Text["AdminUsers.DeleteTitle"]</h2>
             <p>
-                Delete <strong>@usernameToDelete</strong>? The user will no longer be able to create a new session.
-                The last remaining authentication user cannot be deleted.
+                <LocalizedEmphasis ResourceKey="AdminUsers.DeleteBody" Value="@usernameToDelete" />
             </p>
             <div class="admin-form-actions">
-                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
-                <button class="admin-danger" type="button" disabled="@isDeleting" @onclick="DeleteAsync">
-                    @(isDeleting ? "Deleting..." : "Delete user")
+                <button class="admin-secondary" type="button" disabled="@IsBusy" @onclick="CancelDelete">@Text["Common.Cancel"]</button>
+                <button class="admin-danger" type="button" disabled="@MutationBlocked" @onclick="DeleteAsync">
+                    @Text[isDeleting ? "Common.Deleting" : "AdminUsers.DeleteUser"]
                 </button>
             </div>
         </section>
@@ -168,22 +186,40 @@
     private bool isLoading;
     private bool isSaving;
     private bool isDeleting;
+    private bool hasLoaded;
+    private bool reloadRequired;
     private string? statusMessage;
     private string? errorMessage;
 
     protected override Task OnInitializedAsync() => LoadUsersAsync();
 
-    private async Task LoadUsersAsync()
+    private bool PasswordRequired => isCreating || password.Length > 0 || passwordConfirmation.Length > 0;
+    private bool IsBusy => isLoading || isSaving || isDeleting;
+    private bool MutationBlocked => IsBusy || !hasLoaded || reloadRequired;
+
+    private async Task<bool> LoadUsersAsync()
+    {
+        if (IsBusy) return false;
+        statusMessage = null;
+        return await RefreshUsersAsync();
+    }
+
+    private async Task<bool> RefreshUsersAsync()
     {
         isLoading = true;
         errorMessage = null;
         try
         {
             users = await AuthenticationService.GetUsersAsync();
+            hasLoaded = true;
+            reloadRequired = false;
+            return true;
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "Failed to load authentication users.");
+            errorMessage = Text["AdminUsers.Errors.LoadFailed"];
+            return false;
         }
         finally
         {
@@ -193,6 +229,7 @@
 
     private void BeginCreate()
     {
+        if (MutationBlocked) return;
         editingUsername = string.Empty;
         editingRole = users.Count == 0 ? SqlAuthenticationRoles.Admin : SqlAuthenticationRoles.Reader;
         password = string.Empty;
@@ -204,6 +241,7 @@
 
     private void BeginEdit(SqlAuthenticationUserSummary user)
     {
+        if (MutationBlocked) return;
         editingUsername = user.Username;
         editingRole = user.Role;
         password = string.Empty;
@@ -215,17 +253,23 @@
 
     private void CancelEdit()
     {
+        if (IsBusy) return;
+        ClearEdit();
+        errorMessage = null;
+    }
+
+    private void ClearEdit()
+    {
         editingUsername = null;
         editingRole = SqlAuthenticationRoles.Reader;
         password = string.Empty;
         passwordConfirmation = string.Empty;
         isCreating = false;
-        errorMessage = null;
     }
 
     private async Task SaveAsync()
     {
-        if (editingUsername is null || isSaving)
+        if (editingUsername is null || MutationBlocked)
         {
             return;
         }
@@ -233,41 +277,50 @@
         if ((isCreating || password.Length > 0 || passwordConfirmation.Length > 0) &&
             password != passwordConfirmation)
         {
-            errorMessage = "Password and confirmation do not match.";
+            statusMessage = null;
+            errorMessage = Text["AdminUsers.PasswordMismatch"];
             return;
         }
 
         isSaving = true;
         statusMessage = null;
         errorMessage = null;
+        var roleUpdated = false;
         try
         {
             var username = editingUsername;
             if (isCreating)
             {
                 username = await AuthenticationService.CreateUserAsync(username, password, editingRole);
-                statusMessage = $"Authentication user '{username}' was created.";
+                statusMessage = Text.Format("AdminUsers.Created", username);
             }
             else
             {
                 await AuthenticationService.SetRoleAsync(username, editingRole);
+                roleUpdated = true;
                 if (password.Length > 0)
                 {
                     await AuthenticationService.SetPasswordAsync(username, password);
                 }
-                statusMessage = $"Authentication user '{username}' was updated. Role changes apply to new sessions.";
+                statusMessage = Text.Format("AdminUsers.Updated", username);
             }
 
-            editingUsername = null;
-            editingRole = SqlAuthenticationRoles.Reader;
-            password = string.Empty;
-            passwordConfirmation = string.Empty;
-            isCreating = false;
-            await LoadUsersAsync();
+            ClearEdit();
+            if (!await RefreshUsersAsync())
+            {
+                reloadRequired = true;
+                statusMessage = null;
+                errorMessage = Text["AdminUsers.Errors.SavedRefreshFailed"];
+            }
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "An authentication user save did not complete successfully.");
+            var knownMessage = KnownErrorMessage(exception);
+            reloadRequired = roleUpdated || knownMessage is null || IsUnconfirmed(exception);
+            errorMessage = roleUpdated && password.Length > 0
+                ? Text["AdminUsers.Errors.RoleSavedPasswordUnconfirmed"]
+                : knownMessage ?? Text["AdminUsers.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -277,16 +330,20 @@
 
     private void BeginDelete(string username)
     {
+        if (MutationBlocked) return;
         usernameToDelete = username;
         statusMessage = null;
         errorMessage = null;
     }
 
-    private void CancelDelete() => usernameToDelete = null;
+    private void CancelDelete()
+    {
+        if (!IsBusy) usernameToDelete = null;
+    }
 
     private async Task DeleteAsync()
     {
-        if (usernameToDelete is null || isDeleting)
+        if (usernameToDelete is null || MutationBlocked)
         {
             return;
         }
@@ -299,22 +356,31 @@
         {
             if (!await AuthenticationService.DeleteUserAsync(username))
             {
-                errorMessage = "The authentication user no longer exists.";
+                errorMessage = Text["AdminUsers.Errors.Missing"];
                 return;
             }
 
             if (editingUsername == username)
             {
-                CancelEdit();
+                ClearEdit();
             }
 
             usernameToDelete = null;
-            statusMessage = $"Authentication user '{username}' was deleted.";
-            await LoadUsersAsync();
+            statusMessage = Text.Format("AdminUsers.Deleted", username);
+            if (!await RefreshUsersAsync())
+            {
+                reloadRequired = true;
+                statusMessage = null;
+                errorMessage = Text["AdminUsers.Errors.DeletedRefreshFailed"];
+            }
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "An authentication user delete did not complete successfully.");
+            var knownMessage = KnownErrorMessage(exception);
+            reloadRequired = knownMessage is null || IsUnconfirmed(exception);
+            if (reloadRequired) usernameToDelete = null;
+            errorMessage = knownMessage ?? Text["AdminUsers.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -322,5 +388,24 @@
         }
     }
 
-    private static string UserCountLabel(int count) => count == 1 ? "1 user" : $"{count} users";
+    private string UserCountLabel(int count) => Text.Plural("AdminUsers.Count", count);
+
+    private string? KnownErrorMessage(Exception exception) => exception switch
+    {
+        SqlAuthenticationException { Code: SqlAuthenticationErrorCode.DuplicateUser, Arguments: [string username] } =>
+            Text.Format("AdminUsers.Errors.DuplicateUser", username),
+        SqlAuthenticationException { Code: var code } when code is
+            SqlAuthenticationErrorCode.Username or SqlAuthenticationErrorCode.Password or
+            SqlAuthenticationErrorCode.Role or SqlAuthenticationErrorCode.Missing or
+            SqlAuthenticationErrorCode.LastAdmin or SqlAuthenticationErrorCode.LastUserOrAdmin or
+            SqlAuthenticationErrorCode.CreateUnconfirmed or SqlAuthenticationErrorCode.PasswordUnconfirmed or
+            SqlAuthenticationErrorCode.DeleteUnconfirmed => Text["AdminUsers.Errors." + code],
+        _ => null
+    };
+
+    private static bool IsUnconfirmed(Exception exception) => exception is SqlAuthenticationException
+    {
+        Code: SqlAuthenticationErrorCode.CreateUnconfirmed or SqlAuthenticationErrorCode.PasswordUnconfirmed or
+            SqlAuthenticationErrorCode.DeleteUnconfirmed
+    };
 }

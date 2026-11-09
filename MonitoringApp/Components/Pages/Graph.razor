@@ -6,8 +6,21 @@
 @inject AlertHistoryOptions AlertHistory
 @inject IJSRuntime JSRuntime
 @inject IWebHostEnvironment HostEnvironment
+@inject UiText Text
+@inject ILogger<Graph> Logger
 
-<PageTitle>Alert Graph</PageTitle>
+<PageTitle>@Text["Graph.PageTitle"]</PageTitle>
+@if (loadError is not null)
+{
+    <p role="alert">@loadError</p>
+}
+@if (graphError is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">
+        <p>@graphError</p>
+        <button type="button" disabled="@isGraphBusy" @onclick="RetryGraphAsync">@Text["Graph.Controls.Retry"]</button>
+    </div>
+}
 
 @{
     var navigationTree = GetNavigationTree();
@@ -15,48 +28,50 @@
         ? DnsNamespaceResolver.Resolve(alerts.Select(alert => alert.Domain))
         : null;
     var graphLayout = AlertGraphLayout.Build(navigationTree, dnsNamespaces);
-    var easterEgg = previewEasterEgg ?? AlertGraphEasterEggSites.Resolve(currentTimeUtc);
+    var easterEgg = AlertGraph.SLocations
+        ? previewEasterEgg ?? AlertGraphEasterEggSites.Resolve(currentTimeUtc)
+        : null;
     var openCount = navigationTree.Sum(subscription => subscription.Count);
     var historyCount = navigationTree.Sum(subscription => subscription.HistoryCount);
 }
 
 <section class="graph-heading">
     <div>
-        <p class="eyebrow">Operations</p>
-        <h1>Alert graph</h1>
-        <p class="subtitle">Parsed alerts seen in the last @HistoryWindowLabel, enriched with maintained computer inventory information.</p>
+        <p class="eyebrow">@Text["Common.Operations"]</p>
+        <h1>@Text["Graph.Title"]</h1>
+        <p class="subtitle">@Text.Plural("Graph.Description", AlertHistory.Days)</p>
     </div>
-    <div class="graph-summary" aria-label="@openCount open alerts and @historyCount parsed history alerts">
+    <div class="graph-summary" aria-label="@Text.Format("Graph.CountDescription", openCount, historyCount)">
         <strong>@openCount</strong>
-        <span>open</span>
+        <span>@Text["Graph.OpenCaption"]</span>
         <strong>@historyCount</strong>
-        <span>parsed history</span>
+        <span>@Text["Graph.HistoryCaption"]</span>
     </div>
 </section>
 
-<section class="graph-configuration" aria-label="Graph filters and layers">
+<section class="graph-configuration" aria-label="@Text["Graph.FiltersLabel"]">
     <div class="graph-filter">
         <label for="graph-filter-text">
-            <span>Filter graph</span>
-            <small>Subscription, resource group, site, or role</small>
+            <span>@Text["Graph.Filter"]</span>
+            <small>@Text["Graph.FilterHelp"]</small>
         </label>
         <div class="graph-filter-input">
             <input id="graph-filter-text"
                    type="search"
-                   placeholder="Type to filter the graph..."
+                   placeholder="@Text["Graph.FilterPlaceholder"]"
                    autocomplete="off"
                    @bind="filterText"
                    @bind:event="oninput"
                    @bind:after="GraphFilterChanged" />
             @if (!string.IsNullOrWhiteSpace(filterText))
             {
-                <button type="button" @onclick="ClearFilter" aria-label="Clear graph filter">Clear</button>
+                <button type="button" @onclick="ClearFilter" aria-label="@Text["Graph.ClearFilterLabel"]">@Text["Common.Clear"]</button>
             }
         </div>
     </div>
-    <div class="graph-layer-controls" aria-label="Graph layers">
+    <div class="graph-layer-controls" aria-label="@Text["Graph.LayersLabel"]">
         <label>
-            <span>Layer 1</span>
+            <span>@Text["Graph.LayerOne"]</span>
             <select @bind="selectedLayer1" @bind:after="GraphLayersChanged">
                 @foreach (var choice in AlertGraph.ChoicesForLevel(1))
                 {
@@ -65,7 +80,7 @@
             </select>
         </label>
         <label>
-            <span>Layer 2</span>
+            <span>@Text["Graph.LayerTwo"]</span>
             <select @bind="selectedLayer2" @bind:after="GraphLayersChanged">
                 @foreach (var choice in AlertGraph.ChoicesForLevel(2))
                 {
@@ -74,7 +89,7 @@
             </select>
         </label>
         <label>
-            <span>Layer 3</span>
+            <span>@Text["Graph.LayerThree"]</span>
             <select @bind="selectedLayer3" @bind:after="GraphLayersChanged">
                 @foreach (var choice in AlertGraph.ChoicesForLevel(3))
                 {
@@ -88,28 +103,28 @@
 <section class="graph-site-map" aria-labelledby="graph-site-map-heading">
     <div class="graph-site-map-heading">
         <div>
-            <p class="eyebrow">Global sites</p>
-            <h2 id="graph-site-map-heading">Site alert status</h2>
-            <p>Open alerts across all graph data, independent of the hierarchy filter.</p>
+            <p class="eyebrow">@Text["Graph.GlobalSites"]</p>
+            <h2 id="graph-site-map-heading">@Text["Graph.SiteStatus"]</h2>
+            <p>@Text["Graph.SiteStatusHelp"]</p>
         </div>
-        <div class="graph-site-map-legend" aria-label="Site status legend">
-            <span><i class="graph-site-map-healthy" aria-hidden="true"></i>No open alerts</span>
-            <span><i class="graph-site-map-alert" aria-hidden="true"></i>Open alert</span>
-            <span><i class="graph-site-map-day" aria-hidden="true"></i>Day</span>
-            <span><i class="graph-site-map-twilight" aria-hidden="true"></i>Twilight</span>
-            <span><i class="graph-site-map-night" aria-hidden="true"></i>Night</span>
+        <div class="graph-site-map-legend" aria-label="@Text["Graph.SiteLegendLabel"]">
+            <span><i class="graph-site-map-healthy" aria-hidden="true"></i>@Text["Graph.NoOpenAlerts"]</span>
+            <span><i class="graph-site-map-alert" aria-hidden="true"></i>@Text["Graph.OpenAlert"]</span>
+            <span><i class="graph-site-map-day" aria-hidden="true"></i>@Text["Graph.Day"]</span>
+            <span><i class="graph-site-map-twilight" aria-hidden="true"></i>@Text["Graph.Twilight"]</span>
+            <span><i class="graph-site-map-night" aria-hidden="true"></i>@Text["Graph.Night"]</span>
         </div>
     </div>
-    @if (HostEnvironment.IsDevelopment())
+    @if (AlertGraph.SLocations && HostEnvironment.IsDevelopment())
     {
-        <nav class="graph-easter-preview" aria-label="Local Easter-egg preview">
-            <span>Local preview:</span>
+        <nav class="graph-easter-preview" aria-label="@Text["Graph.PreviewLabel"]">
+            <span>@Text["Graph.Preview"]</span>
             @foreach (var preview in AlertGraphEasterEggSites.Previews)
             {
                 <a href="@($"/graph?easterEgg={preview.Key}")"
                    aria-current="@(EasterEggPreview == preview.Key ? "page" : null)">@preview.Label</a>
             }
-            <a href="/graph">Today</a>
+            <a href="/graph">@Text["Graph.Today"]</a>
         </nav>
         @if (previewError is not null)
         {
@@ -118,7 +133,7 @@
     }
     <GraphSiteMap Records="alerts" Locations="AlertGraph.SiteLocations" TimeUtc="currentTimeUtc" EasterEgg="easterEgg" />
     <p class="graph-site-map-source">
-        Map:
+        @Text["Graph.MapAttributionLabel"]
         <a href="https://commons.wikimedia.org/wiki/File:World_map_configurable.svg"
            target="_blank"
            rel="noopener noreferrer">World map configurable.svg</a>
@@ -126,28 +141,28 @@
     </p>
 </section>
 
-<section class="graph-region" aria-label="Alert hierarchy graph">
+<section class="graph-region" aria-label="@Text["Graph.HierarchyLabel"]">
     <div class="graph-toolbar">
-        <div class="graph-legend" aria-label="Count legend">
-            <span><i class="legend-open" aria-hidden="true"></i>Open alerts</span>
-            <span><i class="legend-history" aria-hidden="true"></i>History alerts</span>
-            <span><i class="legend-target-current" aria-hidden="true"></i>Target current (heartbeat within @currentHeartbeatAge.TotalMinutes min)</span>
-            <span><i class="legend-target-stale" aria-hidden="true"></i>Target stale (heartbeat older than @currentHeartbeatAge.TotalMinutes min or missing)</span>
-            <span><i class="legend-target-service-health" aria-hidden="true"></i>Service health alert (service not running)</span>
-            <span><i class="legend-target-maintenance" aria-hidden="true"></i>Target in maintenance</span>
+        <div class="graph-legend" aria-label="@Text["Graph.CountLegend"]">
+            <span><i class="legend-open" aria-hidden="true"></i>@Text["Graph.OpenAlerts"]</span>
+            <span><i class="legend-history" aria-hidden="true"></i>@Text["Graph.HistoryAlerts"]</span>
+            <span><i class="legend-target-current" aria-hidden="true"></i>@Text.Format("Graph.TargetCurrent", currentHeartbeatAge.TotalMinutes)</span>
+            <span><i class="legend-target-stale" aria-hidden="true"></i>@Text.Format("Graph.TargetStale", currentHeartbeatAge.TotalMinutes)</span>
+            <span><i class="legend-target-service-health" aria-hidden="true"></i>@Text["Graph.ServiceHealth"]</span>
+            <span><i class="legend-target-maintenance" aria-hidden="true"></i>@Text["Graph.Maintenance"]</span>
             @if (graphLayout.Segments.Count > 0)
             {
-                <span><i class="legend-dns-namespace" aria-hidden="true"></i>DNS namespace</span>
+                <span><i class="legend-dns-namespace" aria-hidden="true"></i>@Text["Graph.DnsNamespace"]</span>
             }
-            <span><i class="@LegendClass(selectedLayer1) legend-level-1" aria-hidden="true"></i>Layer 1: @AlertGraph.Label(selectedLayer1)</span>
-            <span><i class="@LegendClass(selectedLayer2) legend-level-2" aria-hidden="true"></i>Layer 2: @AlertGraph.Label(selectedLayer2)</span>
-            <span><i class="@LegendClass(selectedLayer3) legend-level-3" aria-hidden="true"></i>Layer 3: @AlertGraph.Label(selectedLayer3)</span>
+            <span><i class="@LegendClass(selectedLayer1) legend-level-1" aria-hidden="true"></i>@Text.Format("Graph.LayerLegendOne", AlertGraph.Label(selectedLayer1))</span>
+            <span><i class="@LegendClass(selectedLayer2) legend-level-2" aria-hidden="true"></i>@Text.Format("Graph.LayerLegendTwo", AlertGraph.Label(selectedLayer2))</span>
+            <span><i class="@LegendClass(selectedLayer3) legend-level-3" aria-hidden="true"></i>@Text.Format("Graph.LayerLegendThree", AlertGraph.Label(selectedLayer3))</span>
         </div>
         <div class="graph-tools">
-            <span>Updated @currentTimeUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
-            <button type="button" title="Zoom out" aria-label="Zoom out" @onclick="() => ZoomAsync(1.25)">-</button>
-            <button type="button" title="Reset graph view" @onclick="ResetGraphAsync">Reset</button>
-            <button type="button" title="Zoom in" aria-label="Zoom in" @onclick="() => ZoomAsync(0.8)">+</button>
+            <span>@Text.Format("Graph.Updated", currentTimeUtc.ToString("yyyy-MM-dd HH:mm:ss"))</span>
+            <button type="button" disabled="@GraphControlsBlocked" title="@Text["Common.ZoomOut"]" aria-label="@Text["Common.ZoomOut"]" @onclick="() => ZoomAsync(1.25)">-</button>
+            <button type="button" disabled="@GraphControlsBlocked" title="@Text["Graph.ResetView"]" @onclick="ResetGraphAsync">@Text["Common.Reset"]</button>
+            <button type="button" disabled="@GraphControlsBlocked" title="@Text["Common.ZoomIn"]" aria-label="@Text["Common.ZoomIn"]" @onclick="() => ZoomAsync(0.8)">+</button>
         </div>
     </div>
 
@@ -157,13 +172,13 @@
             <div class="graph-empty">
                 @if (string.IsNullOrWhiteSpace(filterText))
                 {
-                    <strong>No alert history available</strong>
-                    <span>Nodes appear after an alert has been received.</span>
+                    <strong>@Text["Graph.Empty"]</strong>
+                    <span>@Text["Graph.EmptyHelp"]</span>
                 }
                 else
                 {
-                    <strong>No matching alert history</strong>
-                    <span>Try another subscription, resource group, site, or role.</span>
+                    <strong>@Text["Graph.EmptyFiltered"]</strong>
+                    <span>@Text["Graph.EmptyFilteredHelp"]</span>
                 }
             </div>
         }
@@ -171,17 +186,17 @@
              class="graph-svg"
              viewBox="0 0 @Coordinate(graphLayout.Width) @Coordinate(graphLayout.Height)"
              role="img"
-             aria-label="Two-dimensional alert graph with @graphLayout.Nodes.Count nodes and @graphLayout.Edges.Count connections">
+             aria-label="@Text.Format("Graph.CanvasDescription", graphLayout.Nodes.Count, graphLayout.Edges.Count)">
             <g class="graph-world">
                 @if (graphLayout.Segments.Count > 0)
                 {
-                    <g class="graph-namespace-segments" aria-label="DNS namespace segments">
+                    <g class="graph-namespace-segments" aria-label="@Text["Graph.DnsSegmentsLabel"]">
                         @foreach (var segment in graphLayout.Segments)
                         {
-                            <g class="graph-namespace-segment" role="group" aria-label="DNS namespace @segment.Label">
-                                <title>DNS namespace · @segment.Label</title>
+                            <g class="graph-namespace-segment" role="group" aria-label="@Text.Format("Graph.DnsSegmentLabel", segment.Label)">
+                                <title>@Text.Format("Graph.DnsSegmentTitle", segment.Label)</title>
                                 <rect x="@Coordinate(segment.X)" y="@Coordinate(segment.Y)" width="@Coordinate(segment.Width)" height="@Coordinate(segment.Height)" rx="12" />
-                                <text x="@Coordinate(segment.X + 18)" y="@Coordinate(segment.Y + 29)">DNS namespace · @segment.Label</text>
+                                <text x="@Coordinate(segment.X + 18)" y="@Coordinate(segment.Y + 29)">@Text.Format("Graph.DnsSegmentTitle", segment.Label)</text>
                             </g>
                         }
                     </g>
@@ -198,8 +213,8 @@
                         <g class="graph-svg-node graph-level-@node.Level @NodeClasses(node)"
                            transform="translate(@Coordinate(node.X) @Coordinate(node.Y))"
                            role="group"
-                           aria-label="Layer @node.Level, @(node.Label + SubscriptionLabel(node)), @node.Count open, @node.HistoryCount history@(StatusAriaLabel(node))">
-                            <title>Layer @node.Level · @(node.Label + SubscriptionLabel(node)): @node.Count open, @node.HistoryCount history@(StatusTitle(node))</title>
+                           aria-label="@NodeAriaLabel(node)">
+                            <title>@NodeTitle(node)</title>
                             @if (node.Level == 1)
                             {
                                 <polygon points="-95,0 -78,-25 78,-25 95,0 78,25 -78,25" />
@@ -238,13 +253,19 @@
     private readonly CancellationTokenSource refreshCancellation = new();
     private readonly SemaphoreSlim reloadLock = new(1, 1);
     private Task? refreshTask;
+    private string? loadError;
+    private bool disposed;
     private bool graphNeedsInitialization = true;
     private bool graphInitialized;
+    private bool graphCleanupRequired;
+    private bool isGraphBusy;
+    private string? graphError;
+    private Task? graphOperationTask;
+    private bool GraphControlsBlocked => disposed || isGraphBusy || !graphInitialized || graphNeedsInitialization;
     private string filterText = string.Empty;
     private AlertGraphLayer selectedLayer1 = AlertGraphLayer.Subscription;
     private AlertGraphLayer selectedLayer2 = AlertGraphLayer.ResourceGroup;
     private AlertGraphLayer selectedLayer3 = AlertGraphLayer.Target;
-    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
     private IReadOnlyList<AlertGraphHierarchyNode> GetNavigationTree() =>
         AlertGraphHierarchy.Build(
             AlertGraphFilter.Apply(alerts, filterText),
@@ -256,8 +277,24 @@
     {
         previewEasterEgg = null;
         previewError = null;
-        try { previewEasterEgg = AlertGraphEasterEggSites.ResolvePreview(EasterEggPreview, HostEnvironment.IsDevelopment()); }
-        catch (ArgumentException exception) { previewError = exception.Message; }
+        if (!AlertGraph.SLocations) return;
+        try
+        {
+            previewEasterEgg = AlertGraphEasterEggSites.ResolvePreview(EasterEggPreview, HostEnvironment.IsDevelopment());
+        }
+        catch (Exception exception)
+        {
+            ReportPreviewError(exception);
+        }
+    }
+
+    private void ReportPreviewError(Exception exception)
+    {
+        if (exception is AlertGraphPreviewException)
+            Logger.LogWarning(exception, "Unknown Graph development preview.");
+        else
+            Logger.LogError(exception, "Could not load the Graph development preview.");
+        previewError = Text[exception is AlertGraphPreviewException ? "Graph.PreviewUnknown" : "Graph.PreviewFailed"];
     }
 
     protected override async Task OnInitializedAsync()
@@ -272,41 +309,108 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (graphNeedsInitialization)
+        if (!disposed && !isGraphBusy && graphNeedsInitialization)
         {
-            graphNeedsInitialization = false;
-            await JSRuntime.InvokeVoidAsync("alertGraph.initialize", "alert-graph-canvas");
-            graphInitialized = true;
+            await RunGraphOperationAsync("alertGraph.initialize");
         }
     }
 
     private void HandleStoreChanged()
     {
-        _ = ReloadAlertsAsync();
+        if (!disposed) _ = InvokeAsync(ReloadAlertsAsync);
     }
 
     private async Task ReloadAlertsAsync()
     {
-        await reloadLock.WaitAsync();
+        if (disposed) return;
+        var cancellationToken = refreshCancellation.Token;
+        var lockHeld = false;
         try
         {
-            currentTimeUtc = DateTimeOffset.UtcNow;
-            currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(await AlertStore.GetAllAlertRulesAsync());
-            alerts = await AlertStore.GetAlertGraphRecordsAsync(AlertHistory.GetCutoff(currentTimeUtc));
+            await reloadLock.WaitAsync(cancellationToken);
+            lockHeld = true;
+            if (disposed) return;
+            var timeUtc = DateTimeOffset.UtcNow;
+            var heartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(await AlertStore.GetAllAlertRulesAsync(cancellationToken));
+            var records = await AlertStore.GetAlertGraphRecordsRequiredAsync(AlertHistory.GetCutoff(timeUtc), cancellationToken);
+            if (disposed) return;
+            currentTimeUtc = timeUtc;
+            currentHeartbeatAge = heartbeatAge;
+            alerts = records;
+            loadError = null;
             graphNeedsInitialization = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not refresh graph alert and inventory data.");
+            if (disposed) return;
+            loadError = Text["Graph.LoadFailed"];
             await InvokeAsync(StateHasChanged);
         }
         finally
         {
-            reloadLock.Release();
+            if (lockHeld) reloadLock.Release();
         }
     }
 
-    private async Task ZoomAsync(double factor) =>
-        await JSRuntime.InvokeVoidAsync("alertGraph.zoom", "alert-graph-canvas", factor);
+    private Task ZoomAsync(double factor) => GraphControlsBlocked
+        ? Task.CompletedTask : RunGraphOperationAsync("alertGraph.zoom", factor);
 
-    private async Task ResetGraphAsync() =>
-        await JSRuntime.InvokeVoidAsync("alertGraph.reset", "alert-graph-canvas");
+    private Task ResetGraphAsync() => GraphControlsBlocked
+        ? Task.CompletedTask : RunGraphOperationAsync("alertGraph.reset");
+
+    private Task RetryGraphAsync()
+    {
+        if (disposed || isGraphBusy) return Task.CompletedTask;
+        graphNeedsInitialization = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task RunGraphOperationAsync(string operation, double? factor = null)
+    {
+        if (disposed || isGraphBusy) return Task.CompletedTask;
+        graphOperationTask = RunGraphOperationCoreAsync(operation, factor);
+        return graphOperationTask;
+    }
+
+    private async Task RunGraphOperationCoreAsync(string operation, double? factor)
+    {
+        isGraphBusy = true;
+        var initializing = operation == "alertGraph.initialize";
+        if (initializing)
+        {
+            graphNeedsInitialization = false;
+            graphInitialized = false;
+            graphCleanupRequired = true;
+        }
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+            await JSRuntime.InvokeVoidAsync(operation, refreshCancellation.Token,
+                factor is { } value ? ["alert-graph-canvas", value] : ["alert-graph-canvas"]);
+            if (disposed) return;
+            if (initializing) graphInitialized = !graphNeedsInitialization;
+            graphError = null;
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Graph browser operation {Operation} failed.", operation);
+            if (disposed) return;
+            graphError = Text[initializing ? "Graph.Controls.InitializeFailed" : "Graph.Controls.ChangeFailed"];
+        }
+        finally
+        {
+            isGraphBusy = false;
+        }
+        if (!disposed) await InvokeAsync(StateHasChanged);
+    }
 
     private void GraphLayersChanged()
     {
@@ -331,7 +435,7 @@
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                await ReloadAlertsAsync();
+                await InvokeAsync(ReloadAlertsAsync);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -353,20 +457,32 @@
         return $"{NodeClass(node.Layer)} {statusClass}";
     }
 
-    private string StatusAriaLabel(AlertGraphNode node) =>
-        AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc, currentHeartbeatAge) switch
-        {
-            AlertGraphTargetStatus.OpenAlert => ", status open alert",
-            AlertGraphTargetStatus.ServiceHealthAlert => ", status service health alert",
-            AlertGraphTargetStatus.Current => ", status current",
-            AlertGraphTargetStatus.Stale => ", status stale",
-            AlertGraphTargetStatus.Maintenance => ", status Maintenance",
-            _ => string.Empty
-        };
+    private string NodeAriaLabel(AlertGraphNode node)
+    {
+        if (node.Layer != AlertGraphLayer.Target)
+            return Text.Format("Graph.NodeAria", node.Level, node.Label, node.Count, node.HistoryCount);
 
-    private string StatusTitle(AlertGraphNode node) => node.LastHeartbeatAt is null
-        ? string.Empty
-        : $", last heartbeat {node.LastHeartbeatAt.Value:yyyy-MM-dd HH:mm:ss} UTC";
+        var key = AlertGraphTargetStatusResolver.Resolve(node, currentTimeUtc, currentHeartbeatAge) switch
+        {
+            AlertGraphTargetStatus.OpenAlert => "Graph.NodeAriaTarget.OpenAlert",
+            AlertGraphTargetStatus.ServiceHealthAlert => "Graph.NodeAriaTarget.ServiceHealthAlert",
+            AlertGraphTargetStatus.Current => "Graph.NodeAriaTarget.Current",
+            AlertGraphTargetStatus.Stale => "Graph.NodeAriaTarget.Stale",
+            AlertGraphTargetStatus.Maintenance => "Graph.NodeAriaTarget.Maintenance",
+            AlertGraphTargetStatus.None => "Graph.NodeAriaTarget",
+            var status => throw new ArgumentOutOfRangeException(nameof(node), status, "Unknown graph target status.")
+        };
+        return Text.Format(key, node.Level, node.Label, node.Count, node.HistoryCount, node.SubscriptionId);
+    }
+
+    private string NodeTitle(AlertGraphNode node)
+    {
+        var key = node.Layer == AlertGraphLayer.Target
+            ? node.LastHeartbeatAt is null ? "Graph.NodeTitleTarget" : "Graph.NodeTitleTargetHeartbeat"
+            : node.LastHeartbeatAt is null ? "Graph.NodeTitle" : "Graph.NodeTitleHeartbeat";
+        return Text.Format(key, node.Level, node.Label, node.Count, node.HistoryCount,
+            node.SubscriptionId, node.LastHeartbeatAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty);
+    }
 
     private static string NodeClass(AlertGraphLayer layer) => layer switch
     {
@@ -377,9 +493,6 @@
         AlertGraphLayer.Role => "graph-svg-alert-name",
         _ => "graph-svg-target"
     };
-
-    private static string SubscriptionLabel(AlertGraphNode node) =>
-        node.Layer == AlertGraphLayer.Target ? $", subscription {node.SubscriptionId}" : string.Empty;
 
     private static string ShortSubscription(string value) =>
         value.Length <= 22 ? value : $"{value[..10]}...{value[^9..]}";
@@ -405,15 +518,20 @@
 
     public async ValueTask DisposeAsync()
     {
+        if (disposed) return;
+        disposed = true;
         AlertStore.Changed -= HandleStoreChanged;
         refreshCancellation.Cancel();
         if (refreshTask is not null)
         {
             await refreshTask;
         }
+        if (graphOperationTask is not null) await graphOperationTask;
+        await reloadLock.WaitAsync();
+        reloadLock.Release();
         refreshCancellation.Dispose();
 
-        if (!graphInitialized)
+        if (!graphCleanupRequired)
         {
             return;
         }
@@ -424,6 +542,10 @@
         }
         catch (JSDisconnectedException)
         {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not dispose Graph browser controls.");
         }
     }
 }

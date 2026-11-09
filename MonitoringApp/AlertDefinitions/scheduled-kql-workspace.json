@@ -1,0 +1,24 @@
+{
+  "type": "ScheduledKqlWorkspace",
+  "label": "Workspace KQL threshold",
+  "labelKey": "QueryResults.WorkspaceThreshold",
+  "identity": {
+    "targetColumns": [],
+    "siteColumns": []
+  },
+  "summary": [
+    { "operation": "row-count", "label": "workspaces", "labelKey": "QueryResults.Workspaces", "singularLabel": "workspace", "tone": "info" }
+  ],
+  "row": {
+    "title": "{Workspace}",
+    "facts": [
+      { "column": "EventID", "label": "Event ID", "labelKey": "QueryResults.EventId" },
+      { "column": "Users", "label": "Accounts / changes", "labelKey": "QueryResults.AccountChanges" },
+      { "column": "AccountWarnings", "label": "Account extraction warning", "labelKey": "QueryResults.AccountWarning" },
+      { "column": "Value", "label": "Matching events / measured value", "labelKey": "QueryResults.MatchingValue" },
+      { "column": "Comparison", "label": "Comparison", "labelKey": "QueryResults.Comparison" },
+      { "column": "Threshold", "label": "Threshold", "labelKey": "QueryResults.Threshold" },
+      { "column": "WindowMinutes", "label": "Window (minutes)", "labelKey": "QueryResults.WindowMinutes" }
+    ]
+  }
+}

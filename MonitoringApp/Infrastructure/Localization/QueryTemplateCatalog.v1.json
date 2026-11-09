@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "templateId": "kql/ad/ad-certificate-mapping-overview",
+      "revision": "41A50AD399139624E4D05477A7E63CB010DD75ACBAF0A340E7B113E905E07442",
+      "name": "Strong certificate mapping overview",
+      "description": "Latest KB5014754 KDC 39/41 observations per DC, event ID and certificate/account identity. Unlike serial-only grouping, this preserves different reporters and unparsed events (using their raw payload as fallback identity).",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-certificate-mapping",
+      "revision": "760C0DA36AFC595AE600C32BB42D96EC016815C41147467C87E38CF7C2F8020C",
+      "name": "Strong certificate mapping events",
+      "description": "KB5014754 KDC events 39 and 41, latest event per certificate serial number.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-certificates-overview",
+      "revision": "3A5E69F4FCED5AA83267F9000E9E2A6EA75D3C29E6FC4130CF3F155A1DF28E08",
+      "name": "Certificates and NTDS database size",
+      "description": "Latest SystemData_CL certificate/NTDS inventory. Certificate expiry is shown as UTC and days remaining. MDI/Arc use source certificate array order or flattened NotAfter order, which must be verified against the collector. Missing/unparseable expiry remains unknown.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-cpu-idle-gauge",
+      "revision": "112D0DB2AED2BFBDFA44180FFA60F36FA3F9BFBD8FC58D5B40DE76649AEAA3DD",
+      "name": "DC CPU idle capacity",
+      "description": "Average Processor/Processor Information % Idle Time for _Total over the selected range, rather than counting Perf rows or using an unrelated process counter. Requires collection of this performance counter.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-dc-inventory",
+      "revision": "18FC55E0B123E8CA98C1FFC761DF27B03D8C9C38C53FE74B3B22A9A09DD9B966",
+      "name": "DC inventory and boot age",
+      "description": "Latest VMComputer OS/boot inventory. Supports suffixed and unsuffixed boot/OS columns. Missing boot telemetry stays unknown; boot-age colors are visualization examples, not an enforced restart policy.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-dcdiag-summary",
+      "revision": "DBA8839E24A58F7EB4CC09776AADEE28E693B1BD72F41A7A493033A451C801DE",
+      "name": "DCDiag success rates and failure counts",
+      "description": "Per DC and test: passed, failed, unknown observations and success percentage. KccEvent counts are included. Unrecognized/missing states are counted separately; no passed/failed observations yields an unknown percentage.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-dcdiag",
+      "revision": "B1FE78634336D1BE76BFB1F5E60425379E23B6BEEA9E58F04907D63439F72D61",
+      "name": "DCDiag test status",
+      "description": "Latest test results per computer. Missing or unrecognized results remain unknown.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-disk-free",
+      "revision": "0B22B0A64C0B7BFA6A3D78A97ABDB8A6A0C5ECD91FB762B956D2811F30E5E519",
+      "name": "Disk free space",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-fsmo-role-changes",
+      "revision": "69F4CE4C4BD5384899A483D751645864BC64CE3D7692B996659BF659C84E59A9",
+      "name": "Observed FSMO role changes",
+      "description": "Holder transitions observed within the selected range, independently per reporting DC/domain/role. The first observation is a baseline, empty holders are not changes. Requires ADConfig_CL.Computer; reports are not mixed across DCs.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-fsmo-roles",
+      "revision": "5F068D8A13F3E0BF8741274F82D012D2B5AAD2770D00E61C59962FD1FC07D403",
+      "name": "FSMO role holders",
+      "description": "Latest ADConfig_CL role snapshot per selected reporting computer and domain. Requires a Computer column identifying the reporting DC. Separate reporters remain visible to expose inconsistent observations.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-gpo-history",
+      "revision": "2972AA1352D1CB6188CB4CE036DAC268DED91DC1FF820FA3C1A7AF4E08CA7750",
+      "name": "GPO and SYSVOL status history",
+      "description": "Workspace-wide history per Environment (domain) using the execution bin interval: maximum observed counts/sizes, with derived percentages. Selected systems route workspaces only. Gaps/missing metrics are not healthy zeros; colors are illustrative, not alert rules.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-gpo-statistics",
+      "revision": "B452E6D21D0721CAF60DA9C20737E47CAD014CBE2AE599A718FED1EACB7A20F5",
+      "name": "GPO and SYSVOL statistics",
+      "description": "Workspace-wide SysvolStats_CL statistics, latest snapshot per Environment (domain). Selected systems choose the workspaces only; all domains in those workspaces may be included. Zero denominators and missing measurements remain unknown, not zero.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-heartbeat-overview",
+      "revision": "8285DFF74D0F25E400E089BD46A6103225572CCCB0729CF1E07DF710D015C653",
+      "name": "DC heartbeat overview",
+      "description": "Selected-system baseline with latest heartbeat in the requested range. Older than 15 minutes is stale; missing telemetry remains unknown rather than healthy.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-heartbeat",
+      "revision": "8DC0E7344F0A195E9CB4C637D6CD36E85A5B11A55AF34ECD0E667D54DF212D6D",
+      "name": "Heartbeat and last reboot",
+      "description": "Latest heartbeat per selected computer; delayed after 20 minutes.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-kerberos-event-count",
+      "revision": "FCC252EF920E9D368C7DE12D12293F057FEA0935B5D998FD8619FE021A3304F6",
+      "name": "Kerberos authentication events per DC",
+      "description": "Counts collected SecurityEvent 4768/4769 observations over the selected range, split by event ID. Requires security-event collection/auditing. Unlike the Grafana example, this does not count unrelated Perf rows.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-kerberos-rate",
+      "revision": "FC28B92B1EA83812B72A4E7814AB935E247428019F74FF8F3B5204D6B8EF654B",
+      "name": "Kerberos authentications per second",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-kerberos-total",
+      "revision": "D83613CD8CE3310F46A576A23BFB272B35ABB0988F03575482D8CCE5404B6BBE",
+      "name": "Estimated Kerberos authentications",
+      "description": "Workbook estimate: sum of per-second samples multiplied by 60; assumes one sample per minute.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-latency-gauge",
+      "revision": "F4D9EE16A2F50C9C8C2A10C4FBE68E361818615FC40CAA5182A2C910A4B3B9EF",
+      "name": "Site-to-site LDAP latency gauge",
+      "description": "Latest reported latency per selected source DC and target DC, then average by source/target site direction. Gauge thresholds complement the existing honeycomb and trend; workspaces remain separate.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-ldap-latency-honeycomb",
+      "revision": "E08B9FC1442D9685AEB134FE88A4015DC388A6C0F685D853725585C157595D34",
+      "name": "LDAP latency by site",
+      "description": "Average of latest measurements per selected source computer and target DC; green 0 ms to red 2000 ms.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-ldap-latency-trend",
+      "revision": "D0981BBB038A68E9E1013A51ABBD391A4E912ABE685D53C55268CB02DB3C1C87",
+      "name": "LDAP latency over time",
+      "description": "LDAP authentication and simple query round-trip time by site direction.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-memory-overview",
+      "revision": "8B76864685595E6C241DDE1F5D7C5A88DBF532B2467829646A96D813897CC53A",
+      "name": "DC committed memory snapshot",
+      "description": "Latest Memory % Committed Bytes In Use per selected DC in the requested range, with configurable percentage colors. This is committed-memory utilization, not physical RAM usage.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-memory",
+      "revision": "05F97D10903F07815B5036474839F6B920F2E17935F2E1465F681F7335C73DA2",
+      "name": "Memory utilization",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-netlogon-errors",
+      "revision": "CD933DB9AB925350D76B1354BE71BEDE64B5623B146D9B3BE4DA021C1304E1CA",
+      "name": "System log Netlogon errors",
+      "description": "Events for the selected computers and time range.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-netlogon-site-mapping",
+      "revision": "3C138FC21BEC6F91C24B07BF1B116767E979F4F9151590F7EFDDD1B2FA1E9C1C",
+      "name": "Netlogon connections without site mapping",
+      "description": "Event 5807 connection estimate, retaining the workbook's division by 255.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-network-received",
+      "revision": "D799DF533BDEE9CCAF8B17BFBD5AA8250F8B6F37B44366AB963A8B891F7D76B9",
+      "name": "Network bytes received",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-network-sent",
+      "revision": "0BC357DFD0A6ED2604E903260F7E32F54430E919482F32AE7E89218BEC8CBFFC",
+      "name": "Network bytes sent",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-port-usage",
+      "revision": "DE209C4B5EFAFD7EF4B3DB3980B895E36A445B688FCB7BB052B4162F105B0A55",
+      "name": "DC port connection observations",
+      "description": "VMConnection observations for destination ports 1-1024 during the selected range. Sum of LinksLive is an interval observation count, not a current connection count or proof that a service is currently reachable.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-processor",
+      "revision": "049BB5D0B473BF615F8F04AC4C0DC8C8676D776E6B9B9DA10E636D25D8A385E4",
+      "name": "Processor utilization",
+      "description": "Average performance counter per selected computer and instance.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-replication-details",
+      "revision": "9CCE6FB5B089E781A719EB6DFBDBBA2281D27814B3F9E8C9F4CD8263D0B09E94",
+      "name": "Replication failure details",
+      "description": "Latest reported replication state per selected reporter/destination/site/naming context, including last failure. This complements the zero-filled error trend. Invalid failure counts remain unknown instead of becoming zero.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-replication-errors",
+      "revision": "9E8C6600DF6DF1E2896563193285D9B4E7307BED79F4BE9AF43DC49B7353826E",
+      "name": "Replication errors over time",
+      "description": "Failure observations grouped by naming context, DC or site. Missing intervals are filled with zero; groups without any observations are omitted.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-service-tls-event-summary",
+      "revision": "CBD896BDA92E332B5B83AA3E3BA365BAFD0A2CF3C2227F9237953C30D0949675",
+      "name": "Service and TLS event counts",
+      "description": "System Event counts for 7022, 7031, 7032, 36873 and 36874 with per-event last-seen timestamps. A zero means no matching events among observed System telemetry, not proof of complete collection.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-services-overview",
+      "revision": "F6DAA7C1665AB8B453E7325F821A258FEE98E4F8D16DAD1D859232F2B3B27777",
+      "name": "AD service status board",
+      "description": "Color-configured snapshot variant of AD service status. Latest observed state per DC/service in the selected range; absent services are not inferred to be running.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-services",
+      "revision": "28ACF7926810F551524D30FBF7F00811E8A97DFA08342F0A559C7F86F755D79E",
+      "name": "Active Directory service status",
+      "description": "Latest reported state of the AD-related services listed in the workbook.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-shutdowns",
+      "revision": "C11DAA9B85410AF63262B73805EB26B9C99BC5684326E7C489C3A48B4BACF824",
+      "name": "Recent shutdown events",
+      "description": "Events for the selected computers and time range.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-storage-gauge",
+      "revision": "9A036E51991B6F29918E77B4481177A17A1BA2A21DD35A5763EFA2B52D4C69E2",
+      "name": "DC disk free capacity",
+      "description": "Latest LogicalDisk % Free Space per DC and disk instance in the requested range. Disk instances remain separate and _Total is excluded; low free capacity is red, high free capacity green.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-system-errors",
+      "revision": "DCEDE8DE8D8D322B293A50059933187FC03689CF5B3206F63BDDDC0C1D2070EB",
+      "name": "System log errors",
+      "description": "Events for the selected computers and time range.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-system-event-summary",
+      "revision": "415F8E276E2AA5B8ED606130A9A4E31E921DC3B88A8382B6F855AB4EA75A68A3",
+      "name": "System and Netlogon event counts",
+      "description": "System Event counts for 41, 6008, 5719, 5840 and 7001 with per-event last-seen timestamps. Rows exist only for DCs with System-event telemetry in range; missing systems must not be interpreted as healthy.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-system-info",
+      "revision": "C008B7A745ED5CFFF82B89CB453FE943543602B3FF9AF8618540F6444148975C",
+      "name": "System and certificate information",
+      "description": "NTDS database size and LDAPS, MDI and Arc certificate validity.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/cpu-high",
+      "revision": "EAAB857884E678EC3E5D9E4B102074C27C044BC1CD4B60E7D296DCB2F9EAA1F1",
+      "name": "DC CPU usage above 90%",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4624",
+      "revision": "FF65F430E1942A66A6BF6808651B1DD867AA24BA831EA42C0FACFA1BDC920203",
+      "name": "Successful account logon (4624)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4724",
+      "revision": "2010CA9A30F48EC85DCBAA15ECF6055E4E97005E55DDAF75943342B3317C89CA",
+      "name": "Account password reset (4724)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4736",
+      "revision": "DFF482653176FA76443F7E47EAFCDA2C805445580AF03BEFAB22399C883B90BF",
+      "name": "Security-enabled local group change (4736)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4768",
+      "revision": "F3F8AFDB58543D3AB2BD8E4DA480EF7442336EE305B92C07C2E0311DA32472AF",
+      "name": "Kerberos TGT request (4768)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4769",
+      "revision": "B301E0F67509C38F94107A873E8860749E6611AC5C51F2A64EF957B39191EED2",
+      "name": "Kerberos service ticket request (4769)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-4794",
+      "revision": "0365712B07B8F31D134FACA8AD498EEBF363133753AB5415F57FBF1EEFC10321",
+      "name": "DSRM password reset (4794)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/event-5136",
+      "revision": "0808AAEEA0E677C1B4BB41A6770DC2CB44D0129B5AC93DFF93B23D79EFA7ED57",
+      "name": "Directory object change (5136)",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/scheduled/kerberos-stopped",
+      "revision": "FAE5578359C8A8A59A302E18074BFCD7ACD6D7326BB243CAE918D503EDAEB924",
+      "name": "Kerberos authentications stopped",
+      "description": null,
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "sql/analysis/cpu-usage",
+      "revision": "5EA77002DD31B326750E4DB1FE8EFAD702EF0E47068C19F77ECDB68D49DF55B8",
+      "name": "CPU usage",
+      "description": "Average total processor utilization per selected computer.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "sql/analysis/ram-usage",
+      "revision": "41D8A8EBFB69F82F3D09677DFB5C5269D751DA9EA9CD4B8101099277DBE4E1B1",
+      "name": "RAM usage",
+      "description": "Average committed memory utilization per selected computer.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "sql/analysis/kerberos-authentications",
+      "revision": "AA1B0DEFAE6E2CCD6A8E268212829E0400CDDB7ECD9E71D687E03A30717AA298",
+      "name": "Kerberos authentications",
+      "description": "Counts Kerberos ticket-granting and service-ticket events 4768 and 4769.",
+      "resourceVersion": 1
+    }
+  ]
+}

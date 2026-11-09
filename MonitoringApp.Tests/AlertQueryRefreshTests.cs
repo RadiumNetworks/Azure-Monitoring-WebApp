@@ -214,7 +214,8 @@ public sealed class AlertQueryRefreshTests
         }
 
         rule.Threshold = -1;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveAlertRuleAsync(rule));
+        var validation = await Assert.ThrowsAsync<AlertRuleException>(() => store.SaveAlertRuleAsync(rule));
+        Assert.Equal(AlertRuleErrorCode.RowCountThreshold, validation.Code);
         rule.Threshold = 0;
         rule.Enabled = false;
         await store.SaveAlertRuleAsync(rule);

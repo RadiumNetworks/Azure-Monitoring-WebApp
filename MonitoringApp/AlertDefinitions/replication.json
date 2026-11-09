@@ -1,6 +1,7 @@
 {
   "type": "Replication",
   "label": "Replication query summary",
+  "labelKey": "QueryResults.ReplicationSummary",
   "identity": {
     "targetColumns": ["SourceDSA"],
     "siteColumns": ["SourceDSASite"],
@@ -9,27 +10,29 @@
   },
   "collapseRows": true,
   "summary": [
-    { "operation": "sum", "column": "NumberOfFailures", "label": "failures", "tone": "failure", "zeroTone": "success" },
-    { "operation": "row-count", "label": "links", "singularLabel": "link", "tone": "info" }
+    { "operation": "sum", "column": "NumberOfFailures", "label": "failures", "labelKey": "QueryResults.Failures", "tone": "failure", "zeroTone": "success" },
+    { "operation": "row-count", "label": "links", "labelKey": "QueryResults.Links", "singularLabel": "link", "tone": "info" }
   ],
   "row": {
     "title": "{SourceDSA} to {DestDSA}",
+    "titleKey": "QueryResults.ReplicationLink",
+    "titleArguments": ["SourceDSA", "DestDSA"],
     "metadata": [
-      { "column": "SourceDSASite", "label": "Source site" },
-      { "column": "DestDSASite", "label": "Destination site" },
-      { "column": "Protocol", "label": "Protocol" },
-      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
+      { "column": "SourceDSASite", "label": "Source site", "labelKey": "QueryResults.SourceSite" },
+      { "column": "DestDSASite", "label": "Destination site", "labelKey": "QueryResults.DestinationSite" },
+      { "column": "Protocol", "label": "Protocol", "labelKey": "QueryResults.Protocol" },
+      { "column": "TimeGenerated", "label": "Observed", "labelKey": "QueryResults.Observed", "format": "datetime" }
     ],
     "alerts": [
-      { "column": "NumberOfFailures", "label": "Replication failures", "hideWhen": "0", "tone": "failure" },
-      { "column": "LastErrorStatus", "label": "Error status", "hideWhen": "0", "tone": "failure" }
+      { "column": "NumberOfFailures", "label": "Replication failures", "labelKey": "QueryResults.ReplicationFailures", "hideWhen": "0", "tone": "failure" },
+      { "column": "LastErrorStatus", "label": "Error status", "labelKey": "QueryResults.ErrorStatus", "hideWhen": "0", "tone": "failure" }
     ],
     "facts": [
-      { "column": "LastFailureTime", "label": "Last failure", "format": "datetime", "hideWhen": "0" },
-      { "column": "LastSuccessTime", "label": "Last success", "format": "datetime" }
+      { "column": "LastFailureTime", "label": "Last failure", "labelKey": "QueryResults.LastFailure", "format": "datetime", "hideWhen": "0" },
+      { "column": "LastSuccessTime", "label": "Last success", "labelKey": "QueryResults.LastSuccess", "format": "datetime" }
     ],
     "details": [
-      { "column": "NC", "label": "Naming context" }
+      { "column": "NC", "label": "Naming context", "labelKey": "QueryResults.NamingContext" }
     ]
   }
 }

@@ -93,9 +93,10 @@ public sealed class InventoryHeartbeatFreshnessRuleTests
         var factory = await CreateDatabaseAsync(connection);
         var store = CreateStore(factory);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAsync<AlertRuleException>(() =>
             store.SaveAlertRuleAsync(CreateRule(minutes)));
 
+        Assert.Equal(AlertRuleErrorCode.HeartbeatFreshness, exception.Code);
         Assert.Contains("at least 1 minute", exception.Message, StringComparison.Ordinal);
         Assert.Empty(await store.GetAllAlertRulesAsync());
     }
@@ -111,7 +112,8 @@ public sealed class InventoryHeartbeatFreshnessRuleTests
         var duplicate = CreateRule(20);
         duplicate.Name = "Another heartbeat limit";
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveAlertRuleAsync(duplicate));
+        var exception = await Assert.ThrowsAsync<AlertRuleException>(() => store.SaveAlertRuleAsync(duplicate));
+        Assert.Equal(AlertRuleErrorCode.DuplicateHeartbeatFreshness, exception.Code);
         Assert.Contains("Only one global", exception.Message, StringComparison.Ordinal);
 
         await using var context = factory.CreateDbContext();

@@ -112,10 +112,37 @@ public sealed class DatabaseSettingsTests
     [Fact]
     public void RejectsMalformedJson()
     {
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<DatabaseSettingsValidationException>(() =>
             DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(
                 DatabaseSettingsLoader.AlertHistory,
                 TestCases.MalformedJson));
+    }
+
+    [Theory]
+    [InlineData("null", DatabaseSettingsValidationCode.JsonNull)]
+    [InlineData("{", DatabaseSettingsValidationCode.JsonInvalid)]
+    [InlineData("""{"Days":"wrong"}""", DatabaseSettingsValidationCode.JsonInvalid)]
+    public void TypedJsonFailuresPreserveNeutralDiagnosticsAndInnerException(
+        string json, DatabaseSettingsValidationCode code)
+    {
+        var error = Assert.Throws<DatabaseSettingsValidationException>(() =>
+            DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(DatabaseSettingsLoader.AlertHistory, json));
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
+        Assert.Equal(code, error.Code);
+        Assert.Equal(DatabaseSettingsLoader.AlertHistory, error.SettingName);
+        if (code == DatabaseSettingsValidationCode.JsonNull)
+        {
+            Assert.Equal("Database setting 'AlertHistory' contains JSON null.", error.Message);
+            Assert.Null(error.InnerException);
+        }
+        else
+        {
+            Assert.Equal("Database setting 'AlertHistory' does not contain valid JSON for AlertHistoryOptions.", error.Message);
+            var inner = Assert.IsType<System.Text.Json.JsonException>(error.InnerException);
+            Assert.NotNull(inner.Path);
+            Assert.NotNull(inner.LineNumber);
+            Assert.NotNull(inner.BytePositionInLine);
+        }
     }
 
     [Fact]

@@ -1,21 +1,29 @@
 @page "/queries"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using System.Text.Json
 @inject AlertStore AlertStore
 @inject NavigationManager Navigation
+@inject UiText Text
+@inject ILogger<Queries> Logger
 
-<PageTitle>Query Examples</PageTitle>
+<PageTitle>@Text["QueryExamples.PageTitle"]</PageTitle>
 
 <section class="query-heading">
     <div>
-        <p class="eyebrow">Integration</p>
-        <h1>Query examples</h1>
-        <p class="subtitle">Ready-to-use API requests with results from the current alert data.</p>
+        <p class="eyebrow">@Text["QueryExamples.Eyebrow"]</p>
+        <h1>@Text["QueryExamples.Heading"]</h1>
+        <p class="subtitle">@Text["QueryExamples.Description"]</p>
     </div>
-    <button class="query-refresh" type="button" disabled="@isLoading" @onclick="LoadResultsAsync">
-        @(isLoading ? "Refreshing..." : "Refresh results")
+    <button class="query-refresh" type="button" disabled="@(disposed || isLoading)" @onclick="LoadResultsAsync">
+        @(isLoading ? Text["QueryExamples.Refreshing"] : Text["QueryExamples.Refresh"])
     </button>
 </section>
+
+@if (errorMessage is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+}
 
 <div class="query-grid">
     @foreach (var example in examples)
@@ -23,14 +31,14 @@
         <section class="query-example" aria-labelledby="@example.Id">
             <div class="query-example-heading">
                 <div>
-                    <span>@example.Label</span>
-                    <h2 id="@example.Id">@example.Title</h2>
+                    <span>@Text[example.LabelKey]</span>
+                    <h2 id="@example.Id">@Text[example.TitleKey]</h2>
                 </div>
-                <span class="query-count">@example.Response.Count results</span>
+                <span class="query-count">@Text.Plural("QueryExamples.Results", example.Response.Count)</span>
             </div>
             <a class="query-url" href="@example.Url" target="_blank" rel="noopener noreferrer">@example.Url</a>
             <div class="query-result-heading">
-                <strong>Response</strong>
+                <strong>@Text["QueryExamples.Response"]</strong>
                 <span>HTTP 200 · application/json</span>
             </div>
             <pre class="query-result">@Serialize(example.Response)</pre>
@@ -45,23 +53,37 @@
     };
 
     private IReadOnlyList<QueryExample> examples = [];
+    private readonly CancellationTokenSource cancellation = new();
+    private Task? loadTask;
+    private Task? disposeTask;
+    private bool disposed;
     private bool isLoading;
+    private string? errorMessage;
 
     protected override Task OnInitializedAsync() => LoadResultsAsync();
 
-    private async Task LoadResultsAsync()
+    private Task LoadResultsAsync()
     {
+        if (disposed || isLoading) return Task.CompletedTask;
+        return loadTask = LoadResultsCoreAsync();
+    }
+
+    private async Task LoadResultsCoreAsync()
+    {
+        var token = cancellation.Token;
         isLoading = true;
+        StateHasChanged();
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var alerts = await AlertStore.GetAllAsync();
-            examples =
+            var alerts = await AlertStore.GetAllRequiredAsync(token);
+            if (disposed || token.IsCancellationRequested) return;
+            IReadOnlyList<QueryExample> current =
             [
                 CreateExample(
                     "active-query",
-                    "Active alerts",
-                    "Last 120 minutes",
+                    "QueryExamples.ActiveAlerts",
+                    "QueryExamples.Last120Minutes",
                     "api/query?activeMinutes=120",
                     "active",
                     now.AddMinutes(-120),
@@ -69,25 +91,37 @@
                     AlertQuery.GetActiveSince(alerts, now.AddMinutes(-120))),
                 CreateExample(
                     "event-query",
-                    "Alert events",
-                    "Last 2 hours",
+                    "QueryExamples.AlertEvents",
+                    "QueryExamples.Last2Hours",
                     "api/query?eventHours=2",
                     "events",
                     now.AddHours(-2),
                     now,
                     AlertQuery.GetEventsSince(alerts, now.AddHours(-2)))
             ];
+            examples = current;
+            errorMessage = null;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load query examples from the current alert data.");
+            if (!disposed && !token.IsCancellationRequested)
+                errorMessage = Text[examples.Count == 0 ? "QueryExamples.LoadFailed" : "QueryExamples.RefreshFailed"];
         }
         finally
         {
             isLoading = false;
+            if (!disposed) StateHasChanged();
         }
     }
 
     private QueryExample CreateExample(
         string id,
-        string label,
-        string title,
+        string labelKey,
+        string titleKey,
         string relativeUrl,
         string mode,
         DateTimeOffset from,
@@ -97,8 +131,8 @@
         var items = matches.Select(AlertQueryItem.FromAlert).ToArray();
         return new QueryExample(
             id,
-            label,
-            title,
+            labelKey,
+            titleKey,
             new Uri(new Uri(Navigation.BaseUri), relativeUrl).AbsoluteUri,
             new AlertQueryResponse(mode, from, to, items.Length, items));
     }
@@ -108,8 +142,34 @@
 
     private sealed record QueryExample(
         string Id,
-        string Label,
-        string Title,
+        string LabelKey,
+        string TitleKey,
         string Url,
         AlertQueryResponse Response);
+
+    public ValueTask DisposeAsync() => new(disposeTask ??= DisposeCoreAsync());
+
+    private async Task DisposeCoreAsync()
+    {
+        disposed = true;
+        var token = cancellation.Token;
+        try { await cancellation.CancelAsync(); }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Query examples cancellation failed during teardown.");
+        }
+        try
+        {
+            if (loadTask is not null) await loadTask;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Query examples read failed during teardown.");
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
 }

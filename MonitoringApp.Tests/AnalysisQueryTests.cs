@@ -75,6 +75,84 @@ public sealed class AnalysisQueryTests
         Assert.Equal(AnalysisQueryStatuses.Published, published.Status);
     }
 
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("duplicate")]
+    [InlineData("null")]
+    [InlineData("json")]
+    [InlineData("array")]
+    [InlineData("type")]
+    public void PublishedReadFailuresKeepExceptionContractsDiagnosticsAndStoredData(string fault)
+    {
+        var query = Definition();
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), Version = 7,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+        };
+        query.PublishedVersionId = version.Id;
+        query.Versions.Add(version);
+        switch (fault)
+        {
+            case "missing": query.Versions.Clear(); break;
+            case "duplicate": query.Versions.Add(new() { Id = version.Id, Version = 8 }); break;
+            case "null": version.SnapshotJson = "null"; break;
+            case "json": version.SnapshotJson = "{\n\"name\":\"private JSON diagnostic\","; break;
+            case "array": version.SnapshotJson = "[]"; break;
+            case "type": version.SnapshotJson = """{"name":123}"""; break;
+            default: throw new ArgumentOutOfRangeException(nameof(fault));
+        }
+        var stored = JsonSerializer.Serialize(query);
+        var error = Record.Exception(() => AnalysisQueryRegistry.CreatePublishedDefinition(query));
+        if (fault is "missing" or "duplicate")
+        {
+            var publication = Assert.IsType<AnalysisQueryPublicationException>(error);
+            Assert.Equal(AnalysisQueryPublicationCode.VersionUnavailable, publication.Code);
+            var original = Assert.IsType<InvalidOperationException>(publication.InnerException);
+            Assert.Equal(original.Message, publication.Message);
+            Assert.IsAssignableFrom<InvalidOperationException>(publication);
+        }
+        else if (fault == "null")
+        {
+            var publication = Assert.IsType<AnalysisQueryPublicationException>(error);
+            Assert.Equal(AnalysisQueryPublicationCode.SnapshotInvalid, publication.Code);
+            Assert.Equal("The published query snapshot is invalid.", publication.Message);
+            Assert.Null(publication.InnerException);
+            Assert.IsAssignableFrom<InvalidOperationException>(publication);
+        }
+        else
+        {
+            var json = Assert.IsType<AnalysisQuerySnapshotJsonException>(error);
+            var original = Assert.IsAssignableFrom<JsonException>(json.InnerException);
+            Assert.Equal(original.Message, json.Message);
+            Assert.Equal(original.Path, json.Path);
+            Assert.Equal(original.LineNumber, json.LineNumber);
+            Assert.Equal(original.BytePositionInLine, json.BytePositionInLine);
+            Assert.False(typeof(InvalidOperationException).IsInstanceOfType(json));
+        }
+        Assert.Equal(stored, JsonSerializer.Serialize(query));
+    }
+
+    [Fact]
+    public void PublishedReadStillAcceptsLegacyDefaultsAndUnknownSnapshotFields()
+    {
+        var query = Definition();
+        var node = JsonSerializer.SerializeToNode(AnalysisQueryRegistry.CreateSnapshot(query))!.AsObject();
+        node.Remove("Scope");
+        node.Remove("Visualization");
+        node["unknownLegacyMetadata"] = "Original <custom> &";
+        var version = new AnalysisQueryVersion { Id = Guid.NewGuid(), Version = 2, SnapshotJson = node.ToJsonString() };
+        query.PublishedVersionId = version.Id;
+        query.Versions.Add(version);
+        var before = version.SnapshotJson;
+        var published = AnalysisQueryRegistry.CreatePublishedDefinition(query);
+        Assert.Equal(AnalysisQueryScopes.SelectedSystems, published.Scope);
+        Assert.Equal(AnalysisVisualization.Serialize(null), published.VisualizationJson);
+        Assert.Equal(query.MinimumRole, published.MinimumRole);
+        Assert.Equal(query.Kql, published.Kql);
+        Assert.Equal(before, version.SnapshotJson);
+    }
+
     [Fact]
     public void EnforcesMinimumApplicationRole()
     {
@@ -107,6 +185,59 @@ public sealed class AnalysisQueryTests
             "let _SelectedSystems = dynamic([\"SERVER01\",\"SERVER\\u002202\"]);\nlet _BinSize = 15m;",
             kql);
         Assert.EndsWith(ValidKql, kql);
+    }
+
+    [Theory]
+    [InlineData(AnalysisQueryVisualizationTypes.LineChart)]
+    [InlineData(AnalysisQueryVisualizationTypes.Table)]
+    [InlineData(AnalysisQueryVisualizationTypes.Honeycomb)]
+    [InlineData(AnalysisQueryVisualizationTypes.BarChart)]
+    [InlineData(AnalysisQueryVisualizationTypes.BarGauge)]
+    [InlineData(AnalysisQueryVisualizationTypes.Stat)]
+    [InlineData(AnalysisQueryVisualizationTypes.StatusHistory)]
+    public void EffectiveKqlPreservesTheExactVisualizationProfile(string visualizationType)
+    {
+        const string source = "let data = Perf | where Computer in~ (_SelectedSystems);\ndata | project Series = Computer, Value = CounterValue; // keep";
+        const string parameters =
+            """let _SelectedSystems = dynamic(["DC01","dc\u002202","DC\\03"]);""" + "\n" +
+            "let _BinSize = 30m;\nlet _TimePeriod = 240m;\nlet _GroupBy = \"NC\";\n";
+        var expected = visualizationType == AnalysisQueryVisualizationTypes.Table
+            ? "set truncationmaxsize=4194304;\n" + parameters +
+                "let _MonitoringTableResult = () {\n" + source + "\n};\n_MonitoringTableResult()\n| take 1001"
+            : parameters + source;
+
+        var actual = AnalysisQueryRunner.BuildEffectiveKql(
+            source, ["DC01", "dc\"02", "DC\\03"], 30, 240, "NC", visualizationType);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(1440, 43200)]
+    public void EffectiveKqlAcceptsTheTechnicalParameterBoundaries(int binMinutes, int timeRangeMinutes)
+    {
+        var kql = AnalysisQueryRunner.BuildEffectiveKql(ValidKql, [], binMinutes, timeRangeMinutes);
+
+        Assert.Equal(
+            "let _SelectedSystems = dynamic([]);\n" +
+            $"let _BinSize = {binMinutes}m;\nlet _TimePeriod = {timeRangeMinutes}m;\n" +
+            "let _GroupBy = \"SourceDSA\";\n" + ValidKql,
+            kql);
+    }
+
+    [Theory]
+    [InlineData(0, 60, "binMinutes")]
+    [InlineData(1441, 60, "binMinutes")]
+    [InlineData(15, 4, "timeRangeMinutes")]
+    [InlineData(15, 43201, "timeRangeMinutes")]
+    public void EffectiveKqlRejectsParametersOutsideTheTechnicalBoundaries(
+        int binMinutes, int timeRangeMinutes, string parameter)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AnalysisQueryRunner.BuildEffectiveKql(ValidKql, [], binMinutes, timeRangeMinutes));
+
+        Assert.Equal(parameter, error.ParamName);
     }
 
     [Fact]
@@ -187,7 +318,7 @@ public sealed class AnalysisQueryTests
     {
         var (options, runner, systems) = DraftEnvironment();
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateDraftExecutionPreview(DraftDefinition(options), workspaceKey, systems, minutes));
 
         Assert.Contains(message, error.Message);
@@ -203,7 +334,7 @@ public sealed class AnalysisQueryTests
             Computer = "OTHER"
         };
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateDraftExecutionPreview(DraftDefinition(options), "tenant-a", [system], 60));
 
         Assert.Contains("route to the selected workspace", error.Message);
@@ -215,12 +346,12 @@ public sealed class AnalysisQueryTests
         var (options, runner, systems) = DraftEnvironment();
         var query = DraftDefinition(options);
         query.Workspaces.First().Enabled = false;
-        Assert.Contains("Enable the selected workspace", Assert.Throws<InvalidOperationException>(() =>
+        Assert.Contains("Enable the selected workspace", Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateDraftExecutionPreview(query, "tenant-a", systems, 60)).Message);
 
         query.Workspaces.First().Enabled = true;
         query.Kql = "workspace('other')." + ValidKql;
-        Assert.Contains("not allowed", Assert.Throws<InvalidOperationException>(() =>
+        Assert.Contains("not allowed", Assert.Throws<AnalysisQueryValidationException>(() =>
             runner.CreateDraftExecutionPreview(query, "tenant-a", systems, 60)).Message);
     }
 
@@ -230,7 +361,7 @@ public sealed class AnalysisQueryTests
         var options = new CrossTenantLogAnalyticsOptions();
         var runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteDraftAsync(Definition(), "tenant-a", [], 60));
 
         Assert.Contains("disabled", error.Message);
@@ -391,8 +522,8 @@ public sealed class AnalysisQueryTests
         Assert.Empty(await registry.ListPublishedAsync());
         await Assert.ThrowsAsync<KeyNotFoundException>(() => new AnalysisQueryExecutionService(factory, runner)
             .ExecuteAsync(new(saved.Id, [new("subscription", "DC01")], 60)));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => registry.UnpublishAsync(saved.Id, "admin"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => registry.PublishAsync(saved.Id, "publisher"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => registry.UnpublishAsync(saved.Id, "admin"));
+        await Assert.ThrowsAsync<AnalysisValidationException>(() => registry.PublishAsync(saved.Id, "publisher"));
 
         await using (var context = factory.CreateDbContext())
         {
@@ -445,7 +576,7 @@ public sealed class AnalysisQueryTests
         Assert.Single(runner.CreateExecutionPreviews(query, systems, 60));
         Assert.Equal("tenant-a", runner.CreateDraftExecutionPreview(query, "tenant-a", systems, 60).WorkspaceKey);
         query.Workspaces.First().Enabled = false;
-        Assert.Throws<InvalidOperationException>(() => runner.CreateDraftExecutionPreview(query, "tenant-a", systems, 60));
+        Assert.Throws<AnalysisValidationException>(() => runner.CreateDraftExecutionPreview(query, "tenant-a", systems, 60));
     }
 
     [Theory]
@@ -461,7 +592,7 @@ public sealed class AnalysisQueryTests
         query.VisualizationType = AnalysisQueryVisualizationTypes.Table;
         query.Workspaces.First().Enabled = enabled;
         query.Workspaces.First().LastValidationStatus = validation;
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.ExecuteAsync(query, systems, 60));
+        var error = await Assert.ThrowsAsync<AnalysisValidationException>(() => runner.ExecuteAsync(query, systems, 60));
         Assert.Contains("not validated", error.Message);
     }
 
@@ -528,9 +659,9 @@ public sealed class AnalysisQueryTests
         var (options, runner, systems) = DraftEnvironment();
         var query = DraftDefinition(options);
 
-        var previewError = Assert.Throws<InvalidOperationException>(() =>
+        var previewError = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: key));
-        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var executionError = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteAsync(query, systems, 60, workspaceKey: key));
 
         Assert.Contains(expected, previewError.Message);
@@ -594,7 +725,7 @@ public sealed class AnalysisQueryTests
             systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray())
             with { WorkspaceKey = workspaceKey, Domain = domain, Site = site, Role = role };
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             new AnalysisQueryExecutionService(factory, runner).ExecuteAsync(request));
 
         Assert.Contains(expected, error.Message);
@@ -640,9 +771,9 @@ public sealed class AnalysisQueryTests
         systems[1].Role = "SQL";
         var query = DraftDefinition(options);
 
-        var previewError = Assert.Throws<InvalidOperationException>(() =>
+        var previewError = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateExecutionPreviews(query, systems, 60, site: site, role: role));
-        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var executionError = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteAsync(query, systems, 60, site: site, role: role));
 
         Assert.Contains("No selected systems match", previewError.Message);
@@ -661,7 +792,7 @@ public sealed class AnalysisQueryTests
             workspaceKey: "tenant-a", domain: " INVENTORY.EXAMPLE. "));
 
         Assert.Equal(["SERVER02"], preview.Systems);
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: "tenant-b", domain: "inventory.example"));
     }
 
@@ -698,9 +829,9 @@ public sealed class AnalysisQueryTests
         var (options, runner, systems) = DomainEnvironment();
         var query = DraftDefinition(options);
 
-        var previewError = Assert.Throws<InvalidOperationException>(() =>
+        var previewError = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateExecutionPreviews(query, systems, 60, workspaceKey: workspaceKey, domain: domain));
-        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var executionError = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteAsync(query, systems, 60, workspaceKey: workspaceKey, domain: domain));
 
         Assert.Contains("domain is not configured", previewError.Message);
@@ -714,12 +845,15 @@ public sealed class AnalysisQueryTests
         var query = DraftDefinition(options);
         var selected = systems.Where(system => system.Computer != "SERVER02").ToArray();
 
-        var previewError = Assert.Throws<InvalidOperationException>(() =>
+        var previewError = Assert.Throws<AnalysisValidationException>(() =>
             runner.CreateExecutionPreviews(query, selected, 60, domain: "beta.example"));
-        var executionError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var executionError = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteAsync(query, selected, 60, domain: "beta.example"));
 
         Assert.Contains("No selected systems belong to domain 'Company B'", previewError.Message);
+        Assert.Equal(AnalysisValidationCode.DomainSystemsMissing, previewError.Code);
+        Assert.Equal(new object[] { "Company B" }, previewError.Arguments);
+        Assert.Equal(previewError.Code, executionError.Code);
         Assert.Equal(previewError.Message, executionError.Message);
     }
 
@@ -750,7 +884,7 @@ public sealed class AnalysisQueryTests
         Assert.Equal("tenant-a", Assert.Single(runner.CreateExecutionPreviews(query, onlyFirstWorkspace, 60,
             workspaceKey: "tenant-b", domain: "gamma.example")).WorkspaceKey);
         query.Workspaces.Single(workspace => workspace.WorkspaceKey == "tenant-b").LastValidationStatus = AnalysisQueryValidationStatuses.NotValidated;
-        var validationError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var validationError = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             runner.ExecuteAsync(query, systems, 60, workspaceKey: "tenant-a", domain: "alpha.example"));
         Assert.Contains("not validated", validationError.Message);
     }
@@ -777,6 +911,169 @@ public sealed class AnalysisQueryTests
             new() { SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = "SERVER02", Domain = "beta.example" },
             new() { SubscriptionId = options.Workspaces[1].SubscriptionIds[0], Computer = "SERVER03", Domain = "gamma.example" }
         ]);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task DraftAndPublishedExecutionShareExactInventoryMatchingAndReleaseContextsBeforeExternalCalls(
+        bool published, bool mismatchedPairs)
+    {
+        var (options, _, systems) = DraftEnvironment();
+        systems[1].SubscriptionId = options.Workspaces[1].SubscriptionIds[0];
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
+        var externalCalls = 0;
+        var runner = new AnalysisQueryRunner(options, new CallbackSecretProvider(() =>
+        {
+            foreach (var context in factory.Created)
+                Assert.Throws<ObjectDisposedException>(() => { _ = context.ChangeTracker; });
+            externalCalls++;
+            throw new InvalidOperationException("External query boundary reached.");
+        }), new TargetWorkspaceResolver(options));
+        var query = DraftDefinition(options);
+        foreach (var workspace in query.Workspaces)
+            workspace.LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded;
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), QueryDefinitionId = query.Id, Version = 1,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+        };
+        query.PublishedVersionId = version.Id;
+        query.Versions.Add(version);
+        await using (var context = factory.CreateDbContext())
+        {
+            var tables = new[] { "AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "ComputerInventory" };
+            foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Where(statement => tables.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
+                await context.Database.ExecuteSqlRawAsync(statement.Replace("{}", "{{}}", StringComparison.Ordinal)
+                    .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal));
+            context.AnalysisQueryDefinitions.Add(query);
+            context.ComputerInventory.AddRange(systems);
+            await context.SaveChangesAsync();
+        }
+        AnalysisQuerySystem[] selected = mismatchedPairs
+            ? [new(systems[0].SubscriptionId, systems[1].Computer), new(systems[1].SubscriptionId, systems[0].Computer)]
+            : [new(systems[0].SubscriptionId, systems[0].Computer), new(systems[0].SubscriptionId, systems[0].Computer)];
+        if (published)
+            selected = selected.Select(system => new AnalysisQuerySystem($" {system.SubscriptionId} ", $" {system.Computer} ")).ToArray();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => published
+            ? new AnalysisQueryExecutionService(factory, runner).ExecuteAsync(new(query.Id, selected, 60))
+            : new AnalysisQueryRegistry(factory, options, runner).TestDraftAsync(query, "tenant-a", selected, 60));
+        Assert.Contains(mismatchedPairs ? "not present in inventory" : "External query boundary reached", error.Message);
+        Assert.Equal(mismatchedPairs ? 0 : 1, externalCalls);
+        foreach (var context in factory.Created)
+            Assert.Throws<ObjectDisposedException>(() => { _ = context.ChangeTracker; });
+    }
+
+    [Theory]
+    [InlineData(0, 60, AnalysisValidationCode.SystemsRequired)]
+    [InlineData(101, 60, AnalysisValidationCode.SystemsRequired)]
+    [InlineData(1, 4, AnalysisValidationCode.TimeRangeInvalid)]
+    [InlineData(1, 1441, AnalysisValidationCode.TimeRangeInvalid)]
+    public void ExecutionLimitsHaveStableCodesAndPreserveNeutralMessages(int count, int minutes, AnalysisValidationCode code)
+    {
+        var (options, runner, _) = DraftEnvironment();
+        var query = DraftDefinition(options);
+        var systems = Enumerable.Range(1, count).Select(index => new ComputerInventoryEntry
+        {
+            SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = $"DC{index}"
+        }).ToArray();
+        var draft = Assert.Throws<AnalysisValidationException>(() =>
+            runner.CreateDraftExecutionPreview(query, "tenant-a", systems, minutes));
+        var published = Assert.Throws<AnalysisValidationException>(() =>
+            runner.CreateExecutionPreviews(query, systems, minutes));
+        Assert.Equal(code, draft.Code);
+        Assert.Equal(code, published.Code);
+        Assert.Equal(code == AnalysisValidationCode.SystemsRequired
+            ? "Select between 1 and 100 systems." : "Time range must be between 5 and 1440 minutes.", draft.Message);
+        Assert.Equal(draft.Message, published.Message);
+        if (code == AnalysisValidationCode.TimeRangeInvalid) Assert.Equal(new object[] { 1440 }, draft.Arguments);
+    }
+
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(1, 1440)]
+    [InlineData(100, 5)]
+    [InlineData(100, 1440)]
+    public void ExecutionLimitsAcceptExactBoundaries(int count, int minutes)
+    {
+        var (options, runner, _) = DraftEnvironment();
+        var query = DraftDefinition(options);
+        var systems = Enumerable.Range(1, count).Select(index => new ComputerInventoryEntry
+        {
+            SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = $"DC{index}"
+        }).ToArray();
+        Assert.Equal(count, runner.CreateDraftExecutionPreview(query, "tenant-a", systems, minutes).Systems.Count);
+        Assert.Equal(count, Assert.Single(runner.CreateExecutionPreviews(query, systems, minutes)).Systems.Count);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(100, 100)]
+    [InlineData(101, 101)]
+    [InlineData(101, 1)]
+    public async Task PublishedExecutionEnforcesDistinctSystemLimitBeforeExternalCalls(int requested, int distinct)
+    {
+        var (options, _, _) = DraftEnvironment();
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var factory = new TestDbContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
+        var externalCalls = 0;
+        var runner = new AnalysisQueryRunner(options, new CallbackSecretProvider(() =>
+        {
+            externalCalls++;
+            throw new InvalidOperationException("External query boundary reached.");
+        }), new TargetWorkspaceResolver(options));
+        var query = DraftDefinition(options);
+        foreach (var workspace in query.Workspaces) workspace.LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded;
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), QueryDefinitionId = query.Id, Version = 1,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+        };
+        query.PublishedVersionId = version.Id;
+        query.Versions.Add(version);
+        var systems = Enumerable.Range(1, distinct).Select(index => new ComputerInventoryEntry
+        {
+            SubscriptionId = options.Workspaces[0].SubscriptionIds[0], Computer = $"DC{index}"
+        }).ToArray();
+        await using (var context = factory.CreateDbContext())
+        {
+            var tables = new[] { "AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "ComputerInventory" };
+            foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Where(statement => tables.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
+                await context.Database.ExecuteSqlRawAsync(statement.Replace("{}", "{{}}", StringComparison.Ordinal)
+                    .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal));
+            context.AnalysisQueryDefinitions.Add(query);
+            context.ComputerInventory.AddRange(systems);
+            await context.SaveChangesAsync();
+        }
+        var selected = Enumerable.Range(0, requested).Select(index =>
+            new AnalysisQuerySystem(systems[index % distinct].SubscriptionId, systems[index % distinct].Computer)).ToArray();
+        var service = new AnalysisQueryExecutionService(factory, runner);
+        if (distinct is < 1 or > 100)
+        {
+            var exception = await Assert.ThrowsAsync<AnalysisValidationException>(() => service.ExecuteAsync(new(query.Id, selected, 60)));
+            Assert.Equal(AnalysisValidationCode.DistinctSystemsRequired, exception.Code);
+            Assert.Equal("Select between 1 and 100 distinct systems.", exception.Message);
+            Assert.Equal(0, externalCalls);
+        }
+        else
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExecuteAsync(new(query.Id, selected, 60)));
+            Assert.Contains("External query boundary reached.", exception.Message);
+            Assert.Equal(1, externalCalls);
+        }
+        Assert.Equal(requested, selected.Length);
+        await using var verification = factory.CreateDbContext();
+        Assert.Equal(distinct, await verification.ComputerInventory.CountAsync());
     }
 
     private static (CrossTenantLogAnalyticsOptions Options, AnalysisQueryRunner Runner, ComputerInventoryEntry[] Systems) DraftEnvironment()
@@ -812,7 +1109,18 @@ public sealed class AnalysisQueryTests
 
     private sealed class TestDbContextFactory(DbContextOptions<AlertDbContext> options) : IDbContextFactory<AlertDbContext>
     {
-        public AlertDbContext CreateDbContext() => new(options);
+        public List<AlertDbContext> Created { get; } = [];
+        public AlertDbContext CreateDbContext()
+        {
+            var context = new AlertDbContext(options);
+            Created.Add(context);
+            return context;
+        }
+    }
+
+    private sealed class CallbackSecretProvider(Func<string> getSecret) : ILogAnalyticsSecretProvider
+    {
+        public Task<string> GetClientSecretAsync(CancellationToken cancellationToken) => Task.FromResult(getSecret());
     }
 
     private static AnalysisQueryDefinition Definition() => new()

@@ -1,17 +1,19 @@
-<div class="inbox-widget-quick-actions" aria-label="Actions for @Widget.Title" @onclick:stopPropagation="true">
-    <div class="inbox-widget-action-group" aria-label="Move section">
-        <button type="button" title="Move left" aria-label="Move @Widget.Title left" @onclick="MoveLeftAsync">←</button>
-        <button type="button" title="Move up" aria-label="Move @Widget.Title up" @onclick="MoveUpAsync">↑</button>
-        <button type="button" title="Move down" aria-label="Move @Widget.Title down" @onclick="MoveDownAsync">↓</button>
-        <button type="button" title="Move right" aria-label="Move @Widget.Title right" @onclick="MoveRightAsync">→</button>
+@inject UiText Text
+
+<div class="inbox-widget-quick-actions" aria-label="@Text.Format("Widgets.ActionsFor", Widget.Title)" @onclick:stopPropagation="true">
+    <div class="inbox-widget-action-group" aria-label="@Text["Widgets.MoveSection"]">
+        <button type="button" title="@Text["Widgets.MoveLeft"]" aria-label="@Text.Format("Widgets.MoveLeftLabel", Widget.Title)" @onclick="MoveLeftAsync">←</button>
+        <button type="button" title="@Text["Widgets.MoveUp"]" aria-label="@Text.Format("Widgets.MoveUpLabel", Widget.Title)" @onclick="MoveUpAsync">↑</button>
+        <button type="button" title="@Text["Widgets.MoveDown"]" aria-label="@Text.Format("Widgets.MoveDownLabel", Widget.Title)" @onclick="MoveDownAsync">↓</button>
+        <button type="button" title="@Text["Widgets.MoveRight"]" aria-label="@Text.Format("Widgets.MoveRightLabel", Widget.Title)" @onclick="MoveRightAsync">→</button>
     </div>
-    <div class="inbox-widget-action-group" aria-label="Resize section">
-        <button type="button" title="Reduce width" aria-label="Reduce @Widget.Title width" @onclick="MakeNarrowerAsync">W−</button>
-        <button type="button" title="Increase width" aria-label="Increase @Widget.Title width" @onclick="MakeWiderAsync">W+</button>
-        <button type="button" title="Reduce height" aria-label="Reduce @Widget.Title height" @onclick="MakeShorterAsync">H−</button>
-        <button type="button" title="Increase height" aria-label="Increase @Widget.Title height" @onclick="MakeTallerAsync">H+</button>
+    <div class="inbox-widget-action-group" aria-label="@Text["Widgets.ResizeSection"]">
+        <button type="button" title="@Text["Widgets.ReduceWidth"]" aria-label="@Text.Format("Widgets.ReduceWidthLabel", Widget.Title)" @onclick="MakeNarrowerAsync">@Text["Widgets.ReduceWidthSymbol"]</button>
+        <button type="button" title="@Text["Widgets.IncreaseWidth"]" aria-label="@Text.Format("Widgets.IncreaseWidthLabel", Widget.Title)" @onclick="MakeWiderAsync">@Text["Widgets.IncreaseWidthSymbol"]</button>
+        <button type="button" title="@Text["Widgets.ReduceHeight"]" aria-label="@Text.Format("Widgets.ReduceHeightLabel", Widget.Title)" @onclick="MakeShorterAsync">@Text["Widgets.ReduceHeightSymbol"]</button>
+        <button type="button" title="@Text["Widgets.IncreaseHeight"]" aria-label="@Text.Format("Widgets.IncreaseHeightLabel", Widget.Title)" @onclick="MakeTallerAsync">@Text["Widgets.IncreaseHeightSymbol"]</button>
     </div>
-    <button class="inbox-widget-delete" type="button" title="Remove section" aria-label="Remove @Widget.Title" @onclick="RemoveAsync">Remove</button>
+    <button class="inbox-widget-delete" type="button" title="@Text["Widgets.RemoveSection"]" aria-label="@Text.Format("Widgets.RemoveLabel", Widget.Title)" @onclick="RemoveAsync">@Text["Common.Remove"]</button>
 </div>
 
 @code {

@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace MonitoringApp.Tests;
 
 public sealed class AgentAnalysisResultValidatorTests
@@ -71,11 +74,85 @@ public sealed class AgentAnalysisResultValidatorTests
             "{\"contractVersion\"",
             "{\"unapprovedField\":true,\"contractVersion\"",
             StringComparison.Ordinal);
-        Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.Throws<AgentAnalysisResultException>(() =>
             AgentAnalysisResultParser.ParseAndValidate(
                 jsonWithUnknownProperty,
                 CreateSnapshot(),
                 MicrosoftSourceCatalog.CreateDefault()));
+        Assert.Equal(AgentAnalysisResultCode.SchemaMismatch, exception.Code);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData(" \r\nnull ")]
+    public void NullResponseKeepsItsExceptionContract(string json)
+    {
+        var exception = Assert.Throws<AgentAnalysisResultException>(() => AgentAnalysisResultParser.ParseStored(json));
+        Assert.Equal(AgentAnalysisResultCode.NullResponse, exception.Code);
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+        Assert.Equal("Agent analysis response contains JSON null.", exception.Message);
+        Assert.Null(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("{\"contractVersion\":\"SECRET <schema>\"}")]
+    public void SchemaMismatchPreservesOriginalJsonException(string json)
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = false,
+            RespectRequiredConstructorParameters = true,
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        };
+        var original = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<AgentAnalysisResult>(json, options));
+        var exception = Assert.Throws<AgentAnalysisResultException>(() => AgentAnalysisResultParser.ParseStored(json));
+        var inner = Assert.IsType<JsonException>(exception.InnerException);
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+        Assert.Equal(AgentAnalysisResultCode.SchemaMismatch, exception.Code);
+        Assert.Equal("Agent analysis response does not match the required JSON schema.", exception.Message);
+        Assert.Equal(original.Message, inner.Message);
+        Assert.Equal(original.Path, inner.Path);
+        Assert.Equal(original.LineNumber, inner.LineNumber);
+        Assert.Equal(original.BytePositionInLine, inner.BytePositionInLine);
+    }
+
+    [Fact]
+    public void ValidationFailedKeepsAllNeutralDiagnostics()
+    {
+        var result = CreateResult() with
+        {
+            ContractVersion = "custom <contract>",
+            AnalysisId = Guid.Empty,
+            ResultVersion = 0
+        };
+        var snapshot = CreateSnapshot();
+        var catalog = MicrosoftSourceCatalog.CreateDefault();
+        var errors = AgentAnalysisResultValidator.Validate(result, snapshot, catalog);
+        var exception = Assert.Throws<AgentAnalysisResultException>(() =>
+            AgentAnalysisResultParser.ParseAndValidate(result.ToCanonicalJson(), snapshot, catalog));
+        Assert.Equal(AgentAnalysisResultCode.ValidationFailed, exception.Code);
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+        Assert.Equal($"Agent analysis response failed validation: {string.Join(" ", errors)}", exception.Message);
+        Assert.Null(exception.InnerException);
+    }
+
+    [Fact]
+    public void StoredParsingKeepsCanonicalAndBusinessValidationSemantics()
+    {
+        var json = CreateResult().ToCanonicalJson();
+        Assert.Equal(json, AgentAnalysisResultParser.ParseStored(json).ToCanonicalJson());
+        var unsupported = CreateResult() with { ContractVersion = "custom <contract>", ResultVersion = 0 };
+        Assert.Equal(unsupported.ToCanonicalJson(),
+            AgentAnalysisResultParser.ParseStored(unsupported.ToCanonicalJson()).ToCanonicalJson());
+        var caseMismatch = json.Replace("\"contractVersion\":", "\"ContractVersion\":", StringComparison.Ordinal);
+        Assert.Equal(AgentAnalysisResultCode.SchemaMismatch,
+            Assert.Throws<AgentAnalysisResultException>(() => AgentAnalysisResultParser.ParseStored(caseMismatch)).Code);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+        node["detailedAnalysis"] = null;
+        Assert.Null(AgentAnalysisResultParser.ParseStored(node.ToJsonString()).DetailedAnalysis);
     }
 
     private static AgentAnalysisResult CreateResult() => new(

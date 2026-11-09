@@ -25,7 +25,7 @@ public sealed class DatabaseResetTests
         var changes = 0;
         fixture.Store.Changed += () => changes++;
 
-        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
 
         await using var context = fixture.Factory.CreateDbContext();
         await AssertOperationalCountsAsync(context, 0);
@@ -38,10 +38,33 @@ public sealed class DatabaseResetTests
     }
 
     [Fact]
+    public async Task NotifiesOnlyAfterCommitWhenDefaultsAndPreservedDataAreVisible()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        var notifications = 0;
+        fixture.Store.Changed += () =>
+        {
+            using var context = fixture.Factory.CreateDbContext();
+            using var transaction = context.Database.BeginTransaction();
+            Assert.False(context.Alerts.Any());
+            Assert.False(context.LogbookEntries.Any());
+            Assert.False(context.RootCauseAnalyses.Any());
+            Assert.False(context.ScheduledQueryNotifications.Any());
+            Assert.Equal(11, context.AlertRules.Count());
+            Assert.Equal("unchanged-password-hash", context.AuthenticationUsers.Single().PasswordHash);
+            Assert.Equal(2, context.Settings.Count());
+            notifications++;
+        };
+        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(1, notifications);
+    }
+
+    [Fact]
     public async Task InitializesEmptyOperationalTablesAndCanBeRepeated()
     {
         await using var fixture = await Fixture.CreateAsync();
-        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         await using (var context = fixture.Factory.CreateDbContext())
         {
             var rule = await context.AlertRules.FirstAsync();
@@ -49,10 +72,11 @@ public sealed class DatabaseResetTests
             rule.Enabled = false;
             await context.SaveChangesAsync();
         }
-        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         await using var check = fixture.Factory.CreateDbContext();
-        Assert.Equal(10, await check.AlertRules.CountAsync());
-        Assert.All(await check.AlertRules.ToArrayAsync(), rule => Assert.True(rule.Enabled));
+        Assert.Equal(11, await check.AlertRules.CountAsync());
+        Assert.All(await check.AlertRules.ToArrayAsync(), rule =>
+            Assert.Equal(rule.RuleType != AlertRuleTypes.InventoryRoleAssignment, rule.Enabled));
         Assert.False(await check.AlertRules.AnyAsync(rule => rule.Name == "Changed default"));
     }
 
@@ -67,8 +91,11 @@ public sealed class DatabaseResetTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<MaintenanceValidationException>(() =>
             fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), confirmation));
+        Assert.Equal(MaintenanceValidationCode.ConfirmationInvalid, error.Code);
+        Assert.Equal("Type RESET exactly to confirm the permanent database reset.", error.Message);
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
         await using var context = fixture.Factory.CreateDbContext();
         await AssertOriginalDataAsync(context);
     }
@@ -80,8 +107,10 @@ public sealed class DatabaseResetTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Reset.ResetAsync(User(role), "RESET"));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+        var error = await Assert.ThrowsAsync<MaintenanceAccessDeniedException>(() => fixture.Reset.ResetAsync(User(role), "RESET"));
+        Assert.Equal("Only administrators may reset the database.", error.Message);
+        Assert.IsAssignableFrom<UnauthorizedAccessException>(error);
+        await Assert.ThrowsAsync<MaintenanceAccessDeniedException>(() =>
             fixture.Reset.ResetAsync(new ClaimsPrincipal(new ClaimsIdentity()), "RESET"));
         await using var context = fixture.Factory.CreateDbContext();
         await AssertOriginalDataAsync(context);
@@ -91,7 +120,7 @@ public sealed class DatabaseResetTests
     public async Task HonorsExistingOpenAuthenticationAdminPolicy()
     {
         await using var fixture = await Fixture.CreateAsync(open: true);
-        Assert.Equal(10, await fixture.Reset.ResetAsync(new ClaimsPrincipal(new ClaimsIdentity()), "RESET"));
+        Assert.Equal(11, await fixture.Reset.ResetAsync(new ClaimsPrincipal(new ClaimsIdentity()), "RESET"));
     }
 
     [Theory]
@@ -122,7 +151,7 @@ public sealed class DatabaseResetTests
         fixture.Store.Changed += () => throw new InvalidOperationException("Disposed subscriber");
         fixture.Store.Changed += () => notified = true;
 
-        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         Assert.True(notified);
     }
 
@@ -153,7 +182,7 @@ public sealed class DatabaseResetTests
             expected.Add(rule);
         }
 
-        Assert.Equal(10, expected.Count);
+        Assert.Equal(11, expected.Count);
         Assert.Equal(JsonSerializer.Serialize(expected.OrderBy(rule => rule.Id)),
             JsonSerializer.Serialize(DefaultAlertRules.Create().OrderBy(rule => rule.Id)));
     }
@@ -188,7 +217,7 @@ public sealed class DatabaseResetTests
             }
             rules.Add(rule);
         }
-        Assert.Equal(10, rules.Count);
+        Assert.Equal(11, rules.Count);
         Assert.Equal(JsonSerializer.Serialize(DefaultAlertRules.Create().OrderBy(rule => rule.Id)),
             JsonSerializer.Serialize(rules.OrderBy(rule => rule.Id)));
 
@@ -217,11 +246,11 @@ public sealed class DatabaseResetTests
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<DatabaseResetPanel>()).ToHtmlString());
 
-        Assert.Contains("Initialize / reset database...", html);
-        Assert.Contains("Permanent deletion. Back up the database first.", html);
-        Assert.Contains("RCA cases with prompts, analysis, comments and changelogs", html);
-        Assert.Contains("AD query templates are not installed automatically.", html);
-        Assert.Contains("are preserved.", html);
+        var text = fixture.Services.GetRequiredService<UiText>();
+        var decoded = System.Net.WebUtility.HtmlDecode(html);
+        foreach (var key in new[] { "DatabaseReset.Begin", "DatabaseReset.BackupWarning",
+            "DatabaseReset.ScopeWarning", "DatabaseReset.PreservedWarning", "DatabaseReset.PauseWarning" })
+            Assert.Contains(text[key], decoded);
         Assert.DoesNotContain("aria-modal=\"true\"", html);
         await using var context = fixture.Factory.CreateDbContext();
         Assert.Equal(0, await context.AlertRules.CountAsync());
@@ -320,9 +349,9 @@ public sealed class DatabaseResetTests
                 .AddSingleton<AlertRuleEvaluator>()
                 .AddSingleton<AlertStore>()
                 .AddSingleton<DatabaseResetService>()
-                .AddSingleton<AuthenticationStateProvider>(new TestAuthenticationStateProvider())
-                .BuildServiceProvider();
-            return new(connection, services, factory);
+                .AddSingleton<AuthenticationStateProvider>(new TestAuthenticationStateProvider());
+            services.AddUiLocalization();
+            return new(connection, services.BuildServiceProvider(), factory);
         }
 
         public async Task SeedAsync()

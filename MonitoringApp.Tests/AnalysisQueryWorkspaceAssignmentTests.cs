@@ -1,6 +1,8 @@
 using System.Reflection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using MonitoringApp.Components.Pages;
 
 namespace MonitoringApp.Tests;
@@ -47,7 +49,7 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
                 Assert.Null(assignment.LastValidatedAt);
                 Assert.Empty(assignment.LastValidationMessage);
             }
-            await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Registry.PublishAsync(query.Id, "admin"));
+            await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Registry.PublishAsync(query.Id, "admin"));
         }
         Assert.Equal(2, (await fixture.Registry.ListPublishedAsync()).Count);
     }
@@ -107,8 +109,10 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
         var before = Assert.Single(await fixture.Registry.ListAsync());
         var selection = keys.Length == 0 ? [] : keys.Split(',');
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<AnalysisValidationException>(() =>
             fixture.Registry.EnableWorkspacesForAllAsync(selection, true, "admin"));
+        Assert.Equal(selection.Length == 0 || selection.Any(string.IsNullOrWhiteSpace)
+            ? AnalysisValidationCode.RegistryWorkspaceRequired : AnalysisValidationCode.RegistryWorkspaceUnavailable, error.Code);
 
         var after = Assert.Single(await fixture.Registry.ListAsync());
         Assert.Equal(before.Status, after.Status);
@@ -122,7 +126,14 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
         await using var fixture = await Fixture.CreateAsync();
         var saved = await fixture.SeedAsync("active");
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         var page = new AdminAnalysisQueries();
+        typeof(AdminAnalysisQueries).GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
+        typeof(AdminAnalysisQueries).GetProperty("Logger", flags)!.SetValue(page, services.GetRequiredService<ILogger<AdminAnalysisQueries>>());
+        var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+        typeof(AdminAnalysisQueries).GetProperty("AlertStore", flags)!.SetValue(page, new AlertStore(fixture.Factory,
+            new DatabaseConfigurationStatus(true, null, new Microsoft.Data.SqlClient.SqlConnectionStringBuilder()),
+            presenter, new AlertRuleEvaluator(presenter), services.GetRequiredService<ILogger<AlertStore>>()));
         typeof(AdminAnalysisQueries).GetProperty("Registry", flags)!.SetValue(page, fixture.Registry);
         typeof(AdminAnalysisQueries).GetProperty("Categories", flags)!.SetValue(page, new AnalysisQueryCategoryService(fixture.Factory));
         typeof(AdminAnalysisQueries).GetField("actor", flags)!.SetValue(page, "admin");
@@ -134,7 +145,7 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
 
         await (Task)apply.Invoke(page, [])!;
 
-        Assert.Contains("Close the query editor", Assert.IsType<string>(
+        Assert.Equal(services.GetRequiredService<UiText>()["AdminAnalysisQueries.Errors.CloseEditor"], Assert.IsType<string>(
             typeof(AdminAnalysisQueries).GetField("errorMessage", flags)!.GetValue(page)));
         Assert.Equal("Unsaved editor text", editor.Kql);
         Assert.False(Assert.Single(await fixture.Registry.ListAsync()).Workspaces.Single(item => item.WorkspaceKey == "tenant-b").Enabled);
@@ -143,7 +154,8 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
         await (Task)apply.Invoke(page, [])!;
 
         Assert.Null(typeof(AdminAnalysisQueries).GetField("errorMessage", flags)!.GetValue(page));
-        Assert.Contains("enabled 1 workspace assignment(s)", Assert.IsType<string>(
+        Assert.Null(typeof(AdminAnalysisQueries).GetField("loadError", flags)!.GetValue(page));
+        Assert.Equal(services.GetRequiredService<UiText>().Format("AdminAnalysisQueries.Status.BulkApplied", 1, 1, 0), Assert.IsType<string>(
             typeof(AdminAnalysisQueries).GetField("statusMessage", flags)!.GetValue(page)));
         Assert.True(Assert.Single(await fixture.Registry.ListAsync()).Workspaces.Single(item => item.WorkspaceKey == "tenant-b").Enabled);
     }
@@ -165,12 +177,13 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
             await connection.OpenAsync();
             var factory = new ContextFactory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
             await using var context = factory.CreateDbContext();
-            string[] tables = ["AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "AnalysisQueryCategories"];
+            string[] tables = ["AnalysisQueryDefinitions", "AnalysisQueryWorkspaces", "AnalysisQueryVersions", "AnalysisQueryCategories", "ComputerInventory"];
             foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Where(statement => tables.Any(name => statement.TrimStart().StartsWith($"CREATE TABLE \"{name}\" ", StringComparison.Ordinal))))
                 await context.Database.ExecuteSqlRawAsync(statement.Replace("{}", "{{}}", StringComparison.Ordinal)
                     .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
-                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal));
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal)
+                    .Replace("N'", "'", StringComparison.Ordinal));
             return new(connection, factory);
         }
 

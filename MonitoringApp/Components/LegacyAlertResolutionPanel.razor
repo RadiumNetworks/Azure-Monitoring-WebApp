@@ -1,40 +1,42 @@
 @inject LegacyAlertResolutionService LegacyAlerts
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ILogger<LegacyAlertResolutionPanel> Logger
+@inject UiText Text
 
 <section class="admin-editor" aria-labelledby="legacy-alerts-heading">
     <div class="admin-section-heading">
-        <h2 id="legacy-alerts-heading">Resolve legacy alerts</h2>
+        <h2 id="legacy-alerts-heading">@Text["LegacyAlerts.Title"]</h2>
     </div>
-    <p>Manually resolves active alerts with no linked inventory system. Alert history, comments,
-        inventory and RCA analysis are preserved. Duplicate inventory entries and alerts already
-        assigned to an inventory system are not changed.</p>
+    <p>@Text["LegacyAlerts.Description"]</p>
     @if (message is not null)
     {
         <div class="admin-message admin-message-success" role="status">@message</div>
     }
-    @if (error is not null)
+    @if (!showConfirmation && error is not null)
     {
         <div class="admin-message admin-message-error" role="alert">@error</div>
     }
-    <button class="admin-secondary" type="button" disabled="@busy" @onclick="PreviewAsync">Resolve legacy alerts</button>
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="PreviewAsync">@Text["LegacyAlerts.Title"]</button>
 </section>
 
 @if (showConfirmation)
 {
     <div class="admin-dialog-backdrop" role="presentation">
         <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-legacy-heading">
-            <h2 id="confirm-legacy-heading">Resolve @candidateCount legacy alerts?</h2>
-            <p>Adds the existing manual Resolved marker and records an audit entry in the logbook.
-                Eligibility is checked again when you confirm; newly assigned alerts are excluded.</p>
+            <h2 id="confirm-legacy-heading">@Text.Plural("LegacyAlerts.ConfirmTitle", candidateCount)</h2>
+            <p><LocalizedContent ResourceKey="LegacyAlerts.ConfirmBody"><Value0>Resolved</Value0></LocalizedContent></p>
             <label class="admin-field">
-                <span>Type RESOLVE to confirm</span>
+                <span><LocalizedContent ResourceKey="LegacyAlerts.ConfirmationHint"><Value0>RESOLVE</Value0></LocalizedContent></span>
                 <input autocomplete="off" spellcheck="false" disabled="@busy" @bind="confirmation" @bind:event="oninput" />
             </label>
+            @if (error is not null)
+            {
+                <div class="admin-message admin-message-error" role="alert">@error</div>
+            }
             <div class="admin-form-actions">
-                <button class="admin-secondary" type="button" disabled="@busy" @onclick="() => showConfirmation = false">Cancel</button>
-                <button class="admin-danger" type="button" disabled="@(busy || confirmation != "RESOLVE")"
-                        @onclick="ResolveAsync">@(busy ? "Resolving..." : "Confirm resolution")</button>
+                <button class="admin-secondary" type="button" disabled="@busy" @onclick="Cancel">@Text["Common.Cancel"]</button>
+                <button class="admin-danger" type="button" disabled="@(busy || previewRequired || confirmation != "RESOLVE")"
+                        @onclick="ResolveAsync">@Text[busy ? "LegacyAlerts.Resolving" : "LegacyAlerts.Confirm"]</button>
             </div>
         </section>
     </div>
@@ -43,6 +45,7 @@
 @code {
     private bool busy;
     private bool showConfirmation;
+    private bool previewRequired = true;
     private int candidateCount;
     private string confirmation = "";
     private string? message;
@@ -50,27 +53,43 @@
 
     private async Task PreviewAsync()
     {
+        if (busy) return;
         busy = true;
         message = null;
         error = null;
         try
         {
             candidateCount = await LegacyAlerts.CountAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+            previewRequired = false;
             confirmation = "";
             showConfirmation = candidateCount > 0;
             if (!showConfirmation)
-                message = "No active alerts without an inventory assignment were found.";
+                message = Text["LegacyAlerts.NoCandidates"];
         }
         catch (Exception exception)
         {
-            Logger.LogError(exception, "Failed to preview legacy alert resolution.");
-            error = exception.Message;
+            previewRequired = true;
+            showConfirmation = false;
+            confirmation = "";
+            var validation = MaintenanceErrorPresentation.ValidationMessage(exception, legacy: true, Text);
+            error = validation ?? Text["LegacyAlerts.PreviewFailed"];
+            if (validation is not null)
+                Logger.LogWarning(exception, "Legacy alert preview was rejected.");
+            else
+                Logger.LogError(exception, "Failed to preview legacy alert resolution.");
         }
         finally { busy = false; }
     }
 
     private async Task ResolveAsync()
     {
+        if (busy) return;
+        if (previewRequired || !showConfirmation || candidateCount <= 0)
+        {
+            error = Text["LegacyAlerts.PreviewRequired"];
+            Logger.LogWarning("Blocked legacy alert resolution pending a successful explicit preview.");
+            return;
+        }
         busy = true;
         message = null;
         error = null;
@@ -79,14 +98,34 @@
             var count = await LegacyAlerts.ResolveAsync(
                 (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User, confirmation);
             showConfirmation = false;
-            message = $"Resolved {count} legacy alerts. Inventory and alert history were preserved.";
+            previewRequired = true;
+            message = Text.Plural("LegacyAlerts.Completed", count);
         }
         catch (Exception exception)
         {
-            Logger.LogError(exception, "Failed to resolve legacy alerts.");
-            error = exception.Message;
-            showConfirmation = false;
+            var validation = MaintenanceErrorPresentation.ValidationMessage(exception, legacy: true, Text);
+            if (validation is not null)
+            {
+                Logger.LogWarning(exception, "Legacy alert resolution was rejected.");
+                error = validation;
+            }
+            else
+            {
+                Logger.LogError(exception, "Legacy alert resolution outcome is unconfirmed.");
+                error = Text["LegacyAlerts.Unconfirmed"];
+                previewRequired = true;
+                showConfirmation = false;
+            }
         }
         finally { busy = false; confirmation = ""; }
+    }
+
+    private void Cancel()
+    {
+        if (busy) return;
+        showConfirmation = false;
+        confirmation = "";
+        previewRequired = true;
+        error = null;
     }
 }

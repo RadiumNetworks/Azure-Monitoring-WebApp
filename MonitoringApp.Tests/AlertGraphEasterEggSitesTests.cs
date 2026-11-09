@@ -113,7 +113,11 @@ public sealed class AlertGraphEasterEggSitesTests
     [Fact]
     public void UnknownPreviewHasExplicitErrorLocallyButCannotActivateInProduction()
     {
-        Assert.Throws<ArgumentException>(() => AlertGraphEasterEggSites.ResolvePreview("unknown", true));
+        var exception = Assert.Throws<AlertGraphPreviewException>(() => AlertGraphEasterEggSites.ResolvePreview("unknown", true));
+        Assert.IsAssignableFrom<ArgumentException>(exception);
+        Assert.Equal("Unknown Easter-egg preview. Choose one of the preview links.", exception.Message);
+        Assert.Null(exception.ParamName);
+        Assert.Null(exception.InnerException);
         Assert.Null(AlertGraphEasterEggSites.ResolvePreview("unknown", false));
         Assert.Null(AlertGraphEasterEggSites.ResolvePreview(null, true));
         Assert.Null(AlertGraphEasterEggSites.ResolvePreview("", true));
@@ -442,24 +446,35 @@ public sealed class AlertGraphEasterEggSitesTests
 
     private static async Task<string> RenderMapAsync(AlertGraphEasterEgg? egg)
     {
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var collection = new ServiceCollection().AddLogging();
+        collection.AddUiLocalization();
+        await using var services = collection.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var now = new DateTimeOffset(2026, 10, 22, 12, 0, 0, TimeSpan.Zero);
-        return await renderer.Dispatcher.InvokeAsync(async () =>
+        var previous = System.Globalization.CultureInfo.CurrentUICulture;
+        try
         {
-            var component = await renderer.RenderComponentAsync<GraphSiteMap>(
-                ParameterView.FromDictionary(new Dictionary<string, object?>
-                {
-                    [nameof(GraphSiteMap.Records)] = new AlertGraphRecord[]
+            System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
+            return await renderer.Dispatcher.InvokeAsync(async () =>
+            {
+                var component = await renderer.RenderComponentAsync<GraphSiteMap>(
+                    ParameterView.FromDictionary(new Dictionary<string, object?>
                     {
-                        new(Guid.NewGuid(), now, "real-alert", "Fired", "", "Real outage", "sub",
-                            "rg", "DC01", "New York", "example.org", "Domain Controller")
-                    },
-                    [nameof(GraphSiteMap.Locations)] = AlertGraphSiteLocationOptions.CreateDefaults(),
-                    [nameof(GraphSiteMap.TimeUtc)] = now,
-                    [nameof(GraphSiteMap.EasterEgg)] = egg
-                }));
-            return component.ToHtmlString();
-        });
+                        [nameof(GraphSiteMap.Records)] = new AlertGraphRecord[]
+                        {
+                            new(Guid.NewGuid(), now, "real-alert", "Fired", "", "Real outage", "sub",
+                                "rg", "DC01", "New York", "example.org", "Domain Controller")
+                        },
+                        [nameof(GraphSiteMap.Locations)] = AlertGraphSiteLocationOptions.CreateDefaults(),
+                        [nameof(GraphSiteMap.TimeUtc)] = now,
+                        [nameof(GraphSiteMap.EasterEgg)] = egg
+                    }));
+                return component.ToHtmlString();
+            });
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentUICulture = previous;
+        }
     }
 }

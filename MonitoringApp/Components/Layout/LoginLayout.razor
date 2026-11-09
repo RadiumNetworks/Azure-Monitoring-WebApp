@@ -1,12 +1,16 @@
 @inherits LayoutComponentBase
+@inject UiText Text
 
 <header class="app-header">
     <div class="header-inner">
-        <a class="brand" href="/" aria-label="Alert Console home">
+        <a class="brand" href="/" aria-label="@Text["Brand.HomeLabel"]">
             <span class="brand-mark" aria-hidden="true"></span>
             <span>Alert Console</span>
         </a>
-        <span class="environment">Azure Monitor</span>
+        <div class="header-actions">
+            <LanguageSelector />
+            <span class="environment">Azure Monitor</span>
+        </div>
     </div>
 </header>
 

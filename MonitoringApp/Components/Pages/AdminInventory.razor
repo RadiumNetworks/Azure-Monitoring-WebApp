@@ -2,23 +2,22 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "OperatorAccess")]
 @inject AlertStore AlertStore
+@inject UiText Text
+@inject ILogger<AdminInventory> Logger
 
-<PageTitle>Computer Inventory</PageTitle>
+<PageTitle>@Text["AdminInventory.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Computer inventory</h1>
-        <p class="subtitle">Review discovered systems and maintain their location, resource group, and role metadata.</p>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["AdminInventory.Title"]</h1>
+        <p class="subtitle">@Text["AdminInventory.Description"]</p>
     </div>
     <div class="admin-heading-actions">
-        <button class="admin-secondary" type="button" disabled="@(isLoading || isPrefilling)" @onclick="PrefillFromAlertsAsync">
-            @(isPrefilling ? "Checking alerts..." : "Prefill from last 7 days")
+        <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadInventoryAsync">
+            @Text[isLoading ? "Common.Refreshing" : "Common.Refresh"]
         </button>
-        <button class="admin-secondary" type="button" disabled="@(isLoading || isPrefilling)" @onclick="LoadInventoryAsync">
-            @(isLoading ? "Refreshing..." : "Refresh")
-        </button>
-        <button class="admin-primary" type="button" disabled="@isPrefilling" @onclick="BeginCreate">Create entry</button>
+        <button class="admin-primary" type="button" @onclick="BeginCreate">@Text["AdminInventory.CreateEntry"]</button>
     </div>
 </section>
 
@@ -33,17 +32,17 @@
 
 <div class="inventory-filter">
     <label class="admin-field">
-        <span>Search inventory</span>
-        <input type="search" placeholder="Computer, site, domain, or subscription" @bind="searchText" @bind:event="oninput" />
+        <span>@Text["AdminInventory.Search"]</span>
+        <input type="search" placeholder="@Text["AdminInventory.SearchPlaceholder"]" @bind="searchText" @bind:event="oninput" />
     </label>
-    <span>@InventoryCountLabel(FilteredEntries.Count)</span>
+    <span>@Text.Plural("AdminInventory.Count", FilteredEntries.Count)</span>
 </div>
 
-<div class="inventory-filter-grid" aria-label="Inventory filters">
+<div class="inventory-filter-grid" aria-label="@Text["AdminInventory.Filters"]">
     <label class="admin-field">
-        <span>Subscription</span>
+        <span>@Text["AdminInventory.Subscription"]</span>
         <select @bind="subscriptionFilter">
-            <option value="">All subscriptions</option>
+            <option value="">@Text["AdminInventory.AllSubscriptions"]</option>
             @foreach (var value in FilterOptions(entries.Select(entry => entry.SubscriptionId)))
             {
                 <option value="@value">@value</option>
@@ -51,9 +50,9 @@
         </select>
     </label>
     <label class="admin-field">
-        <span>Resource group</span>
+        <span>@Text["AdminInventory.ResourceGroup"]</span>
         <select @bind="resourceGroupFilter">
-            <option value="">All resource groups</option>
+            <option value="">@Text["AdminInventory.AllResourceGroups"]</option>
             @foreach (var value in FilterOptions(entries.Select(entry => entry.ResourceGroup)))
             {
                 <option value="@value">@value</option>
@@ -61,9 +60,9 @@
         </select>
     </label>
     <label class="admin-field">
-        <span>Site</span>
+        <span>@Text["Filters.Site"]</span>
         <select @bind="siteFilter">
-            <option value="">All sites</option>
+            <option value="">@Text["Filters.AllSites"]</option>
             @foreach (var value in FilterOptions(entries.Select(entry => entry.Site)))
             {
                 <option value="@value">@value</option>
@@ -71,9 +70,9 @@
         </select>
     </label>
     <label class="admin-field">
-        <span>Domain</span>
+        <span>@Text["Filters.Domain"]</span>
         <select @bind="domainFilter">
-            <option value="">All domains</option>
+            <option value="">@Text["Filters.AllDomains"]</option>
             @foreach (var value in FilterOptions(entries.Select(entry => entry.Domain)))
             {
                 <option value="@value">@value</option>
@@ -81,34 +80,34 @@
         </select>
     </label>
     <label class="admin-field">
-        <span>Role</span>
+        <span>@Text["Filters.Role"]</span>
         <select @bind="roleFilter">
-            <option value="">All roles</option>
+            <option value="">@Text["Filters.AllRoles"]</option>
             @foreach (var value in FilterOptions(entries.Select(entry => entry.Role)))
             {
                 <option value="@value">@value</option>
             }
         </select>
     </label>
-    <button class="admin-secondary" type="button" disabled="@(!HasInventoryFilters)" @onclick="ClearInventoryFilters">Clear filters</button>
+    <button class="admin-secondary" type="button" disabled="@(!HasInventoryFilters)" @onclick="ClearInventoryFilters">@Text["AdminInventory.ClearFilters"]</button>
 </div>
 
 <div class="admin-workspace">
     <section class="admin-rule-list" aria-labelledby="inventory-heading">
         <div class="admin-section-heading">
             <div>
-                <h2 id="inventory-heading">Systems</h2>
-                <span>Automatically discovered from incoming alerts</span>
+                <h2 id="inventory-heading">@Text["AdminInventory.Systems"]</h2>
+                <span>@Text["AdminInventory.DiscoveryHint"]</span>
             </div>
         </div>
 
         @if (isLoading && entries.Count == 0)
         {
-            <p class="admin-empty">Loading inventory...</p>
+            <p class="admin-empty">@Text["AdminInventory.Loading"]</p>
         }
         else if (FilteredEntries.Count == 0)
         {
-            <p class="admin-empty">No matching systems were found.</p>
+            <p class="admin-empty">@Text["AdminInventory.NoMatches"]</p>
         }
         else
         {
@@ -121,36 +120,37 @@
                             <strong title="@entry.Computer">@entry.Computer</strong>
                             <span class="inventory-card-domain" title="@DisplayValue(entry.Domain)">@DisplayValue(entry.Domain)</span>
                             <span class="inventory-card-site" title="@DisplayValue(entry.Site)">@DisplayValue(entry.Site)</span>
-                            <span title="@(entry.Maintenance ? "Maintenance" : DisplayValue(entry.Role))">@(entry.Maintenance ? "Maintenance" : DisplayValue(entry.Role))</span>
+                            <span title="@(entry.Maintenance ? Text["AdminInventory.Maintenance"] : DisplayValue(entry.Role))">@(entry.Maintenance ? Text["AdminInventory.Maintenance"] : DisplayValue(entry.Role))</span>
                             <span class="inventory-card-chevron" aria-hidden="true"></span>
                         </button>
                         @if (isExpanded)
                         {
                             <div class="inventory-card-details">
                                 <div class="inventory-card-toolbar">
-                                    <span class="admin-status @(entry.Maintenance ? "inventory-maintenance" : "enabled")">@(entry.Maintenance ? "Maintenance" : "Discovered")</span>
+                                    <span class="admin-status @(entry.Maintenance ? "inventory-maintenance" : "enabled")">@Text[entry.Maintenance ? "AdminInventory.Maintenance" : "AdminInventory.Discovered"]</span>
                                     <div class="inventory-card-actions">
-                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">Edit</button>
-                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(entry)">Delete</button>
+                                        <button class="admin-secondary" type="button" @onclick="() => BeginEdit(entry)">@Text["Common.Edit"]</button>
+                                        <button class="admin-danger" type="button" @onclick="() => BeginDelete(entry)">@Text["Common.Delete"]</button>
                                     </div>
                                 </div>
                                 <dl class="admin-rule-summary">
-                                    <div><dt>Site</dt><dd>@DisplayValue(entry.Site)</dd></div>
-                                    <div><dt>Domain</dt><dd>@DisplayValue(entry.Domain)</dd></div>
-                                    <div><dt>Role</dt><dd>@DisplayValue(entry.Role)</dd></div>
-                                    <div><dt>Resource group</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
-                                    <div><dt>Private IP</dt><dd>@DisplayValue(entry.PrivateIP)</dd></div>
-                                    <div><dt>Last heartbeat</dt><dd>@DisplayHeartbeat(entry.LastHeartbeatAt)</dd></div>
-                                    <div><dt>NTDS database size</dt><dd>@DisplayNtdsSize(entry.NtdsFileSizeInGb)</dd></div>
-                                    <div><dt>Maintenance</dt><dd>@(entry.Maintenance ? "Enabled" : "Disabled")</dd></div>
-                                    <div class="inventory-subscription"><dt>Subscription</dt><dd>@entry.SubscriptionId</dd></div>
+                                    <div><dt>@Text["Filters.Site"]</dt><dd>@DisplayValue(entry.Site)</dd></div>
+                                    <div><dt>@Text["Filters.Domain"]</dt><dd>@DisplayValue(entry.Domain)</dd></div>
+                                    <div><dt>@Text["Filters.Role"]</dt><dd>@DisplayValue(entry.Role)</dd></div>
+                                    <div><dt>@Text["AdminInventory.ResourceGroup"]</dt><dd>@DisplayValue(entry.ResourceGroup)</dd></div>
+                                    <div><dt>@Text["AdminInventory.PrivateIp"]</dt><dd>@DisplayValue(entry.PrivateIP)</dd></div>
+                                    <div><dt>@Text["AdminInventory.LastHeartbeat"]</dt><dd>@DisplayHeartbeat(entry.LastHeartbeatAt)</dd></div>
+                                    <div><dt>@Text["AdminInventory.LastBootTime"]</dt><dd>@DisplayHeartbeat(entry.LastBootTime)</dd></div>
+                                    <div><dt>@Text["AdminInventory.NtdsSize"]</dt><dd>@DisplayNtdsSize(entry.NtdsFileSizeInGb)</dd></div>
+                                    <div><dt>@Text["AdminInventory.Maintenance"]</dt><dd>@Text[entry.Maintenance ? "Common.Enabled" : "Common.Disabled"]</dd></div>
+                                    <div class="inventory-subscription"><dt>@Text["AdminInventory.Subscription"]</dt><dd>@entry.SubscriptionId</dd></div>
                                 </dl>
                                 @if (entry.Certificates.Count > 0)
                                 {
-                                    <section class="inventory-observation-details" aria-label="Certificates">
-                                        <h3>Certificates</h3>
+                                    <section class="inventory-observation-details" aria-label="@Text["AdminInventory.Certificates"]">
+                                        <h3>@Text["AdminInventory.Certificates"]</h3>
                                         <div class="inventory-detail-table">
-                                            <div class="inventory-detail-heading"><span>Name</span><span>Serial number</span><span>Expires</span></div>
+                                            <div class="inventory-detail-heading"><span>@Text["AdminInventory.Name"]</span><span>@Text["AdminInventory.SerialNumber"]</span><span>@Text["AdminInventory.Expires"]</span></div>
                                             @foreach (var certificate in entry.Certificates)
                                             {
                                                 <div>
@@ -164,8 +164,8 @@
                                 }
                                 @if (entry.Services.Count > 0)
                                 {
-                                    <section class="inventory-observation-details" aria-label="Services">
-                                        <h3>Services</h3>
+                                    <section class="inventory-observation-details" aria-label="@Text["AdminInventory.Services"]">
+                                        <h3>@Text["AdminInventory.Services"]</h3>
                                         <div class="inventory-service-list">
                                             @foreach (var service in entry.Services)
                                             {
@@ -186,8 +186,8 @@
         @if (editingEntry is null)
         {
             <div class="admin-editor-placeholder">
-                <strong>Select or create a system</strong>
-                <span>Choose an inventory record to maintain it, or create a new computer entry.</span>
+                <strong>@Text["AdminInventory.SelectSystem"]</strong>
+                <span>@Text["AdminInventory.SelectSystemHelp"]</span>
             </div>
         }
         else
@@ -195,8 +195,8 @@
             var entry = editingEntry;
             <div class="admin-section-heading">
                 <div>
-                    <p class="eyebrow">@(isCreating ? "New entry" : "Edit system")</p>
-                    <h2 id="inventory-editor-heading">@(isCreating ? "Create computer entry" : entry.Computer)</h2>
+                    <p class="eyebrow">@Text[isCreating ? "AdminInventory.NewEntry" : "AdminInventory.EditSystem"]</p>
+                    <h2 id="inventory-editor-heading">@(isCreating ? Text["AdminInventory.CreateComputer"] : entry.Computer)</h2>
                 </div>
             </div>
 
@@ -204,87 +204,92 @@
                 @if (isCreating)
                 {
                     <label class="admin-field admin-field-wide">
-                        <span>Subscription ID</span>
+                        <span>@Text["AdminInventory.SubscriptionId"]</span>
                         <select required @bind="entry.SubscriptionId">
-                            <option value="">Select a subscription</option>
+                            <option value="">@Text["AdminInventory.SelectSubscription"]</option>
                             @foreach (var subscriptionId in subscriptionIds)
                             {
                                 <option value="@subscriptionId">@subscriptionId</option>
                             }
                         </select>
-                        <small>Subscriptions are populated from previously received alerts.</small>
+                        <small>@Text["AdminInventory.SubscriptionsHelp"]</small>
                     </label>
                     <label class="admin-field admin-field-wide">
-                        <span>Computer</span>
+                        <span>@Text["AdminInventory.Computer"]</span>
                         <input required maxlength="256" @bind="entry.Computer" />
-                        <small>Together with the subscription, this forms the primary key.</small>
+                        <small>@Text["AdminInventory.PrimaryKeyHelp"]</small>
                     </label>
                 }
                 else
                 {
                     <label class="admin-field admin-field-wide">
-                        <span>Subscription ID</span>
+                        <span>@Text["AdminInventory.SubscriptionId"]</span>
                         <input value="@entry.SubscriptionId" readonly />
-                        <small>Part of the inventory primary key and cannot be changed.</small>
+                        <small>@Text["AdminInventory.FixedKeyHelp"]</small>
                     </label>
                     <label class="admin-field admin-field-wide">
-                        <span>Computer</span>
+                        <span>@Text["AdminInventory.Computer"]</span>
                         <input value="@entry.Computer" readonly />
-                        <small>Part of the inventory primary key and cannot be changed.</small>
+                        <small>@Text["AdminInventory.FixedKeyHelp"]</small>
                     </label>
                 }
                 <label class="admin-field">
-                    <span>Site</span>
+                    <span>@Text["Filters.Site"]</span>
                     <input maxlength="256" @bind="entry.Site" />
-                    <small>May be discovered automatically from a later alert.</small>
+                    <small>@Text["AdminInventory.SiteHelp"]</small>
                 </label>
                 <label class="admin-field">
-                    <span>Domain</span>
+                    <span>@Text["Filters.Domain"]</span>
                     <input maxlength="256" @bind="entry.Domain" />
-                    <small>Can be maintained manually until alerts provide this value.</small>
+                    <small>@Text["AdminInventory.DomainHelp"]</small>
                 </label>
                 <label class="admin-field">
-                    <span>Resource group</span>
+                    <span>@Text["AdminInventory.ResourceGroup"]</span>
                     <input maxlength="256" @bind="entry.ResourceGroup" />
-                    <small>Discovered from alerts when available.</small>
+                    <small>@Text["AdminInventory.ResourceGroupHelp"]</small>
                 </label>
                 <label class="admin-field">
-                    <span>Role</span>
+                    <span>@Text["Filters.Role"]</span>
                     <input maxlength="256" @bind="entry.Role" />
-                    <small>May be assigned automatically by an inventory-role alert rule.</small>
+                    <small>@Text["AdminInventory.RoleHelp"]</small>
                 </label>
                 <label class="admin-check">
                     <input type="checkbox" @bind="entry.Maintenance" />
-                    <span>Maintenance</span>
+                    <span>@Text["AdminInventory.Maintenance"]</span>
                 </label>
-                <small>Hide this system's alerts and missing heartbeat from the inbox. The graph shows it in blue. Alerts continue to be stored and are visible again after maintenance ends.</small>
+                <small>@Text["AdminInventory.MaintenanceHelp"]</small>
                 @if (!isCreating)
                 {
                     <label class="admin-field">
-                        <span>Private IP</span>
+                        <span>@Text["AdminInventory.PrivateIp"]</span>
                         <input value="@DisplayValue(entry.PrivateIP)" readonly />
-                        <small>Updated automatically from inventory heartbeat events.</small>
+                        <small>@Text["AdminInventory.HeartbeatHelp"]</small>
                     </label>
                     <label class="admin-field">
-                        <span>Last heartbeat</span>
+                        <span>@Text["AdminInventory.LastHeartbeat"]</span>
                         <input value="@DisplayHeartbeat(entry.LastHeartbeatAt)" readonly />
-                        <small>Used to determine the target status in the graph.</small>
+                        <small>@Text["AdminInventory.GraphStatusHelp"]</small>
                     </label>
                     <label class="admin-field">
-                        <span>NTDS database size</span>
-                        <input value="@DisplayNtdsSize(entry.NtdsFileSizeInGb)" readonly />
-                        <small>A reported NTDS database or NTDS service identifies the computer as a domain controller.</small>
+                        <span>@Text["AdminInventory.LastBootTime"]</span>
+                        <input value="@DisplayHeartbeat(entry.LastBootTime)" readonly />
+                        <small>@Text["AdminInventory.HeartbeatHelp"]</small>
                     </label>
-                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="Certificate inventory">
-                        <span>Certificates</span>
+                    <label class="admin-field">
+                        <span>@Text["AdminInventory.NtdsSize"]</span>
+                        <input value="@DisplayNtdsSize(entry.NtdsFileSizeInGb)" readonly />
+                        <small>@Text["AdminInventory.NtdsHelp"]</small>
+                    </label>
+                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="@Text["AdminInventory.CertificateInventory"]">
+                        <span>@Text["AdminInventory.Certificates"]</span>
                         @if (entry.Certificates.Count == 0)
                         {
-                            <div class="inventory-observation-empty">No certificate data received.</div>
+                            <div class="inventory-observation-empty">@Text["AdminInventory.NoCertificates"]</div>
                         }
                         else
                         {
                             <div class="inventory-detail-table">
-                                <div class="inventory-detail-heading"><span>Name</span><span>Serial number</span><span>Expires</span></div>
+                                <div class="inventory-detail-heading"><span>@Text["AdminInventory.Name"]</span><span>@Text["AdminInventory.SerialNumber"]</span><span>@Text["AdminInventory.Expires"]</span></div>
                                 @foreach (var certificate in entry.Certificates)
                                 {
                                     <div>
@@ -295,18 +300,18 @@
                                 }
                             </div>
                         }
-                        <small>Updated automatically from inventory heartbeat events.</small>
+                        <small>@Text["AdminInventory.HeartbeatHelp"]</small>
                     </section>
-                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="Service inventory">
-                        <span>Services</span>
+                    <section class="admin-field admin-field-wide inventory-editor-observations" aria-label="@Text["AdminInventory.ServiceInventory"]">
+                        <span>@Text["AdminInventory.Services"]</span>
                         @if (entry.Services.Count == 0)
                         {
-                            <div class="inventory-observation-empty">No service data received.</div>
+                            <div class="inventory-observation-empty">@Text["AdminInventory.NoServices"]</div>
                         }
                         else
                         {
                             <div class="inventory-service-table">
-                                <div class="inventory-detail-heading"><span>Service</span><span>Last status</span></div>
+                                <div class="inventory-detail-heading"><span>@Text["AdminInventory.Service"]</span><span>@Text["AdminInventory.LastStatus"]</span></div>
                                 @foreach (var service in entry.Services)
                                 {
                                     <div>
@@ -316,13 +321,13 @@
                                 }
                             </div>
                         }
-                        <small>Status reported with the inventory heartbeat at @DisplayHeartbeat(entry.LastHeartbeatAt).</small>
+                        <small>@Text.Format("AdminInventory.ServiceHeartbeat", DisplayHeartbeat(entry.LastHeartbeatAt))</small>
                     </section>
                 }
                 <div class="admin-form-actions">
-                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">Cancel</button>
+                    <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="CancelEdit">@Text["Common.Cancel"]</button>
                     <button class="admin-primary" type="submit" disabled="@isSaving">
-                        @(isSaving ? "Saving..." : isCreating ? "Create entry" : "Save changes")
+                        @Text[isSaving ? "Common.Saving" : isCreating ? "AdminInventory.CreateEntry" : "Common.SaveChanges"]
                     </button>
                 </div>
             </form>
@@ -334,16 +339,16 @@
 {
     <div class="admin-dialog-backdrop" role="presentation">
         <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-inventory-heading">
-            <p class="eyebrow">Permanent action</p>
-            <h2 id="delete-inventory-heading">Delete computer entry?</h2>
-            <p>
-                Delete <strong>@entryToDelete.Computer</strong> from subscription
-                <strong>@entryToDelete.SubscriptionId</strong>? A later alert may discover and create it again.
-            </p>
+            <p class="eyebrow">@Text["Common.PermanentAction"]</p>
+            <h2 id="delete-inventory-heading">@Text["AdminInventory.DeleteTitle"]</h2>
+            <p><LocalizedContent ResourceKey="AdminInventory.DeleteBody">
+                <Value0><strong>@entryToDelete.Computer</strong></Value0>
+                <Value1><strong>@entryToDelete.SubscriptionId</strong></Value1>
+            </LocalizedContent></p>
             <div class="admin-form-actions">
-                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">Cancel</button>
+                <button class="admin-secondary" type="button" disabled="@isDeleting" @onclick="CancelDelete">@Text["Common.Cancel"]</button>
                 <button class="admin-danger" type="button" disabled="@isDeleting" @onclick="DeleteAsync">
-                    @(isDeleting ? "Deleting..." : "Delete entry")
+                    @Text[isDeleting ? "Common.Deleting" : "AdminInventory.DeleteEntry"]
                 </button>
             </div>
         </section>
@@ -364,7 +369,6 @@
     private string roleFilter = string.Empty;
     private bool isCreating;
     private bool isLoading;
-    private bool isPrefilling;
     private bool isSaving;
     private bool isDeleting;
     private string? statusMessage;
@@ -405,7 +409,8 @@
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "Failed to load computer inventory.");
+            errorMessage = Text["AdminInventory.Errors.LoadFailed"];
         }
         finally
         {
@@ -422,37 +427,8 @@
         isCreating = true;
         statusMessage = null;
         errorMessage = subscriptionIds.Count == 0
-            ? "No subscription IDs have been observed in alerts yet."
+            ? Text["AdminInventory.NoSubscriptions"]
             : null;
-    }
-
-    private async Task PrefillFromAlertsAsync()
-    {
-        if (isPrefilling)
-        {
-            return;
-        }
-
-        isPrefilling = true;
-        statusMessage = null;
-        errorMessage = null;
-        try
-        {
-            var result = await AlertStore.PrefillComputerInventoryFromLastSevenDaysAsync();
-            await LoadInventoryAsync();
-            statusMessage = $"Checked {result.AlertsScanned} alerts and found {result.SystemsFound} systems. " +
-                $"Created {result.SystemsCreated}, filled {result.DomainsFilled} missing domains and {result.SitesFilled} missing sites, " +
-                $"filled {result.ResourceGroupsFilled} resource groups, assigned {result.RolesAssigned} roles, " +
-                $"and left {result.SystemsUnchanged} unchanged.";
-        }
-        catch (Exception exception)
-        {
-            errorMessage = exception.Message;
-        }
-        finally
-        {
-            isPrefilling = false;
-        }
     }
 
     private void BeginEdit(ComputerInventoryEntry source)
@@ -486,15 +462,26 @@
                 ? await AlertStore.CreateComputerInventoryEntryAsync(editingEntry)
                 : await AlertStore.SaveComputerInventoryEntryAsync(editingEntry);
             statusMessage = isCreating
-                ? $"Inventory record for '{saved.Computer}' was created."
-                : $"Inventory record for '{saved.Computer}' was updated.";
+                ? Text.Format("AdminInventory.Created", saved.Computer)
+                : Text.Format("AdminInventory.Updated", saved.Computer);
             editingEntry = null;
             isCreating = false;
             await LoadInventoryAsync();
         }
+        catch (ComputerInventoryException exception) when (exception.Code == ComputerInventoryErrorCode.SavedNotificationFailed)
+        {
+            editingEntry = null;
+            isCreating = false;
+            await ReloadAfterCommittedFailureAsync(exception);
+        }
+        catch (ComputerInventoryException exception)
+        {
+            ShowInventoryError(exception);
+        }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "The outcome of saving a computer inventory record could not be confirmed.");
+            errorMessage = Text["AdminInventory.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -529,28 +516,56 @@
                 deletedEntry.Computer);
             if (!deleted)
             {
-                errorMessage = "The inventory record no longer exists.";
+                errorMessage = Text["AdminInventory.Missing"];
                 return;
             }
 
-            if (IsSelected(deletedEntry))
-            {
-                editingEntry = null;
-                isCreating = false;
-            }
-
-            entryToDelete = null;
-            statusMessage = $"Inventory record for '{deletedEntry.Computer}' was deleted.";
+            ClearDeletedSelection(deletedEntry);
+            statusMessage = Text.Format("AdminInventory.Deleted", deletedEntry.Computer);
             await LoadInventoryAsync();
+        }
+        catch (ComputerInventoryException exception) when (exception.Code == ComputerInventoryErrorCode.DeletedNotificationFailed)
+        {
+            ClearDeletedSelection(deletedEntry);
+            await ReloadAfterCommittedFailureAsync(exception);
+        }
+        catch (ComputerInventoryException exception)
+        {
+            ShowInventoryError(exception);
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "The outcome of deleting a computer inventory record could not be confirmed.");
+            errorMessage = Text["AdminInventory.Errors.ChangeUnconfirmed"];
         }
         finally
         {
             isDeleting = false;
         }
+    }
+
+    private void ClearDeletedSelection(ComputerInventoryEntry entry)
+    {
+        if (IsSelected(entry))
+        {
+            editingEntry = null;
+            isCreating = false;
+        }
+        entryToDelete = null;
+    }
+
+    private void ShowInventoryError(ComputerInventoryException exception)
+    {
+        Logger.LogWarning(exception, "Computer inventory operation reported {ErrorCode}.", exception.Code);
+        errorMessage = Text.Format("AdminInventory.Errors." + exception.Code, exception.Arguments.ToArray());
+    }
+
+    private async Task ReloadAfterCommittedFailureAsync(ComputerInventoryException exception)
+    {
+        ShowInventoryError(exception);
+        var notificationMessage = errorMessage;
+        await LoadInventoryAsync();
+        errorMessage = errorMessage is null ? notificationMessage : Text["AdminInventory.Errors.CommittedReloadFailed"];
     }
 
     private bool IsSelected(ComputerInventoryEntry entry) =>
@@ -580,6 +595,7 @@
         Role = source.Role,
         PrivateIP = source.PrivateIP,
         LastHeartbeatAt = source.LastHeartbeatAt,
+        LastBootTime = source.LastBootTime,
         NtdsFileSizeInGb = source.NtdsFileSizeInGb,
         CertificatesJson = source.CertificatesJson,
         ServicesJson = source.ServicesJson,
@@ -605,30 +621,28 @@
         .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    private static string DisplayValue(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "Not available" : value;
+    private string DisplayValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? Text["AdminInventory.NotAvailable"] : value;
 
-    private static string DisplayHeartbeat(DateTimeOffset? value) =>
-        value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "Not available";
+    private string DisplayHeartbeat(DateTimeOffset? value) =>
+        value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? Text["AdminInventory.NotAvailable"];
 
-    private static string DisplayDate(DateTimeOffset? value) =>
-        value?.ToUniversalTime().ToString("yyyy-MM-dd") ?? "Not available";
+    private string DisplayDate(DateTimeOffset? value) =>
+        value?.ToUniversalTime().ToString("yyyy-MM-dd") ?? Text["AdminInventory.NotAvailable"];
 
-    private static string DisplayNtdsSize(double? value) =>
-        value.HasValue ? $"{value.Value:N2} GB" : "Not available";
+    private string DisplayNtdsSize(double? value) =>
+        value.HasValue ? $"{value.Value:N2} GB" : Text["AdminInventory.NotAvailable"];
 
-    private static string DisplayServiceStatus(int? status) => status switch
+    private string DisplayServiceStatus(int? status) => status switch
     {
-        1 => "Stopped",
-        2 => "Start pending",
-        3 => "Stop pending",
-        4 => "Running",
-        5 => "Continue pending",
-        6 => "Pause pending",
-        7 => "Paused",
-        _ => status.HasValue ? $"Status {status.Value}" : "Unknown"
+        1 => Text["AdminInventory.Service.Stopped"],
+        2 => Text["AdminInventory.Service.StartPending"],
+        3 => Text["AdminInventory.Service.StopPending"],
+        4 => Text["AdminInventory.Service.Running"],
+        5 => Text["AdminInventory.Service.ContinuePending"],
+        6 => Text["AdminInventory.Service.PausePending"],
+        7 => Text["AdminInventory.Service.Paused"],
+        _ => status.HasValue ? Text.Format("AdminInventory.Service.Other", status.Value.ToString(System.Globalization.CultureInfo.CurrentCulture)) : Text["AdminInventory.Service.Unknown"]
     };
 
-    private static string InventoryCountLabel(int count) =>
-        count == 1 ? "1 system" : $"{count} systems";
 }

@@ -3,31 +3,33 @@
 @attribute [Authorize(Policy = "AdminAccess")]
 @using System.Text.Json
 @using System.Text.Json.Serialization
-@using Microsoft.EntityFrameworkCore
-@inject IDbContextFactory<AlertDbContext> DbContextFactory
+@using System.Text.Json.Nodes
+@inject DatabaseSettingsService SettingsService
 @inject AgentAnalysisProfilesOptions AgentAnalysisProfiles
 @inject AgentAnalysisExecutionState ActiveAgentAnalysisState
 @inject IConfiguration Configuration
-@inject CrossTenantLogAnalyticsOptions LogAnalyticsOptions
+@inject UiText Text
+@inject ILogger<AdminSettings> Logger
 
-<PageTitle>Application Settings</PageTitle>
+<PageTitle>@Text["AdminSettings.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Application settings</h1>
-        <p class="subtitle">Edit startup settings stored in the database.</p>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["AdminSettings.Title"]</h1>
+        <p class="subtitle">@Text["AdminSettings.Subtitle"]</p>
     </div>
     <div class="admin-heading-actions">
         <button class="admin-secondary" type="button" disabled="@(isLoading || isSaving)" @onclick="LoadAsync">
-            @(isLoading ? "Loading..." : "Reset changes")
+            @Text[isLoading ? "Common.Loading" : "Common.ResetChanges"]
         </button>
     </div>
 </section>
 
 <div class="admin-message admin-message-warning" role="alert">
-    <strong>Restart required.</strong> Saved settings take effect when the application is restarted.
-    Invalid values are rejected before they are written.
+    <LocalizedContent ResourceKey="AdminSettings.RestartWarning">
+        <Value0><strong>@Text["AdminSettings.RestartTitle"]</strong></Value0>
+    </LocalizedContent>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(statusMessage))
@@ -41,134 +43,135 @@
 
 @if (isLoading)
 {
-    <p class="admin-empty">Loading application settings...</p>
+    <p class="admin-empty">@Text["AdminSettings.Loading"]</p>
 }
-else
+else if (hasLoaded)
 {
-    <form class="admin-form settings-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+    <form class="admin-form settings-form" inert="@isSaving" @onsubmit="SaveAsync" @onsubmit:preventDefault>
         <label class="admin-field admin-field-wide">
-            <span>Authentication</span>
+            <span>@Text["AdminSettings.Authentication"]</span>
             <select required @bind="authenticationType">
                 <option value="open">open</option>
                 <option value="sql">sql</option>
+                <option value="entra">entra</option>
             </select>
-            <small>SQL mode requires at least one authentication user. Changing this setting can affect access after restart.</small>
+            <small>@Text["AdminSettings.AuthenticationHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Alert history</span>
+            <span>@Text["AdminSettings.AlertHistory"]</span>
             <textarea rows="5" required spellcheck="false" @bind="alertHistoryJson"></textarea>
-            <small>JSON free-text value. Days must be between 1 and 3650.</small>
+            <small>@Text["AdminSettings.AlertHistoryHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Alert graph</span>
+            <span>@Text["AdminSettings.AlertGraph"]</span>
             <textarea rows="16" required spellcheck="false" @bind="alertGraphJson"></textarea>
-            <small>JSON containing graph layers, defaults, and SiteLocations. Each site location defines DisplayName, Latitude, Longitude, Aliases, and optional label positioning. Restart required.</small>
+            <small>@Text["AdminSettings.AlertGraphHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Alert severity display</span>
+            <span>@Text["AdminSettings.SeverityDisplay"]</span>
             <textarea rows="16" required spellcheck="false" @bind="alertSeverityDisplayJson"></textarea>
-            <small>JSON free-text value containing severity colors, font styles, and the default style.</small>
+            <small>@Text["AdminSettings.SeverityHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Target output display</span>
+            <span>@Text["AdminSettings.TargetOutput"]</span>
             <textarea rows="18" required spellcheck="false" @bind="inboxTargetOutputDisplayJson"></textarea>
-            <small>JSON with CountColors (MinimumCount and Color), SuppressedColor, CriticalOutageAlwaysRed, BoldOutageNames, and ShowDomain. Colors: green, yellow, orange, red, gray. CountColors must include 1 and have unique positive thresholds. Restart required.</small>
+            <small>@Text["AdminSettings.TargetOutputHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>RCA display</span>
+            <span>@Text["AdminSettings.RcaDisplay"]</span>
             <textarea rows="6" required spellcheck="false" @bind="rcaDisplayJson"></textarea>
-            <small>JSON with OpenUnassignedColor (Open and unassigned), ClosedColor, and OtherColor. Colors: red, green, orange, yellow, gray. Restart required.</small>
+            <small>@Text["AdminSettings.RcaHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Dashboard filter defaults</span>
+            <span>@Text["AdminSettings.DashboardDefaults"]</span>
             <textarea rows="7" required spellcheck="false" @bind="dashboardFiltersJson"></textarea>
-            <small>JSON with Workspace (configured workspace key), Domain, Site and Role. Workspace: null selects the first workspace alphabetically; "" selects All workspaces. Empty or null Domain/Site/Role selects All. Defaults apply to personal and published dashboards when opening the dashboard page; filters remain manually changeable. Restart required.</small>
+            <small>@Text["AdminSettings.DashboardHint"]</small>
         </label>
 
         <label class="admin-field admin-field-wide">
-            <span>Agent analysis mode</span>
+            <span>@Text["AdminSettings.AgentMode"]</span>
             <select required @bind="agentAnalysisMode">
-                <option value="@AgentAnalysisExecutionModes.CopilotPrompt">Copilot prompt</option>
-                <option value="@AgentAnalysisExecutionModes.TeamsWorkflow">Teams workflow</option>
+                <option value="@AgentAnalysisExecutionModes.CopilotPrompt">@Text["AdminSettings.CopilotPrompt"]</option>
+                <option value="@AgentAnalysisExecutionModes.TeamsWorkflow">@Text["AdminSettings.TeamsWorkflow"]</option>
                 <option value="@AgentAnalysisExecutionModes.Api">API</option>
             </select>
-            <small>Release A executes only CopilotPrompt. Other modes remain fail closed until their server-side profiles are approved.</small>
+            <small>@Text["AdminSettings.AgentReleaseHint"]</small>
         </label>
 
         <fieldset class="admin-fieldset">
-            <legend>Inventory correlation</legend>
-            <label class="admin-check"><input type="checkbox" @bind="correlateByDomain" /> Domain</label>
-            <label class="admin-check"><input type="checkbox" @bind="correlateByRole" /> Role</label>
-            <label class="admin-check"><input type="checkbox" @bind="correlateBySite" /> Site</label>
-            <label class="admin-check"><input type="checkbox" @bind="correlateByResourceGroup" /> Resource group</label>
-            <small>All selected fields must match. Subscription is always enforced as an additional boundary.</small>
+            <legend>@Text["AdminSettings.InventoryCorrelation"]</legend>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByDomain" /> @Text["AdminSettings.Domain"]</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByRole" /> @Text["AdminSettings.Role"]</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateBySite" /> @Text["AdminSettings.Site"]</label>
+            <label class="admin-check"><input type="checkbox" @bind="correlateByResourceGroup" /> @Text["AdminSettings.ResourceGroup"]</label>
+            <small>@Text["AdminSettings.CorrelationHint"]</small>
         </fieldset>
 
         <div class="admin-message @(ActiveAgentAnalysisState.IsEnabled ? "admin-message-success" : "admin-message-warning") agent-settings-state" role="status">
-            <strong>Currently active: @ActiveAgentAnalysisState.Mode</strong>
+            <strong>@Text.Format("AdminSettings.ActiveState", ActiveAgentAnalysisState.Mode)</strong>
             <span>@ActiveExecutionDescription</span>
         </div>
 
         <div class="admin-message @(SelectedAgentAnalysisState.IsEnabled ? "admin-message-success" : "admin-message-warning") agent-settings-state" role="status">
-            <strong>Selection after restart: @SelectedAgentAnalysisState.Mode</strong>
+            <strong>@Text.Format("AdminSettings.SelectedState", SelectedAgentAnalysisState.Mode)</strong>
             <span>@SelectedExecutionDescription</span>
         </div>
 
         @if (agentAnalysisMode == AgentAnalysisExecutionModes.TeamsWorkflow)
         {
             <label class="admin-field admin-field-wide">
-                <span>Teams workflow profile</span>
+                <span>@Text["AdminSettings.TeamsProfile"]</span>
                 <select required @bind="teamsWorkflowProfile">
-                    <option value="">Select a server-side profile</option>
+                    <option value="">@Text["AdminSettings.SelectProfile"]</option>
                     @if (IsUnregisteredProfile(teamsWorkflowProfile, AgentAnalysisProfiles.TeamsWorkflows.Keys))
                     {
-                        <option value="@teamsWorkflowProfile">@teamsWorkflowProfile (not registered)</option>
+                        <option value="@teamsWorkflowProfile">@Text.Format("AdminSettings.UnregisteredProfile", teamsWorkflowProfile)</option>
                     }
                     @foreach (var profile in AgentAnalysisProfiles.TeamsWorkflows.OrderBy(profile => profile.Key, StringComparer.OrdinalIgnoreCase))
                     {
-                        <option value="@profile.Key">@profile.Key (@(profile.Value.Approved ? "approved" : "not approved"))</option>
+                        <option value="@profile.Key">@Text.Format("AdminSettings.TeamsProfileOption", profile.Key, Text[profile.Value.Approved ? "AdminSettings.Approved" : "AdminSettings.NotApproved"])</option>
                     }
                 </select>
-                <small>Only logical names from the server-side registry are shown. Endpoints and credentials remain protected.</small>
+                <small>@Text["AdminSettings.TeamsProfileHint"]</small>
             </label>
             @if (AgentAnalysisProfiles.TeamsWorkflows.Count == 0)
             {
-                <p class="admin-empty agent-profile-empty">No Teams workflow profiles are configured. Saving this mode remains possible only after a profile is added to server configuration.</p>
+                <p class="admin-empty agent-profile-empty">@Text["AdminSettings.NoTeamsProfiles"]</p>
             }
         }
         else if (agentAnalysisMode == AgentAnalysisExecutionModes.Api)
         {
             <label class="admin-field admin-field-wide">
-                <span>API profile</span>
+                <span>@Text["AdminSettings.ApiProfile"]</span>
                 <select required @bind="apiProfile">
-                    <option value="">Select a server-side profile</option>
+                    <option value="">@Text["AdminSettings.SelectProfile"]</option>
                     @if (IsUnregisteredProfile(apiProfile, AgentAnalysisProfiles.Apis.Keys))
                     {
-                        <option value="@apiProfile">@apiProfile (not registered)</option>
+                        <option value="@apiProfile">@Text.Format("AdminSettings.UnregisteredProfile", apiProfile)</option>
                     }
                     @foreach (var profile in AgentAnalysisProfiles.Apis.OrderBy(profile => profile.Key, StringComparer.OrdinalIgnoreCase))
                     {
-                        <option value="@profile.Key">@profile.Key (@profile.Value.Provider, @(profile.Value.Approved ? "approved" : "not approved"))</option>
+                        <option value="@profile.Key">@Text.Format("AdminSettings.ApiProfileOption", profile.Key, profile.Value.Provider, Text[profile.Value.Approved ? "AdminSettings.Approved" : "AdminSettings.NotApproved"])</option>
                     }
                 </select>
-                <small>Only logical names and non-secret provider metadata are shown. Endpoints and credentials remain protected.</small>
+                <small>@Text["AdminSettings.ApiProfileHint"]</small>
             </label>
             @if (AgentAnalysisProfiles.Apis.Count == 0)
             {
-                <p class="admin-empty agent-profile-empty">No API profiles are configured. Saving this mode remains possible only after a profile is added to server configuration.</p>
+                <p class="admin-empty agent-profile-empty">@Text["AdminSettings.NoApiProfiles"]</p>
             }
         }
 
         <div class="admin-form-actions">
-            <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="LoadAsync">Reset changes</button>
-            <button class="admin-primary" type="submit" disabled="@isSaving">
-                @(isSaving ? "Saving..." : "Save settings")
+            <button class="admin-secondary" type="button" disabled="@isSaving" @onclick="LoadAsync">@Text["Common.ResetChanges"]</button>
+            <button class="admin-primary" type="submit" disabled="@(isSaving || reloadRequired)">
+                @Text[isSaving ? "Common.Saving" : "AdminSettings.Save"]
             </button>
         </div>
     </form>
@@ -198,14 +201,16 @@ else
     private bool correlateByRole = true;
     private bool correlateBySite;
     private bool correlateByResourceGroup;
-    private bool isLoading = true;
+    private bool isLoading;
     private bool isSaving;
+    private bool hasLoaded;
+    private bool reloadRequired;
     private string? statusMessage;
     private string? errorMessage;
 
     private string ActiveExecutionDescription => ActiveAgentAnalysisState.IsEnabled
-        ? "Local manual handoff is enabled. No alert data is sent automatically."
-        : ActiveAgentAnalysisState.DisabledReason ?? "Agent analysis is disabled.";
+        ? Text["AdminSettings.ActiveHandoff"]
+        : AgentAnalysisErrorPresentation.DisabledReason(ActiveAgentAnalysisState, Text);
 
     private AgentAnalysisExecutionState SelectedAgentAnalysisState => AgentAnalysisExecutionState.Create(
         new AgentAnalysisExecutionOptions
@@ -222,8 +227,8 @@ else
         key => !string.IsNullOrWhiteSpace(Configuration[key]));
 
     private string SelectedExecutionDescription => SelectedAgentAnalysisState.IsEnabled
-        ? "Local manual handoff will be enabled. No alert data will be sent automatically."
-        : SelectedAgentAnalysisState.DisabledReason ?? "Agent analysis will be disabled.";
+        ? Text["AdminSettings.SelectedHandoff"]
+        : AgentAnalysisErrorPresentation.DisabledReason(SelectedAgentAnalysisState, Text);
 
     private static bool IsUnregisteredProfile(string profile, IEnumerable<string> registeredProfiles) =>
         !string.IsNullOrWhiteSpace(profile) &&
@@ -233,7 +238,7 @@ else
 
     private async Task LoadAsync()
     {
-        if (isSaving)
+        if (isSaving || isLoading)
         {
             return;
         }
@@ -243,47 +248,49 @@ else
         errorMessage = null;
         try
         {
-            await using var context = await DbContextFactory.CreateDbContextAsync();
-            var settings = await context.Settings
-                .Where(setting => DatabaseSettingsLoader.RequiredNames.Contains(setting.Name))
-                .ToDictionaryAsync(setting => setting.Name, StringComparer.OrdinalIgnoreCase);
-
-            var missing = DatabaseSettingsLoader.RequiredNames
-                .Where(name => !settings.ContainsKey(name))
-                .ToArray();
-            if (missing.Length > 0)
-            {
-                throw new InvalidOperationException(
-                    $"Required database settings are missing: {string.Join(", ", missing)}.");
-            }
+            var settings = await SettingsService.LoadAsync();
 
             var authentication = DatabaseSettingsLoader.Deserialize<ApplicationAuthenticationOptions>(
                 DatabaseSettingsLoader.Authentication,
-                settings[DatabaseSettingsLoader.Authentication].JsonValue);
-            authenticationType = authentication.Type;
-            alertHistoryJson = FormatJson(settings[DatabaseSettingsLoader.AlertHistory].JsonValue);
-            alertGraphJson = FormatJson(settings[DatabaseSettingsLoader.AlertGraph].JsonValue);
-            alertSeverityDisplayJson = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue);
-            inboxTargetOutputDisplayJson = FormatJson(settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue);
-            rcaDisplayJson = FormatJson(settings[DatabaseSettingsLoader.RcaDisplay].JsonValue);
-            dashboardFiltersJson = FormatJson(settings[DatabaseSettingsLoader.DashboardFilters].JsonValue);
+                settings[DatabaseSettingsLoader.Authentication]);
+            var history = FormatJson(settings[DatabaseSettingsLoader.AlertHistory]);
+            var graph = FormatGraphJson(settings[DatabaseSettingsLoader.AlertGraph]);
+            var severity = FormatJson(settings[DatabaseSettingsLoader.AlertSeverityDisplay]);
+            var output = FormatJson(settings[DatabaseSettingsLoader.InboxTargetOutputDisplay]);
+            var rca = FormatJson(settings[DatabaseSettingsLoader.RcaDisplay]);
+            var dashboard = FormatJson(settings[DatabaseSettingsLoader.DashboardFilters]);
             var agentAnalysisContext = DatabaseSettingsLoader.Deserialize<AgentAnalysisContextOptions>(
                 DatabaseSettingsLoader.AgentAnalysisContext,
-                settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue);
-            correlateByDomain = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Domain);
-            correlateByRole = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Role);
-            correlateBySite = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Site);
-            correlateByResourceGroup = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.ResourceGroup);
+                settings[DatabaseSettingsLoader.AgentAnalysisContext]);
+            var domain = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Domain);
+            var role = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Role);
+            var site = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.Site);
+            var resourceGroup = agentAnalysisContext.InventoryCorrelationLayers.Contains(AlertGraphLayer.ResourceGroup);
             var agentAnalysisExecution = DatabaseSettingsLoader.Deserialize<AgentAnalysisExecutionOptions>(
                 DatabaseSettingsLoader.AgentAnalysisExecution,
-                settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue);
+                settings[DatabaseSettingsLoader.AgentAnalysisExecution]);
+            authenticationType = authentication.Type;
+            alertHistoryJson = history;
+            alertGraphJson = graph;
+            alertSeverityDisplayJson = severity;
+            inboxTargetOutputDisplayJson = output;
+            rcaDisplayJson = rca;
+            dashboardFiltersJson = dashboard;
+            correlateByDomain = domain;
+            correlateByRole = role;
+            correlateBySite = site;
+            correlateByResourceGroup = resourceGroup;
             agentAnalysisMode = agentAnalysisExecution.Mode;
             teamsWorkflowProfile = agentAnalysisExecution.TeamsWorkflowProfile ?? string.Empty;
             apiProfile = agentAnalysisExecution.ApiProfile ?? string.Empty;
+            hasLoaded = true;
+            reloadRequired = false;
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            reloadRequired = true;
+            errorMessage = SettingsError(exception, "AdminSettings.LoadFailed");
+            Logger.LogError(exception, "Failed to load administrative settings.");
         }
         finally
         {
@@ -293,54 +300,29 @@ else
 
     private async Task SaveAsync()
     {
-        if (isSaving)
+        if (isSaving || isLoading)
         {
+            return;
+        }
+
+        if (!hasLoaded || reloadRequired)
+        {
+            errorMessage = Text["AdminSettings.ReloadRequired"];
+            Logger.LogWarning("Blocked settings save until a successful explicit reload.");
             return;
         }
 
         statusMessage = null;
         errorMessage = null;
         isSaving = true;
+        var saveRequested = false;
         try
         {
             var authentication = new ApplicationAuthenticationOptions { Type = authenticationType };
-            EnsureValid(DatabaseSettingsLoader.Authentication, authentication.Validate());
-
-            var alertHistory = DatabaseSettingsLoader.Deserialize<AlertHistoryOptions>(
-                DatabaseSettingsLoader.AlertHistory,
-                alertHistoryJson);
-            EnsureValid(DatabaseSettingsLoader.AlertHistory, alertHistory.Validate());
-
-            var alertGraph = DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(
-                DatabaseSettingsLoader.AlertGraph,
-                alertGraphJson);
-            EnsureValid(DatabaseSettingsLoader.AlertGraph, alertGraph.Validate());
-
-            var alertSeverityDisplay = DatabaseSettingsLoader.Deserialize<AlertSeverityDisplayOptions>(
-                DatabaseSettingsLoader.AlertSeverityDisplay,
-                alertSeverityDisplayJson);
-            EnsureValid(DatabaseSettingsLoader.AlertSeverityDisplay, alertSeverityDisplay.Validate());
-
-            var inboxTargetOutputDisplay = DatabaseSettingsLoader.Deserialize<InboxTargetOutputDisplayOptions>(
-                DatabaseSettingsLoader.InboxTargetOutputDisplay,
-                inboxTargetOutputDisplayJson);
-            EnsureValid(DatabaseSettingsLoader.InboxTargetOutputDisplay, inboxTargetOutputDisplay.Validate());
-
-            var rcaDisplay = DatabaseSettingsLoader.Deserialize<RcaDisplayOptions>(
-                DatabaseSettingsLoader.RcaDisplay,
-                rcaDisplayJson);
-            EnsureValid(DatabaseSettingsLoader.RcaDisplay, rcaDisplay.Validate());
-
-            var dashboardFilters = DatabaseSettingsLoader.Deserialize<DashboardFilterOptions>(
-                DatabaseSettingsLoader.DashboardFilters,
-                dashboardFiltersJson);
-            EnsureValid(DatabaseSettingsLoader.DashboardFilters, dashboardFilters.Validate(LogAnalyticsOptions));
-
             var agentAnalysisContext = new AgentAnalysisContextOptions
             {
                 InventoryCorrelationLayers = SelectedCorrelationLayers()
             };
-            EnsureValid(DatabaseSettingsLoader.AgentAnalysisContext, agentAnalysisContext.Validate());
 
             var agentAnalysisExecution = new AgentAnalysisExecutionOptions
             {
@@ -352,50 +334,44 @@ else
                     ? apiProfile
                     : null
             };
-            EnsureValid(DatabaseSettingsLoader.AgentAnalysisExecution, agentAnalysisExecution.Validate());
-
-            await using var context = await DbContextFactory.CreateDbContextAsync();
-            if (authentication.IsSql && !await context.AuthenticationUsers.AnyAsync())
+            var submitted = new Dictionary<string, string>
             {
-                throw new InvalidOperationException(
-                    "Create at least one authentication user before enabling SQL authentication.");
-            }
+                [DatabaseSettingsLoader.Authentication] = JsonSerializer.Serialize(authentication),
+                [DatabaseSettingsLoader.AlertHistory] = FormatJson(alertHistoryJson),
+                [DatabaseSettingsLoader.AlertGraph] = FormatJson(alertGraphJson),
+                [DatabaseSettingsLoader.AlertSeverityDisplay] = FormatJson(alertSeverityDisplayJson),
+                [DatabaseSettingsLoader.InboxTargetOutputDisplay] = FormatJson(inboxTargetOutputDisplayJson),
+                [DatabaseSettingsLoader.RcaDisplay] = FormatJson(rcaDisplayJson),
+                [DatabaseSettingsLoader.DashboardFilters] = FormatJson(dashboardFiltersJson),
+                [DatabaseSettingsLoader.AgentAnalysisContext] = JsonSerializer.Serialize(agentAnalysisContext, PrettyJson),
+                [DatabaseSettingsLoader.AgentAnalysisExecution] = JsonSerializer.Serialize(agentAnalysisExecution)
+            };
+            saveRequested = true;
+            var settings = await SettingsService.SaveAsync(submitted);
 
-            var settings = await context.Settings
-                .Where(setting => DatabaseSettingsLoader.RequiredNames.Contains(setting.Name))
-                .ToDictionaryAsync(setting => setting.Name, StringComparer.OrdinalIgnoreCase);
-            var missing = DatabaseSettingsLoader.RequiredNames
-                .Where(name => !settings.ContainsKey(name))
-                .ToArray();
-            if (missing.Length > 0)
-            {
-                throw new InvalidOperationException(
-                    $"Required database settings are missing: {string.Join(", ", missing)}.");
-            }
-
-            settings[DatabaseSettingsLoader.Authentication].JsonValue = JsonSerializer.Serialize(authentication);
-            settings[DatabaseSettingsLoader.AlertHistory].JsonValue = FormatJson(alertHistoryJson);
-            settings[DatabaseSettingsLoader.AlertGraph].JsonValue = FormatJson(alertGraphJson);
-            settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue = FormatJson(alertSeverityDisplayJson);
-            settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue = FormatJson(inboxTargetOutputDisplayJson);
-            settings[DatabaseSettingsLoader.RcaDisplay].JsonValue = FormatJson(rcaDisplayJson);
-            settings[DatabaseSettingsLoader.DashboardFilters].JsonValue = FormatJson(dashboardFiltersJson);
-            settings[DatabaseSettingsLoader.AgentAnalysisContext].JsonValue =
-                JsonSerializer.Serialize(agentAnalysisContext, PrettyJson);
-            settings[DatabaseSettingsLoader.AgentAnalysisExecution].JsonValue = JsonSerializer.Serialize(agentAnalysisExecution);
-            await context.SaveChangesAsync();
-
-            alertHistoryJson = settings[DatabaseSettingsLoader.AlertHistory].JsonValue;
-            alertGraphJson = settings[DatabaseSettingsLoader.AlertGraph].JsonValue;
-            alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay].JsonValue;
-            inboxTargetOutputDisplayJson = settings[DatabaseSettingsLoader.InboxTargetOutputDisplay].JsonValue;
-            rcaDisplayJson = settings[DatabaseSettingsLoader.RcaDisplay].JsonValue;
-            dashboardFiltersJson = settings[DatabaseSettingsLoader.DashboardFilters].JsonValue;
-            statusMessage = "Settings saved. Restart the application to apply them.";
+            alertHistoryJson = settings[DatabaseSettingsLoader.AlertHistory];
+            alertGraphJson = settings[DatabaseSettingsLoader.AlertGraph];
+            alertSeverityDisplayJson = settings[DatabaseSettingsLoader.AlertSeverityDisplay];
+            inboxTargetOutputDisplayJson = settings[DatabaseSettingsLoader.InboxTargetOutputDisplay];
+            rcaDisplayJson = settings[DatabaseSettingsLoader.RcaDisplay];
+            dashboardFiltersJson = settings[DatabaseSettingsLoader.DashboardFilters];
+            statusMessage = Text["AdminSettings.Saved"];
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            if (ValidationCode(exception) is not null || !saveRequested && exception is JsonException)
+            {
+                errorMessage = exception is JsonException
+                    ? Text["AdminSettings.InvalidJson"]
+                    : SettingsError(exception, "AdminSettings.SaveUnconfirmed");
+                Logger.LogWarning(exception, "Administrative settings validation rejected the save.");
+            }
+            else
+            {
+                reloadRequired = true;
+                errorMessage = Text["AdminSettings.SaveUnconfirmed"];
+                Logger.LogError(exception, "Administrative settings save outcome is unconfirmed.");
+            }
         }
         finally
         {
@@ -403,13 +379,40 @@ else
         }
     }
 
-    private static void EnsureValid(string name, IReadOnlyList<string> errors)
+    private static string? SettingLabel(string? name) => name switch
     {
-        if (errors.Count > 0)
+        DatabaseSettingsLoader.Authentication => "AdminSettings.Authentication",
+        DatabaseSettingsLoader.AlertHistory => "AdminSettings.AlertHistory",
+        DatabaseSettingsLoader.AlertGraph => "AdminSettings.AlertGraph",
+        DatabaseSettingsLoader.AlertSeverityDisplay => "AdminSettings.SeverityDisplay",
+        DatabaseSettingsLoader.InboxTargetOutputDisplay => "AdminSettings.TargetOutput",
+        DatabaseSettingsLoader.RcaDisplay => "AdminSettings.RcaDisplay",
+        DatabaseSettingsLoader.DashboardFilters => "AdminSettings.DashboardDefaults",
+        DatabaseSettingsLoader.AgentAnalysisContext => "AdminSettings.InventoryCorrelation",
+        DatabaseSettingsLoader.AgentAnalysisExecution => "AdminSettings.AgentMode",
+        _ => null
+    };
+
+    private static DatabaseSettingsValidationCode? ValidationCode(Exception exception) =>
+        exception is DatabaseSettingsValidationException validation ? validation.Code switch
         {
-            throw new InvalidOperationException(
-                $"Invalid setting '{name}': {string.Join(" ", errors)}");
-        }
+            DatabaseSettingsValidationCode.UnknownSettings or
+            DatabaseSettingsValidationCode.MissingSettings or
+            DatabaseSettingsValidationCode.SqlUserRequired => validation.Code,
+            DatabaseSettingsValidationCode.JsonNull or
+            DatabaseSettingsValidationCode.JsonInvalid or
+            DatabaseSettingsValidationCode.InvalidValues when SettingLabel(validation.SettingName) is not null => validation.Code,
+            _ => null
+        } : null;
+
+    private string SettingsError(Exception exception, string fallback)
+    {
+        if (ValidationCode(exception) is not { } code) return Text[fallback];
+        var key = $"AdminSettings.Validation.{code}";
+        return exception is DatabaseSettingsValidationException validation &&
+            SettingLabel(validation.SettingName) is { } label
+            ? Text.Format(key, Text[label])
+            : Text[key];
     }
 
     private AlertGraphLayer[] SelectedCorrelationLayers()
@@ -426,5 +429,14 @@ else
     {
         using var document = JsonDocument.Parse(json);
         return JsonSerializer.Serialize(document.RootElement, PrettyJson);
+    }
+
+    private static string FormatGraphJson(string json)
+    {
+        var options = DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(DatabaseSettingsLoader.AlertGraph, json);
+        var graph = JsonNode.Parse(json)!.AsObject();
+        if (!graph.Any(property => property.Key.Equals(nameof(AlertGraphOptions.SLocations), StringComparison.OrdinalIgnoreCase)))
+            graph[nameof(AlertGraphOptions.SLocations)] = options.SLocations;
+        return graph.ToJsonString(PrettyJson);
     }
 }

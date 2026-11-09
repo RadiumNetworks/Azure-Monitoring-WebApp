@@ -135,12 +135,14 @@ public sealed class CrossTenantLogAnalyticsOptionsTests
     }
 
     internal static CrossTenantLogAnalyticsOptions CreateValid(
-        CrossTenantLogAnalyticsWorkspaceOptions[]? workspaces = null) =>
+        CrossTenantLogAnalyticsWorkspaceOptions[]? workspaces = null,
+        int diagnosticTimeoutSeconds = 30) =>
         new()
         {
             Enabled = true,
             ManagedIdentityClientId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             ApplicationClientId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            DiagnosticTimeoutSeconds = diagnosticTimeoutSeconds,
             KeyVaultUri = "https://monitoring.vault.azure.net/",
             ClientSecretName = "log-analytics-client-secret",
             Workspaces = workspaces ??

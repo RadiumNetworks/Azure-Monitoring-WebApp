@@ -5,6 +5,70 @@ public sealed class AgentAnalysisJobStateMachineTests
     private static readonly DateTimeOffset CreatedAt =
         new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData(0, "Unknown agent analysis job status 'Unknown <status>'.")]
+    [InlineData(1, "Agent analysis job cannot transition from 'Queued' to 'Completed'.")]
+    [InlineData(2, "Agent analysis job transition time cannot move backwards.")]
+    [InlineData(3, "Agent analysis job transition time cannot move backwards.")]
+    [InlineData(4, "A failed agent analysis job requires an error message.")]
+    public void TransitionValidationPreservesNeutralContractAndEveryField(int scenario, string message)
+    {
+        var job = CreateJob();
+        if (scenario is 3 or 4)
+            AgentAnalysisJobStateMachine.Transition(job, AgentAnalysisJobStatuses.Running, CreatedAt.AddMinutes(2));
+        var before = System.Text.Json.JsonSerializer.Serialize(job);
+        var target = scenario switch
+        {
+            0 => "Unknown <status>",
+            1 or 3 => AgentAnalysisJobStatuses.Completed,
+            4 => AgentAnalysisJobStatuses.Failed,
+            _ => AgentAnalysisJobStatuses.Running
+        };
+        var time = scenario == 2 ? CreatedAt.AddTicks(-1) :
+            scenario == 3 ? CreatedAt.AddMinutes(2).AddTicks(-1) : CreatedAt.AddMinutes(3);
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AgentAnalysisJobStateMachine.Transition(job, target, time));
+        Assert.Equal(message, exception.Message);
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(job));
+    }
+
+    [Theory]
+    [InlineData(0, "The analysis result identity and version must match the analysis job.")]
+    [InlineData(1, "The analysis result identity and version must match the analysis job.")]
+    [InlineData(2, "The analysis result contract version must match the analysis job.")]
+    public void ResultPreflightPreservesNeutralContractAndEveryField(int scenario, string message)
+    {
+        var job = CreateJob();
+        AgentAnalysisJobStateMachine.Transition(job, AgentAnalysisJobStatuses.Running, CreatedAt.AddMinutes(1));
+        var result = CreateResult(job.AnalysisId, job.ResultVersion);
+        result = scenario switch
+        {
+            0 => result with { AnalysisId = Guid.Empty },
+            1 => result with { ResultVersion = job.ResultVersion + 1 },
+            _ => result with { ContractVersion = "custom <contract>" }
+        };
+        var before = System.Text.Json.JsonSerializer.Serialize(job);
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AgentAnalysisJobResultPersistence.Store(job, result, CreatedAt.AddMinutes(2)));
+        Assert.Equal(message, exception.Message);
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(job));
+    }
+
+    [Theory]
+    [InlineData("", "actor")]
+    [InlineData(" ", "actor")]
+    [InlineData("prompt", "")]
+    [InlineData("prompt", " ")]
+    public void IdempotencyPreflightRemainsNeutralAndDoesNotChangeSnapshot(string version, string actor)
+    {
+        var snapshot = CreateSnapshot();
+        var before = snapshot.ToCanonicalJson();
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AgentAnalysisJobIdempotency.Compute(snapshot, version, actor));
+        Assert.Equal("PromptVersion and CreatedBy are required for idempotency.", exception.Message);
+        Assert.Equal(before, snapshot.ToCanonicalJson());
+    }
+
     [Fact]
     public void MovesQueuedJobThroughRunningToCompleted()
     {
@@ -153,7 +217,7 @@ public sealed class AgentAnalysisJobStateMachineTests
             "operator"));
     }
 
-    private static AgentAnalysisResult CreateResult(Guid analysisId, int resultVersion) => new(
+    internal static AgentAnalysisResult CreateResult(Guid analysisId, int resultVersion) => new(
         AgentAnalysisResultContract.CurrentVersion,
         analysisId,
         resultVersion,

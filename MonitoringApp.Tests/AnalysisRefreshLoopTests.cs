@@ -74,9 +74,11 @@ public sealed class AnalysisRefreshLoopTests
         private TimeSpan next;
         public TimeSpan Period { get; private set; }
         public bool Disposed { get; private set; }
+        public int TimerCount { get; private set; }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            TimerCount++;
             this.callback = callback;
             this.state = state;
             next = elapsed + dueTime;

@@ -1,6 +1,7 @@
 {
   "type": "Heartbeat",
   "label": "Heartbeat query summary",
+  "labelKey": "QueryResults.HeartbeatSummary",
   "identity": {
     "targetColumns": ["Computer"],
     "siteColumns": ["Site"],
@@ -8,19 +9,19 @@
     "siteDimensions": ["Site"]
   },
   "summary": [
-    { "operation": "row-count", "label": "heartbeat records", "singularLabel": "heartbeat record", "tone": "info" }
+    { "operation": "row-count", "label": "heartbeat records", "labelKey": "QueryResults.HeartbeatRecords", "singularLabel": "heartbeat record", "tone": "info" }
   ],
   "row": {
     "title": "{Computer}",
     "metadata": [
-      { "column": "Site", "label": "Site" },
-      { "column": "TimeGenerated", "label": "Observed", "format": "datetime" }
+      { "column": "Site", "label": "Site", "labelKey": "QueryResults.Site" },
+      { "column": "TimeGenerated", "label": "Observed", "labelKey": "QueryResults.Observed", "format": "datetime" }
     ],
     "alerts": [
-      { "column": "Status", "label": "Heartbeat status", "hideWhen": "Current", "tone": "failure" }
+      { "column": "Status", "label": "Heartbeat status", "labelKey": "QueryResults.HeartbeatStatus", "hideWhen": "Current", "tone": "failure" }
     ],
     "facts": [
-      { "column": "DelayMinutes", "label": "Minutes since heartbeat" }
+      { "column": "DelayMinutes", "label": "Minutes since heartbeat", "labelKey": "QueryResults.HeartbeatMinutes" }
     ],
     "details": []
   }

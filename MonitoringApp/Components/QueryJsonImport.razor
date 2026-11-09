@@ -1,0 +1,23 @@
+@inject UiText Text
+
+<details class="admin-rule-card">
+    <summary>@Text["QueryImport.Title"]</summary>
+    <p>@Description</p>
+    <label class="admin-field">
+        <span>@Text["QueryImport.InputLabel"]</span>
+        <textarea rows="8" maxlength="@QueryTemplateJson.MaxImportBytes" spellcheck="false"
+                  aria-label="@Text["QueryImport.InputAria"]" @bind="json" disabled="@Busy"></textarea>
+    </label>
+    <p>@Text["QueryImport.DraftWarning"]</p>
+    <button class="admin-secondary" type="button" disabled="@Busy" @onclick="ImportAsync">@Text["QueryImport.ReadDraft"]</button>
+</details>
+
+@code {
+    [Parameter] public string Description { get; set; } = string.Empty;
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<string> OnImport { get; set; }
+
+    private string json = string.Empty;
+
+    private Task ImportAsync() => Busy ? Task.CompletedTask : OnImport.InvokeAsync(json);
+}

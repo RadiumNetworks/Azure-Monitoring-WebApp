@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "templateId": "kql/ad/ad-dcdiag",
+      "revision": "34D82BF1EE0051ED209FED0CDABD3C30F1213A2FE863A7C164410EBEA5432D92",
+      "name": "DCDiag test status",
+      "description": "Latest test results per computer. Missing or unrecognized results remain unknown.",
+      "resourceVersion": 1
+    },
+    {
+      "templateId": "kql/ad/ad-dcdiag-tests",
+      "revision": "A9D64ADD73EBD50915630556C8C3AD6EC5FB50DA562A9FCEF3F3146F4B15558A",
+      "name": "DCDiag test status (one row per test)",
+      "description": "Latest results with one row per computer and test, showing result text and a status symbol.",
+      "resourceVersion": 1
+    }
+  ]
+}

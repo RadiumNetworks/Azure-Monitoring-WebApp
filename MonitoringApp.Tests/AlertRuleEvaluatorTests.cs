@@ -167,6 +167,98 @@ public sealed class AlertRuleEvaluatorTests
     }
 
     [Fact]
+    public void SuppressionWinsBeforeCriticalRulesAndCannotTriggerTargetExpansion()
+    {
+        var suppressed = CreateDcAlert("suppressed", "dc-1", "site-a", PortPayload(11));
+        var other = CreateDcAlert("other", "dc-1", "site-a");
+        var critical = CreatePortRule("11111111-2222-3333-4444-555555555555", 0);
+        critical.IsCritical = true;
+        var suppression = new AlertRule
+        {
+            Id = Guid.NewGuid(), Name = "Suppress known port evidence", Priority = 999,
+            QueryResultType = "DCPort", ConditionType = AlertRuleConditionTypes.AnyMatchingAlert,
+            CategoryName = "Quiet evidence", AnalysisClassification = AlertRuleAnalysisClassifications.Suppressed,
+            IsCritical = true
+        };
+        var result = new AlertRuleEvaluator(Presenter).EvaluateCategorization([suppressed, other], [critical, suppression]);
+        var category = Assert.Single(result.Categorization.Categories);
+        Assert.Equal(suppression.Id, category.RuleId);
+        Assert.False(category.IsCritical);
+        Assert.Equal(other.Id, Assert.Single(result.Categorization.Uncategorized).Id);
+        var trace = Assert.Single(result.Decisions, decision => decision.RuleId == critical.Id && decision.AlertEventId == suppressed.Id);
+        Assert.Equal(AlertRuleEvaluationOutcomes.Superseded, trace.Outcome);
+        Assert.Equal(suppression.Id, trace.WinningRuleId);
+        Assert.Contains("suppression precedence", trace.Reason);
+
+        suppression.Enabled = false;
+        var unsuppressed = new AlertRuleEvaluator(Presenter).Categorize([suppressed, other], [critical, suppression]);
+        Assert.Equal(critical.Id, Assert.Single(unsuppressed.Categories).RuleId);
+        Assert.Equal(2, unsuppressed.Categories[0].Alerts.Count);
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("passed")]
+    [InlineData("isolated")]
+    public void SuppressedDcDiagnosticsOutsideVisiblePageDoNotInflateOutageThresholds(string diagnosticState)
+    {
+        var diagnostics = Enumerable.Range(1, 3).Select(index => diagnosticState switch
+        {
+            "passed" => CreateDcDiagAlert($"diag-{index}", $"dc-{index}", ("Connectivity", "Passed")),
+            "isolated" => CreateDcDiagAlert($"diag-{index}", $"dc-{index}", ("DFSREvent", "Failed")),
+            _ => CreateDcDiagAlert($"diag-{index}", $"dc-{index}")
+        }).ToArray();
+        var failing = CreateDcAlert("real-failure", "dc-4", "site-a");
+        var alerts = diagnostics.Append(failing).ToArray();
+        var inventory = Enumerable.Range(1, 4).Select(index => CreateDomainController($"dc-{index}", "site-a")).ToArray();
+        var rules = DefaultAlertRules.Create();
+        var evaluator = new AlertRuleEvaluator(Presenter);
+
+        var visiblePage = evaluator.EvaluateCategorization([failing], rules, inventory, alerts);
+        Assert.Empty(visiblePage.Categorization.Categories);
+        Assert.Equal(failing.Id, Assert.Single(visiblePage.Categorization.Uncategorized).Id);
+        var domainDecision = Assert.Single(visiblePage.Decisions, decision =>
+            decision.RuleId == rules.Single(rule => rule.ConditionType == AlertRuleConditionTypes.DomainControllerPercentageInDomain).Id);
+        Assert.Equal("25", Assert.Single(domainDecision.Criteria).Actual);
+        var all = evaluator.Categorize(alerts, rules, inventory, alerts);
+        var suppressed = Assert.Single(all.Categories);
+        Assert.Equal(AlertRuleAnalysisClassifications.Suppressed, suppressed.AnalysisClassification);
+        Assert.False(suppressed.IsCritical);
+        Assert.Equal(3, suppressed.Alerts.Count);
+        var cells = InboxTargetOutput.Build(alerts, alerts, inventory, DateTimeOffset.UtcNow,
+            TimeSpan.FromMinutes(5), categories: all.Categories);
+        Assert.All(cells.Where(cell => cell.Target != "dc-4"), cell =>
+        {
+            Assert.True(cell.SuppressedOnly);
+            Assert.Equal(InboxTargetColor.Green, cell.Color);
+        });
+        Assert.Equal(InboxTargetColor.Yellow, cells.Single(cell => cell.Target == "dc-4").Color);
+
+    }
+
+    [Fact]
+    public void GenuineDomainOutageContainsOnlyActionableDiagnostics()
+    {
+        var failing = Enumerable.Range(1, 3)
+            .Select(index => CreateDcDiagAlert($"diag-{index}", $"dc-{index}", ("Connectivity", "Failed"))).ToArray();
+        var healthy = CreateDcDiagAlert("healthy", "dc-4", ("Connectivity", "Passed"));
+        var alerts = failing.Append(healthy).ToArray();
+        var inventory = Enumerable.Range(1, 4).Select(index => CreateDomainController($"dc-{index}", "site-a")).ToArray();
+        var result = new AlertRuleEvaluator(Presenter).EvaluateCategorization(alerts, DefaultAlertRules.Create(), inventory, alerts);
+
+        var critical = Assert.Single(result.Categorization.Categories, category => category.IsCritical);
+        Assert.Equal("Domain Service Outage", critical.Name);
+        Assert.Equal(failing.Select(alert => alert.Id), critical.Alerts.Select(alert => alert.Id));
+        var suppressed = Assert.Single(result.Categorization.Categories, category =>
+            category.AnalysisClassification == AlertRuleAnalysisClassifications.Suppressed);
+        Assert.Equal(healthy.Id, Assert.Single(suppressed.Alerts).Id);
+        var losingOutage = Assert.Single(result.Decisions, decision =>
+            decision.AlertEventId == healthy.Id && decision.RuleId == critical.RuleId);
+        Assert.Equal(AlertRuleEvaluationOutcomes.Superseded, losingOutage.Outcome);
+        Assert.Equal(suppressed.RuleId, losingOutage.WinningRuleId);
+    }
+
+    [Fact]
     public void CategorizesDomainOutageOnlyAboveConfiguredPercentage()
     {
         var dc1Alert = CreateDcAlert("dc1-alert", "dc-1", "site-a");
@@ -321,6 +413,21 @@ public sealed class AlertRuleEvaluatorTests
             Site = site,
             Payload = payload ?? []
         });
+
+    private static AlertRecord CreateDcDiagAlert(string id, string computer, params (string Test, string Status)[] statuses) =>
+        CreateDcAlert(id, computer, "site-a") with
+        {
+            Name = "DCDiag",
+            RawJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                queryResult = new
+                {
+                    type = "DCDiag",
+                    columns = new[] { new { name = "Computer" }, new { name = "Status" } },
+                    rows = new object[][] { [computer, statuses.ToDictionary(status => status.Test, status => status.Status)] }
+                }
+            })
+        };
 
     private static System.Text.Json.Nodes.JsonObject PortPayload(int rowCount) => new()
     {

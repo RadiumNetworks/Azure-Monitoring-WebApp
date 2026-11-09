@@ -1,0 +1,12 @@
+.language-selector { font-size: .85rem; }
+.language-selector form, .language-selector label, .language-dialog-actions {
+    display: flex; align-items: center; gap: .5rem;
+}
+.language-selector select { font: inherit; max-width: 8rem; }
+.language-selector dialog { max-width: min(32rem, calc(100vw - 3rem)); border-radius: .5rem; padding: 1.5rem; }
+.language-selector dialog::backdrop { background: rgb(0 0 0 / 50%); }
+.language-selector dialog h2 { margin-top: 0; }
+.language-dialog-actions { justify-content: flex-end; }
+@media (max-width: 700px) {
+    .language-selector form { flex-wrap: wrap; }
+}

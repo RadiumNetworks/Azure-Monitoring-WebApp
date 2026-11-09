@@ -2,6 +2,56 @@ namespace MonitoringApp.Tests;
 
 public sealed class AgentAnalysisOrchestratorTests
 {
+    [Theory]
+    [InlineData(0, AgentAnalysisExecutionDisabledCode.OptionsInvalid)]
+    [InlineData(1, AgentAnalysisExecutionDisabledCode.ProfileRegistryMissing)]
+    [InlineData(2, AgentAnalysisExecutionDisabledCode.ProfileRegistryInvalid)]
+    [InlineData(3, AgentAnalysisExecutionDisabledCode.TeamsProfileUnknown)]
+    [InlineData(4, AgentAnalysisExecutionDisabledCode.TeamsProfileNotApproved)]
+    [InlineData(5, AgentAnalysisExecutionDisabledCode.TeamsConfigurationMissing)]
+    [InlineData(6, AgentAnalysisExecutionDisabledCode.ApiProfileUnknown)]
+    [InlineData(7, AgentAnalysisExecutionDisabledCode.ApiProfileNotApproved)]
+    [InlineData(8, AgentAnalysisExecutionDisabledCode.ApiConfigurationMissing)]
+    [InlineData(9, AgentAnalysisExecutionDisabledCode.PreparationOnly)]
+    public void DisabledCodesRemainAdditiveAndPreserveServiceDiagnostics(int scenario, AgentAnalysisExecutionDisabledCode code)
+    {
+        var state = CreateDisabledState(scenario);
+        Assert.False(state.IsEnabled);
+        Assert.Equal(code, state.DisabledCode);
+        var exception = Assert.Throws<AgentAnalysisUnavailableException>(() =>
+            new AgentAnalysisOrchestrator(state, MicrosoftSourceCatalog.CreateDefault()).Prepare(CreateSnapshot()));
+        Assert.Equal(state.DisabledReason, exception.Message);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(state with { DisabledCode = null }),
+            System.Text.Json.JsonSerializer.Serialize(state));
+    }
+
+    internal static AgentAnalysisExecutionState CreateDisabledState(int scenario)
+    {
+        var options = new AgentAnalysisExecutionOptions { Mode = "TeamsWorkflow", TeamsWorkflowProfile = "teams-profile" };
+        var profiles = new AgentAnalysisProfilesOptions();
+        profiles.TeamsWorkflows["teams-profile"] = new()
+            { Approved = true, EndpointConfigurationKey = "Hidden:Endpoint" };
+        profiles.Apis["api-profile"] = new()
+        {
+            Approved = true, Provider = "AzureAIFoundry", Deployment = "deployment", ApiVersion = "version",
+            Authentication = "ManagedIdentity", Region = "region", EndpointConfigurationKey = "Hidden:Endpoint",
+            CredentialConfigurationKey = "Hidden:Credential"
+        };
+        if (scenario == 0) options.Mode = "Unknown";
+        if (scenario == 2) profiles.TeamsWorkflows["teams-profile"].EndpointConfigurationKey = "";
+        if (scenario == 3) options.TeamsWorkflowProfile = "missing-profile";
+        if (scenario == 4) profiles.TeamsWorkflows["teams-profile"].Approved = false;
+        if (scenario >= 6)
+        {
+            options.Mode = "Api";
+            options.TeamsWorkflowProfile = null;
+            options.ApiProfile = scenario == 6 ? "missing-profile" : "api-profile";
+        }
+        if (scenario == 7) profiles.Apis["api-profile"].Approved = false;
+        return AgentAnalysisExecutionState.Create(options, scenario == 1 ? null : profiles,
+            key => scenario != 5 && (scenario != 8 || key != "Hidden:Credential"));
+    }
+
     [Fact]
     public void CopilotPromptProducesVersionedPreparationWithoutTransportProfile()
     {

@@ -46,10 +46,14 @@ public sealed class AgentAnalysisJobApiTests
         var wrongTenant = CreatePrincipal("operator", SqlAuthenticationRoles.Operator, "tenant-b");
         var allowedTenant = CreatePrincipal("operator", SqlAuthenticationRoles.Operator, "tenant-a");
 
-        Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
+        var tenantDenied = Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
             policy.EnsureAllowed(wrongTenant, openAuthentication: false, CreateSnapshot("subscription-a")));
-        Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
+        Assert.Equal(AgentAnalysisScopeDeniedCode.TenantDenied, tenantDenied.Code);
+        Assert.Equal("The authenticated tenant is not allowed to start agent analysis jobs.", tenantDenied.Message);
+        var subscriptionDenied = Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
             policy.EnsureAllowed(allowedTenant, openAuthentication: false, CreateSnapshot("subscription-b")));
+        Assert.Equal(AgentAnalysisScopeDeniedCode.SubscriptionDenied, subscriptionDenied.Code);
+        Assert.Equal("Primary evidence contains a subscription outside the configured analysis boundary.", subscriptionDenied.Message);
         policy.EnsureAllowed(allowedTenant, openAuthentication: false, CreateSnapshot("subscription-a"));
     }
 
@@ -66,11 +70,36 @@ public sealed class AgentAnalysisJobApiTests
             ]
         };
 
-        Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
+        var exception = Assert.Throws<AgentAnalysisScopeDeniedException>(() =>
             policy.EnsureAllowed(
                 CreatePrincipal("operator", SqlAuthenticationRoles.Operator),
                 openAuthentication: false,
                 snapshot));
+        Assert.Equal(AgentAnalysisScopeDeniedCode.TargetMismatch, exception.Code);
+        Assert.Equal("Target analysis requires matching primary evidence from exactly one subscription.", exception.Message);
+    }
+
+    [Fact]
+    public void MissingSubscriptionKeepsScopeDenialContract()
+    {
+        var exception = Assert.Throws<AgentAnalysisScopeDeniedException>(() => new AgentAnalysisScopePolicy(
+            new AgentAnalysisAccessOptions()).EnsureAllowed(CreatePrincipal("operator", "Operator"), true, CreateSnapshot(" ")));
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+        Assert.Equal(AgentAnalysisScopeDeniedCode.SubscriptionMissing, exception.Code);
+        Assert.Equal("Primary evidence must identify at least one subscription.", exception.Message);
+    }
+
+    [Fact]
+    public void ScopeAndActorErrorsKeepNeutralApiContracts()
+    {
+        var scope = Assert.Throws<AgentAnalysisJobValidationException>(() => AgentAnalysisJobApi.ParseScopeType("unsupported"));
+        Assert.Equal(AgentAnalysisJobValidationCode.ScopeUnsupported, scope.Code);
+        Assert.Equal("The analysis scope type is not supported.", scope.Message);
+        var user = new ClaimsPrincipal(new ClaimsIdentity());
+        var actor = Assert.Throws<AgentAnalysisJobValidationException>(() => AgentAnalysisJobApi.GetActor(user, false));
+        Assert.Equal(AgentAnalysisJobValidationCode.ActorRequired, actor.Code);
+        Assert.Equal("The authenticated user has no stable identifier.", actor.Message);
+        Assert.Equal("open-mode-operator", AgentAnalysisJobApi.GetActor(user, true));
     }
 
     private static ClaimsPrincipal CreatePrincipal(string name, string role, string? tenantId = null) => new(
@@ -82,7 +111,7 @@ public sealed class AgentAnalysisJobApiTests
             }.Concat(tenantId is null ? [] : [new Claim("tid", tenantId)]),
             "Test"));
 
-    private static IncidentAnalysisSnapshot CreateSnapshot(string subscriptionId) => new(
+    internal static IncidentAnalysisSnapshot CreateSnapshot(string subscriptionId) => new(
         DateTimeOffset.UtcNow,
         new IncidentAnalysisScope(IncidentAnalysisScopeType.Target, "target-a"),
         DateTimeOffset.UtcNow.AddHours(-1),

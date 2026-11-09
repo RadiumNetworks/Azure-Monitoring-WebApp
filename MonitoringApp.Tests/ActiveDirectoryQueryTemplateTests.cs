@@ -8,6 +8,36 @@ public sealed class ActiveDirectoryQueryTemplateTests : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string directory = Directory.CreateTempSubdirectory("ad-query-templates-").FullName;
 
+    public static IEnumerable<object[]> PackagedTemplateFiles() =>
+        Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "AnalysisQueries", "ActiveDirectory"), "*.json")
+            .Order(StringComparer.Ordinal)
+            .Select(file => new object[] { Path.GetFileName(file) });
+
+    [Theory]
+    [MemberData(nameof(PackagedTemplateFiles))]
+    public void EveryPackagedTemplatePreservesItsCompleteSnapshot(string fileName)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "AnalysisQueries", "ActiveDirectory", fileName);
+        var expected = JsonSerializer.Deserialize<AnalysisQuerySnapshot>(File.ReadAllText(path), JsonOptions)!;
+        var actual = Assert.Single(ActiveDirectoryAnalysisQueries.Create(), query => query.Key == expected.Key);
+        var normalized = expected with
+        {
+            Visualization = AnalysisVisualization.Parse(AnalysisVisualization.Serialize(expected.Visualization))
+        };
+        Assert.True(JsonNode.DeepEquals(
+            JsonSerializer.SerializeToNode(normalized, JsonOptions),
+            JsonSerializer.SerializeToNode(AnalysisQueryRegistry.CreateSnapshot(actual), JsonOptions)), fileName);
+        Assert.Equal(Guid.Empty, actual.Id);
+        Assert.Equal(AnalysisQueryStatuses.Draft, actual.Status);
+        Assert.Null(actual.PublishedVersionId);
+        Assert.Empty(actual.Workspaces);
+        Assert.Empty(actual.Versions);
+    }
+
+    [Fact]
+    public void PackagedTemplatesHaveNoSecondCopyUnderTheSourceTreePath() =>
+        Assert.False(Directory.Exists(Path.Combine(AppContext.BaseDirectory, "Services", "KQL", "Templates", "ActiveDirectory")));
+
     [Fact]
     public void ReplicationTemplateFillsMissingIntervalsAndReturnsTypedChartRows()
     {
@@ -31,6 +61,61 @@ public sealed class ActiveDirectoryQueryTemplateTests : IDisposable
         var result = AnalysisQueryRunner.NormalizeResult(table, query.VisualizationType);
         Assert.Null(result.Error);
         Assert.Equal([0d, 1d, 0d], result.Rows.Select(row => row.Value));
+    }
+
+    [Fact]
+    public void DcdiagUnpacksLatestTestsIntoDynamicColumnsAndKeepsOneRowPerComputer()
+    {
+        var query = Assert.Single(ActiveDirectoryAnalysisQueries.Create(), item => item.Key == "ad-dcdiag");
+        Assert.Equal(AnalysisQueryVisualizationTypes.Table, query.VisualizationType);
+        Assert.Contains("| summarize arg_max(TimeGenerated, Status) by Computer", query.Kql);
+        Assert.Contains("| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)", query.Kql);
+        Assert.Contains("""| evaluate bag_unpack(Tests, "Test_")""", query.Kql);
+        Assert.DoesNotContain("mv-expand", query.Kql);
+        Assert.DoesNotContain("Result__Status", query.Kql);
+        Assert.EndsWith("| order by Computer asc", query.Kql);
+        Assert.Empty(AnalysisQueryValidator.ValidateKql(query.Kql, query.VisualizationType, query.Scope));
+        var options = AnalysisVisualization.Parse(query.VisualizationJson);
+        Assert.Equal("StatusIcon", options.CellDisplay);
+        Assert.Equal("Text", AnalysisVisualization.Column(options, "Computer")!.CellDisplay);
+        Assert.Equal("datetime", AnalysisVisualization.Column(options, "Timestamp")!.Unit);
+        foreach (var value in new[] { "ok", "SUCCESS", " passed ", "running" })
+            Assert.Equal("\u2713", AnalysisVisualization.TableText(options, value, "Test_Advertising"));
+        foreach (var value in new[] { "error", "Failed", "STOPPED" })
+            Assert.Equal("\u2715", AnalysisVisualization.TableText(options, value, "Test_Replications"));
+        Assert.Equal("\u26a0", AnalysisVisualization.TableText(options, "warning", "Test_Services"));
+        foreach (var value in new string?[] { null, "", "unrecognized" })
+            Assert.Equal("?", AnalysisVisualization.TableText(options, value, "Test_Connectivity"));
+        var table = new AnalysisQueryTable("Workspace",
+            [new("Computer", "string"), new("Timestamp", "datetime"), new("Test_Advertising", "string"), new("Test_Replications", "string")],
+            [["DC01", "2026-11-09T10:00:00Z", "Passed", "Failed"],
+             ["DC02", "2026-11-09T10:01:00Z", null, "Passed"]]);
+        var result = AnalysisQueryRunner.NormalizeResult(table, query.VisualizationType);
+        Assert.Null(result.Error);
+        var normalized = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<AnalysisQueryTable>>(result.Tables));
+        Assert.Equal(table, normalized);
+        Assert.Equal(2, normalized.Rows.Count);
+    }
+
+    [Fact]
+    public void DcdiagAlsoOffersASeparateClassicRowPerTestTemplate()
+    {
+        var templates = ActiveDirectoryAnalysisQueries.Create();
+        var matrix = Assert.Single(templates, item => item.Key == "ad-dcdiag");
+        var tests = Assert.Single(templates, item => item.Key == "ad-dcdiag-tests");
+        Assert.NotEqual(matrix.Name, tests.Name);
+        Assert.Equal(matrix.MinimumRole, tests.MinimumRole);
+        Assert.Equal(matrix.DefaultTimeRangeMinutes, tests.DefaultTimeRangeMinutes);
+        Assert.Equal(AnalysisQueryVisualizationTypes.Table, tests.VisualizationType);
+        Assert.Empty(AnalysisQueryValidator.ValidateKql(tests.Kql, tests.VisualizationType, tests.Scope));
+        Assert.Contains("| summarize arg_max(TimeGenerated, Status) by Computer", tests.Kql);
+        Assert.Contains("| mv-expand Test = bag_keys(Tests)", tests.Kql);
+        Assert.Contains("Result = tostring(Tests[TestName]), Result__Status = tostring(Tests[TestName])", tests.Kql);
+        Assert.EndsWith("| order by Computer asc, TestName asc", tests.Kql);
+        Assert.DoesNotContain("bag_unpack", tests.Kql);
+        var options = AnalysisVisualization.Parse(tests.VisualizationJson);
+        Assert.Equal("Text", options.CellDisplay);
+        Assert.Null(options.StatusIcons);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Net;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -20,6 +21,165 @@ namespace MonitoringApp.Tests;
 public sealed class AnalysisQueryExportTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public async Task ExportJsonOpensANewUnsavedEditorAndCannotOverwriteTheOriginalKey()
+    {
+        await using var fixture = await RegistryFixture.CreateAsync();
+        var original = await fixture.Registry.SaveDraftAsync(Template("ad-fsmo-roles"), "original-admin");
+        using var archive = new ZipArchive(new MemoryStream(await fixture.Exporter.ExportAsync()), ZipArchiveMode.Read);
+        using var reader = new StreamReader(Assert.Single(archive.Entries).Open());
+        var json = JsonNode.Parse(await reader.ReadToEndAsync())!.AsObject();
+        json["name"] = "Imported customization";
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
+        var page = new Components.Pages.AdminAnalysisQueries();
+        var type = page.GetType();
+        type.GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
+        type.GetProperty("Logger", flags)!.SetValue(page,
+            services.GetRequiredService<ILogger<Components.Pages.AdminAnalysisQueries>>());
+        type.GetProperty("Options", flags)!.SetValue(page,
+            new CrossTenantLogAnalyticsOptions { Workspaces = [new() { Key = "test" }] });
+        type.GetField("actor", flags)!.SetValue(page, "import-admin");
+        type.GetMethod("BeginEdit", flags)!.Invoke(page, [original]);
+        var previous = type.GetField("editing", flags)!.GetValue(page);
+        var import = type.GetMethod("ImportJsonAsync", flags)!;
+        foreach (var (invalid, code) in new[]
+        {
+            ("", QueryTemplateValidationCode.InputRequired),
+            ("{", QueryTemplateValidationCode.InvalidJson),
+            ("null", QueryTemplateValidationCode.NullTemplate),
+            ("{}", QueryTemplateValidationCode.InvalidJson),
+            (json.ToJsonString() + new string(' ', 65536), QueryTemplateValidationCode.ImportTooLarge)
+        })
+        {
+            await (Task)import.Invoke(page, [invalid])!;
+            Assert.Same(previous, type.GetField("editing", flags)!.GetValue(page));
+            Assert.Equal(services.GetRequiredService<UiText>()[$"QueryTemplate.Validation.{code}"],
+                Assert.IsType<string>(type.GetField("errorMessage", flags)!.GetValue(page)));
+        }
+
+        await (Task)import.Invoke(page, [json.ToJsonString()])!;
+
+        Assert.Null(type.GetField("errorMessage", flags)!.GetValue(page));
+        Assert.Equal(services.GetRequiredService<UiText>()["AdminAnalysisQueries.Status.ImportOpened"],
+            Assert.IsType<string>(type.GetField("statusMessage", flags)!.GetValue(page)));
+        var draft = Assert.IsType<AnalysisQueryDefinition>(type.GetField("editing", flags)!.GetValue(page));
+        Assert.NotSame(previous, draft);
+        Assert.Equal(Guid.Empty, draft.Id);
+        Assert.Equal(original.Key, draft.Key);
+        Assert.Equal("Imported customization", draft.Name);
+        Assert.Equal("import-admin", draft.UpdatedBy);
+        Assert.Equal(AnalysisQueryStatuses.Draft, draft.Status);
+        Assert.Empty(draft.Versions);
+        Assert.Null(draft.PublishedVersionId);
+        var workspace = Assert.Single(draft.Workspaces);
+        Assert.Equal("test", workspace.WorkspaceKey);
+        Assert.True(workspace.Enabled);
+        Assert.Null(workspace.LastValidatedAt);
+        Assert.Null(type.GetField("testResult", flags)!.GetValue(page));
+        type.GetField("isBusy", flags)!.SetValue(page, true);
+        await (Task)import.Invoke(page, ["{"])!;
+        Assert.Same(draft, type.GetField("editing", flags)!.GetValue(page));
+        Assert.Null(type.GetField("errorMessage", flags)!.GetValue(page));
+        type.GetField("isBusy", flags)!.SetValue(page, false);
+        Assert.Equal(original.Name, Assert.Single(await fixture.Registry.ListAsync()).Name);
+        var exception = await Assert.ThrowsAsync<AnalysisValidationException>(() => fixture.Registry.SaveDraftAsync(draft, "import-admin"));
+        Assert.Equal(AnalysisValidationCode.RegistryKeyExists, exception.Code);
+        Assert.Contains("already exists", exception.Message);
+        Assert.Equal(original.Name, Assert.Single(await fixture.Registry.ListAsync()).Name);
+        draft.Key = "imported-copy";
+        var saved = await fixture.Registry.SaveDraftAsync(draft, "import-admin");
+        Assert.NotEqual(original.Id, saved.Id);
+        Assert.Equal(2, (await fixture.Registry.ListAsync()).Count);
+    }
+
+    [Fact]
+    public async Task EntireInstalledLibraryExportsAndReloadsWithoutChangingAnySnapshot()
+    {
+        await using var fixture = await RegistryFixture.CreateAsync();
+        var library = ActiveDirectoryAnalysisQueries.Create();
+        Assert.Equal(library.Count, await fixture.Registry.InstallActiveDirectoryLibraryAsync("library-admin"));
+        var saved = await fixture.Registry.ListAsync();
+        using var archive = new ZipArchive(new MemoryStream(await fixture.Exporter.ExportAsync()), ZipArchiveMode.Read);
+        Assert.Equal(library.Count, archive.Entries.Count);
+        Assert.Equal(saved.Select(query => $"{query.Key}.json").Order(StringComparer.Ordinal),
+            archive.Entries.Select(entry => entry.FullName).Order(StringComparer.Ordinal));
+        var directory = Directory.CreateTempSubdirectory("query-export-library-").FullName;
+        try
+        {
+            archive.ExtractToDirectory(directory);
+            var restored = ActiveDirectoryAnalysisQueries.Create(directory);
+            Assert.Equal(library.Count, restored.Count);
+            foreach (var original in library)
+            {
+                var exported = Assert.Single(restored, query => query.Key == original.Key);
+                Assert.True(JsonNode.DeepEquals(
+                    JsonSerializer.SerializeToNode(AnalysisQueryRegistry.CreateSnapshot(original), JsonOptions),
+                    JsonSerializer.SerializeToNode(AnalysisQueryRegistry.CreateSnapshot(exported), JsonOptions)), original.Key);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        Assert.Equal(0, await fixture.Registry.InstallActiveDirectoryLibraryAsync("library-admin"));
+        Assert.All(await fixture.Registry.ListAsync(), query =>
+        {
+            var before = Assert.Single(saved, original => original.Id == query.Id);
+            Assert.Equal(before.UpdatedAt, query.UpdatedAt);
+            Assert.Equal(before.RowVersion, query.RowVersion);
+            Assert.Equal(AnalysisQueryStatuses.Draft, query.Status);
+            Assert.Empty(query.Versions);
+            Assert.Null(query.PublishedVersionId);
+        });
+    }
+
+    [Fact]
+    public async Task ReinstallAndExportPreserveCustomizedDraftAndExistingPublishedVersion()
+    {
+        await using var fixture = await RegistryFixture.CreateAsync();
+        var draft = Template("ad-processor");
+        draft.Name = "Customized draft";
+        draft.Kql += "\n| take 7";
+        var saved = await fixture.Registry.SaveDraftAsync(draft, "draft-admin");
+        var publishedSnapshot = AnalysisQueryRegistry.CreateSnapshot(Template("ad-processor")) with
+        {
+            Name = "Existing published version"
+        };
+        var snapshotJson = JsonSerializer.Serialize(publishedSnapshot, JsonOptions);
+        var versionId = Guid.NewGuid();
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.AnalysisQueryVersions.Add(new()
+            {
+                Id = versionId, QueryDefinitionId = saved.Id, Version = 3,
+                SnapshotJson = snapshotJson, PublishedBy = "publication-admin"
+            });
+            var stored = await context.AnalysisQueryDefinitions.SingleAsync(query => query.Id == saved.Id);
+            stored.Version = 3;
+            stored.PublishedVersionId = versionId;
+            await context.SaveChangesAsync();
+        }
+        var before = Assert.Single(await fixture.Registry.ListAsync());
+
+        Assert.Equal(ActiveDirectoryAnalysisQueries.Create().Count - 1,
+            await fixture.Registry.InstallActiveDirectoryLibraryAsync("library-admin"));
+        await fixture.Exporter.ExportAsync();
+
+        var after = Assert.Single(await fixture.Registry.ListAsync(), query => query.Id == saved.Id);
+        Assert.Equal(before.Name, after.Name);
+        Assert.Equal(before.Kql, after.Kql);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        Assert.Equal(before.RowVersion, after.RowVersion);
+        Assert.Equal(before.Status, after.Status);
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(versionId, after.PublishedVersionId);
+        var version = Assert.Single(after.Versions);
+        Assert.Equal(versionId, version.Id);
+        Assert.Equal(snapshotJson, version.SnapshotJson);
+        Assert.Equal("publication-admin", version.PublishedBy);
+    }
 
     [Fact]
     public async Task ExportsSavedDraftsIncludingDisabledQueriesAndRoundTripsThroughAdLoader()

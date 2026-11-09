@@ -1,0 +1,13 @@
+@inject UiText Text
+@{
+    var parts = Text[ResourceKey].Split("{0}", StringSplitOptions.None);
+    if (parts.Length != 2)
+    {
+        throw new InvalidOperationException($"UI resource '{ResourceKey}' must contain exactly one emphasis placeholder.");
+    }
+}
+@parts[0]<strong>@Value</strong>@parts[1]
+@code {
+    [Parameter, EditorRequired] public string ResourceKey { get; set; } = "";
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+}

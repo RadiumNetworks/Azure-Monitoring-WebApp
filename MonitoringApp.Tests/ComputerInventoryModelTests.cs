@@ -44,6 +44,9 @@ public sealed class ComputerInventoryModelTests
         Assert.Equal(256, roleProperty.GetMaxLength());
         Assert.Equal(256, privateIpProperty.GetMaxLength());
         Assert.Equal("datetimeoffset", lastHeartbeatProperty.GetColumnType());
+        var lastBootTimeProperty = Assert.IsAssignableFrom<IProperty>(entity.FindProperty(nameof(ComputerInventoryEntry.LastBootTime)));
+        Assert.True(lastBootTimeProperty.IsNullable);
+        Assert.Equal("datetimeoffset", lastBootTimeProperty.GetColumnType());
         Assert.True(ntdsFileSizeProperty.IsNullable);
         Assert.Equal("float", ntdsFileSizeProperty.GetColumnType());
         Assert.False(certificatesProperty.IsNullable);
@@ -54,5 +57,19 @@ public sealed class ComputerInventoryModelTests
         Assert.Equal(false, maintenanceProperty.GetDefaultValue());
         Assert.False(subscriptionProperty.IsNullable);
         Assert.False(computerProperty.IsNullable);
+    }
+
+    [Fact]
+    public void BootTimeMigrationOnlyAddsNullableColumnAndSnapshotMatchesModel()
+    {
+        var migration = new MonitoringApp.Services.EFCore.Migrations.AddInventoryLastBootTime();
+        var operation = Assert.IsType<Microsoft.EntityFrameworkCore.Migrations.Operations.AddColumnOperation>(Assert.Single(migration.UpOperations));
+        Assert.Equal("ComputerInventory", operation.Table);
+        Assert.Equal("LastBootTime", operation.Name);
+        Assert.Equal("datetimeoffset", operation.ColumnType);
+        Assert.True(operation.IsNullable);
+        using var context = new AlertDbContext(new DbContextOptionsBuilder<AlertDbContext>()
+            .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ModelOnly;Trusted_Connection=True;").Options);
+        Assert.False(context.Database.HasPendingModelChanges());
     }
 }

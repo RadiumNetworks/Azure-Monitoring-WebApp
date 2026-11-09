@@ -1,6 +1,11 @@
+using System.Globalization;
+using System.Net;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.Web.HtmlRendering;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -150,7 +155,8 @@ public sealed class AnalysisDashboardCollectionTests
         Assert.Equal(256, collection.Active.Document.Name.Length);
         Assert.EndsWith(" (copy 2)", collection.Active.Document.Name);
         Assert.Equal(3, collection.Dashboards.Select(entry => entry.Document.Name).Distinct().Count());
-        Assert.Throws<InvalidOperationException>(() => collection.AddCopy(new() { Name = "" }));
+        Assert.Equal(AnalysisValidationCode.DashboardNameInvalid,
+            Assert.Throws<AnalysisValidationException>(() => collection.AddCopy(new() { Name = "" })).Code);
         Assert.Equal(3, collection.Dashboards.Count);
     }
 
@@ -176,9 +182,10 @@ public sealed class AnalysisDashboardCollectionTests
         Assert.Single(restored.HiddenQueryIds);
         restored.DeleteActive();
         Assert.Equal(firstId, restored.ActiveDashboardId);
-        Assert.Throws<InvalidOperationException>(restored.DeleteActive);
+        Assert.Equal(AnalysisValidationCode.KeepDashboard, Assert.Throws<AnalysisValidationException>(restored.DeleteActive).Code);
         Assert.Single(restored.Dashboards);
-        Assert.Throws<InvalidOperationException>(() => restored.Select(Guid.NewGuid()));
+        Assert.Equal(AnalysisValidationCode.DashboardMissing,
+            Assert.Throws<AnalysisValidationException>(() => restored.Select(Guid.NewGuid())).Code);
     }
 
     [Theory]
@@ -187,10 +194,10 @@ public sealed class AnalysisDashboardCollectionTests
     public void RejectsInvalidNamesWithoutMutatingCollection(string name)
     {
         var collection = AnalysisDashboardCollection.Create();
-        Assert.Throws<InvalidOperationException>(() => collection.Add(name));
-        Assert.Throws<InvalidOperationException>(() => collection.RenameActive(name));
+        Assert.Throws<AnalysisValidationException>(() => collection.Add(name));
+        Assert.Throws<AnalysisValidationException>(() => collection.RenameActive(name));
         Assert.Single(collection.Dashboards);
-        Assert.Throws<InvalidOperationException>(() => collection.Add(new string('x', 257)));
+        Assert.Throws<AnalysisValidationException>(() => collection.Add(new string('x', 257)));
     }
 
     [Fact]
@@ -215,9 +222,9 @@ public sealed class AnalysisDashboardCollectionTests
         Assert.Contains("Replication", html);
         Assert.Contains("LDAP latency", html);
         Assert.Contains("aria-pressed=\"true\"", html);
-        Assert.Contains("Create dashboard", html);
-        Assert.Contains("Rename", html);
-        Assert.Contains("Delete dashboard", html);
+        Assert.Contains(UiLabel("AnalysisDashboards.Create"), WebUtility.HtmlDecode(html));
+        Assert.Contains(UiLabel("Common.Rename"), WebUtility.HtmlDecode(html));
+        Assert.Contains(UiLabel("AnalysisDashboards.Delete"), WebUtility.HtmlDecode(html));
         Assert.Contains("maxlength=\"256\"", html);
     }
 
@@ -227,7 +234,9 @@ public sealed class AnalysisDashboardCollectionTests
         var collection = AnalysisDashboardCollection.Create();
         collection.RenameActive("AD operations");
         collection.Add("Replication");
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var registrations = new ServiceCollection().AddLogging();
+        registrations.AddUiLocalization();
+        await using var services = registrations.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<AnalysisDashboardTabs>(
@@ -238,9 +247,9 @@ public sealed class AnalysisDashboardCollectionTests
         Assert.Contains("AD operations", html);
         Assert.Contains("Replication", html);
         Assert.Contains("aria-pressed=\"true\"", html);
-        Assert.DoesNotContain("Create dashboard", html);
-        Assert.DoesNotContain("Rename", html);
-        Assert.DoesNotContain("Delete dashboard", html);
+        Assert.DoesNotContain(UiLabel("AnalysisDashboards.Create"), WebUtility.HtmlDecode(html));
+        Assert.DoesNotContain(UiLabel("Common.Rename"), WebUtility.HtmlDecode(html));
+        Assert.DoesNotContain(UiLabel("AnalysisDashboards.Delete"), WebUtility.HtmlDecode(html));
         Assert.DoesNotContain("<form", html);
     }
 
@@ -292,9 +301,259 @@ public sealed class AnalysisDashboardCollectionTests
         Assert.Equal(2, (await verify.AnalysisDashboards.SingleAsync(row => row.OwnerKey == "alice@example.com")).DocumentVersion);
     }
 
+    [Theory]
+    [InlineData("en-US", 1, true, false)]
+    [InlineData("de-DE", 1, true, false)]
+    [InlineData("en-US", 2, true, false)]
+    [InlineData("de-DE", 2, true, false)]
+    [InlineData("en-US", 2, true, true)]
+    [InlineData("de-DE", 2, true, true)]
+    [InlineData("en-US", 2, false, false)]
+    [InlineData("de-DE", 2, false, false)]
+    public async Task PersonalDashboardControlsTranslateWithoutChangingNamesSelectionFormLimitsOrDisabledRules(
+        string culture, int count, bool edit, bool disabled)
+    {
+        using var selection = new UiSelection(culture);
+        var collection = AnalysisDashboardCollection.Create();
+        var defaultName = collection.Active.Document.Name;
+        if (count == 2) collection.Add("Original <dashboard> & value");
+        var original = collection.Serialize();
+        await using var fixture = await TabsFixture.Create(collection, new()
+        {
+            ["EditMode"] = edit, ["Disabled"] = disabled
+        });
+        var html = fixture.Html;
+        var decoded = WebUtility.HtmlDecode(html);
+        Assert.Contains($"aria-label=\"{(culture == "de-DE" ? "Persönliche Dashboards" : "Personal dashboards")}\"", decoded);
+        Assert.Contains($"aria-label=\"{(culture == "de-DE" ? "Dashboard auswählen" : "Select dashboard")}\"", decoded);
+        var navigation = Regex.Match(html, "<nav.*?</nav>", RegexOptions.Singleline).Value;
+        var buttons = Regex.Matches(navigation, "<button[^>]*>(.*?)</button>", RegexOptions.Singleline);
+        Assert.Equal(collection.Dashboards.Select(entry => entry.Document.Name),
+            buttons.Select(button => WebUtility.HtmlDecode(button.Groups[1].Value)));
+        Assert.Single(Regex.Matches(navigation, "aria-pressed=\"true\""));
+        Assert.All(buttons, button => Assert.Equal(disabled, button.Value.Contains("disabled")));
+        Assert.Contains(defaultName, decoded);
+        if (count == 2) Assert.Contains("Original &lt;dashboard&gt; &amp; value", html);
+        Assert.Equal(edit ? 2 : 0, Regex.Matches(html, "<form\\b").Count);
+        if (edit)
+        {
+            foreach (var label in culture == "de-DE"
+                ? new[] { "Name des neuen Dashboards", "Dashboard erstellen", "Name des aktuellen Dashboards", "Umbenennen", "Dashboard löschen" }
+                : new[] { "New dashboard name", "Create dashboard", "Current dashboard name", "Rename", "Delete dashboard" })
+                Assert.Contains(label, decoded);
+            var inputs = Regex.Matches(html, "<input[^>]*>");
+            Assert.Equal(2, inputs.Count);
+            Assert.All(inputs, input =>
+            {
+                Assert.Contains("required", input.Value);
+                Assert.Contains("maxlength=\"256\"", input.Value);
+                Assert.Equal(disabled, input.Value.Contains("disabled"));
+            });
+            var delete = Regex.Match(html, "<button class=\"admin-danger\"[^>]*>").Value;
+            Assert.Equal(disabled || count == 1, delete.Contains("disabled"));
+        }
+        Assert.DoesNotContain("role=\"alertdialog\"", html);
+        Assert.Equal(original, collection.Serialize());
+        Assert.Equal("fr-FR", CultureInfo.CurrentCulture.Name);
+    }
+
+    [Theory]
+    [InlineData("en-US", false)]
+    [InlineData("de-DE", false)]
+    [InlineData("en-US", true)]
+    [InlineData("de-DE", true)]
+    public async Task PersonalDashboardDeleteConfirmationUsesWholeSafeMessageAndRetainsDraftAndResetSemantics(
+        string culture, bool disabled)
+    {
+        using var selection = new UiSelection(culture);
+        const string name = "Original {0} <script> & dashboard";
+        var collection = AnalysisDashboardCollection.Create();
+        collection.Add(name);
+        var original = collection.Serialize();
+        await using var fixture = await TabsFixture.Create(collection, new() { ["Disabled"] = disabled });
+        await fixture.Set("newName", "Original create draft");
+        await fixture.Set("currentName", "Original rename draft");
+        await fixture.Set("confirmDelete", true);
+        await fixture.ApplyParameters();
+        Assert.Equal("Original create draft", fixture.Get<string>("newName"));
+        Assert.Equal("Original rename draft", fixture.Get<string>("currentName"));
+        var html = fixture.Html;
+        Assert.Contains("role=\"alertdialog\" aria-labelledby=\"delete-dashboard-heading\"", html);
+        var dialog = Regex.Match(html, "<div class=\"admin-message admin-message-warning\".*?</div>", RegexOptions.Singleline).Value;
+        var decoded = WebUtility.HtmlDecode(dialog);
+        Assert.Contains(culture == "de-DE" ? "Persönliches Dashboard löschen?" : "Delete personal dashboard?", decoded);
+        var body = Regex.Match(dialog, "<p>(.*?)</p>", RegexOptions.Singleline).Groups[1].Value;
+        Assert.Equal(name, WebUtility.HtmlDecode(Regex.Match(body, "<strong>(.*?)</strong>").Groups[1].Value));
+        var expected = culture == "de-DE"
+            ? $"Dashboard {name} samt Widget-Layout löschen? Andere Dashboards, Abfragedefinitionen und gemeinsame Bibliothekseinstellungen bleiben erhalten. Dies kann nicht rückgängig gemacht werden."
+            : $"Delete {name} and its widget layout? Other dashboards, query definitions and shared library preferences will be retained. This cannot be undone.";
+        Assert.Equal(expected, WebUtility.HtmlDecode(Regex.Replace(body, "</?strong>", "")));
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains("&lt;script&gt;", html);
+        Assert.Contains(culture == "de-DE" ? "Abbrechen" : "Cancel", decoded);
+        Assert.Contains(culture == "de-DE" ? "Löschen bestätigen" : "Confirm delete", decoded);
+        Assert.All(Regex.Matches(dialog, "<button[^>]*>"), button => Assert.Equal(disabled, button.Value.Contains("disabled")));
+        Assert.Equal(original, collection.Serialize());
+        fixture.Parameters["EditMode"] = false;
+        await fixture.ApplyParameters();
+        Assert.False(fixture.Get<bool>("confirmDelete"));
+        Assert.DoesNotContain("role=\"alertdialog\"", fixture.Html);
+        fixture.Parameters["EditMode"] = true;
+        await fixture.ApplyParameters();
+        await fixture.Set("confirmDelete", true);
+        collection.RenameActive("Original replacement name");
+        await fixture.ApplyParameters();
+        Assert.False(fixture.Get<bool>("confirmDelete"));
+        Assert.Equal("Original replacement name", fixture.Get<string>("currentName"));
+        Assert.Equal("Original create draft", fixture.Get<string>("newName"));
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task PersonalDashboardCallbacksKeepOriginalArgumentsAndCollectionLayoutLibraryAndSelectionContracts(string culture)
+    {
+        using var selection = new UiSelection(culture);
+        var collection = AnalysisDashboardCollection.Create();
+        var firstId = collection.ActiveDashboardId;
+        var queryId = Guid.NewGuid();
+        collection.HiddenQueryIds.Add(queryId);
+        collection.Active.Document.Widgets.Add(new()
+        {
+            Id = "original-widget", QueryDefinitionId = queryId, Title = "Original widget",
+            GroupBy = "NC", TimeRangeMinutes = 10080, BinMinutes = 30
+        });
+        var first = JsonSerializer.Serialize(collection.Active.Document);
+        var created = "";
+        var renamed = "";
+        var selected = Guid.Empty;
+        var deletes = 0;
+        var receiver = new object();
+        await using var fixture = await TabsFixture.Create(collection, new()
+        {
+            ["Created"] = EventCallback.Factory.Create<string>(receiver, value => { created = value; collection.Add(value); }),
+            ["Renamed"] = EventCallback.Factory.Create<string>(receiver, value => { renamed = value; collection.RenameActive(value); }),
+            ["Selected"] = EventCallback.Factory.Create<Guid>(receiver, value => { selected = value; collection.Select(value); }),
+            ["Deleted"] = EventCallback.Factory.Create(receiver, () => { deletes++; collection.DeleteActive(); })
+        });
+        const string newName = "  Original <created> & dashboard  ";
+        await fixture.Set("newName", newName);
+        await fixture.Invoke("CreateAsync");
+        Assert.Equal(newName, created);
+        Assert.Equal(newName.Trim(), collection.Active.Document.Name);
+        Assert.Equal(newName.Trim(), fixture.Get<string>("currentName"));
+        var secondId = collection.ActiveDashboardId;
+        const string rename = "  Original {0} renamed dashboard  ";
+        await fixture.Set("currentName", rename);
+        await fixture.Invoke("RenameAsync");
+        Assert.Equal(rename, renamed);
+        Assert.Equal(rename.Trim(), collection.Active.Document.Name);
+        await fixture.Set("confirmDelete", true);
+        await fixture.Select(firstId);
+        Assert.Equal(firstId, selected);
+        Assert.False(fixture.Get<bool>("confirmDelete"));
+        Assert.Equal(collection.Active.Document.Name, fixture.Get<string>("currentName"));
+        Assert.Equal(first, JsonSerializer.Serialize(collection.Active.Document));
+        await fixture.Select(secondId);
+        await fixture.Invoke("ConfirmDelete");
+        await fixture.Invoke("DeleteAsync");
+        Assert.Equal(1, deletes);
+        Assert.Equal(firstId, collection.ActiveDashboardId);
+        Assert.Single(collection.Dashboards);
+        Assert.Equal(queryId, Assert.Single(collection.HiddenQueryIds));
+        Assert.Equal(first, JsonSerializer.Serialize(collection.Active.Document));
+        Assert.False(fixture.Get<bool>("confirmDelete"));
+        Assert.DoesNotContain("role=\"alertdialog\"", fixture.Html);
+        Assert.Equal(collection.Serialize(), AnalysisDashboardCollection.Deserialize(collection.Serialize()).Serialize());
+        Assert.Equal("fr-FR", CultureInfo.CurrentCulture.Name);
+    }
+
+    private static string UiLabel(string key)
+    {
+        var registrations = new ServiceCollection().AddLogging();
+        registrations.AddUiLocalization();
+        using var services = registrations.BuildServiceProvider();
+        return services.GetRequiredService<UiText>()[key];
+    }
+
+    private sealed class UiSelection : IDisposable
+    {
+        private readonly CultureInfo previousUi = CultureInfo.CurrentUICulture;
+        private readonly CultureInfo previousFormat = CultureInfo.CurrentCulture;
+        public UiSelection(string culture)
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        }
+        public void Dispose()
+        {
+            CultureInfo.CurrentUICulture = previousUi;
+            CultureInfo.CurrentCulture = previousFormat;
+        }
+    }
+
+    private sealed class TabsActivator(IServiceProvider services) : IComponentActivator
+    {
+        public AnalysisDashboardTabs Tabs { get; private set; } = default!;
+        public IComponent CreateInstance(Type type)
+        {
+            var component = (IComponent)ActivatorUtilities.CreateInstance(services, type);
+            if (component is AnalysisDashboardTabs tabs) Tabs = tabs;
+            return component;
+        }
+    }
+
+    private sealed class TabsFixture(ServiceProvider services, HtmlRenderer renderer) : IAsyncDisposable
+    {
+        public Dictionary<string, object?> Parameters { get; } = [];
+        private AnalysisDashboardTabs Tabs => services.GetRequiredService<TabsActivator>().Tabs;
+        private HtmlRootComponent root;
+        private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        public string Html => renderer.Dispatcher.InvokeAsync(root.ToHtmlString).GetAwaiter().GetResult();
+        public T Get<T>(string field) => (T)typeof(AnalysisDashboardTabs).GetField(field, Flags)!.GetValue(Tabs)!;
+        public Task ApplyParameters() => renderer.Dispatcher.InvokeAsync(() => Tabs.SetParametersAsync(ParameterView.FromDictionary(Parameters)));
+        public Task Set(string field, object value) => renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(AnalysisDashboardTabs).GetField(field, Flags)!.SetValue(Tabs, value);
+            typeof(ComponentBase).GetMethod("StateHasChanged", Flags)!.Invoke(Tabs, null);
+        });
+        public Task Invoke(string method) => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await (Task)typeof(AnalysisDashboardTabs).GetMethod(method, Flags)!.Invoke(Tabs, null)!;
+            await Tabs.SetParametersAsync(ParameterView.FromDictionary(Parameters));
+        });
+        public Task Select(Guid id) => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await Tabs.Selected.InvokeAsync(id);
+            await Tabs.SetParametersAsync(ParameterView.FromDictionary(Parameters));
+        });
+        public static async Task<TabsFixture> Create(AnalysisDashboardCollection collection, Dictionary<string, object?> parameters)
+        {
+            var registrations = new ServiceCollection().AddLogging();
+            registrations.AddUiLocalization();
+            registrations.AddSingleton<TabsActivator>();
+            registrations.AddSingleton<IComponentActivator>(services => services.GetRequiredService<TabsActivator>());
+            var services = registrations.BuildServiceProvider();
+            var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+            var fixture = new TabsFixture(services, renderer);
+            fixture.Parameters["Collection"] = collection;
+            foreach (var parameter in parameters) fixture.Parameters[parameter.Key] = parameter.Value;
+            fixture.root = await renderer.Dispatcher.InvokeAsync(() =>
+                renderer.RenderComponentAsync<AnalysisDashboardTabs>(ParameterView.FromDictionary(fixture.Parameters)));
+            return fixture;
+        }
+        public async ValueTask DisposeAsync()
+        {
+            await renderer.DisposeAsync();
+            await services.DisposeAsync();
+        }
+    }
+
     private static async Task<string> RenderAsync(AnalysisDashboardCollection collection)
     {
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var registrations = new ServiceCollection().AddLogging();
+        registrations.AddUiLocalization();
+        await using var services = registrations.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<AnalysisDashboardTabs>(

@@ -1,0 +1,35 @@
+{
+  "key": "ad-dcdiag",
+  "name": "DCDiag test status",
+  "description": "Latest test results per computer. Missing or unrecognized results remain unknown.",
+  "category": "Active Directory",
+  "kql": "DCDiagData_CL\r\n| where Computer in~ (_SelectedSystems)\r\n| where TimeGenerated > ago(_TimePeriod)\r\n| summarize arg_max(TimeGenerated, Status) by Computer\r\n| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)\r\n| evaluate bag_unpack(Tests, \"Test_\")\r\n| order by Computer asc",
+  "visualizationType": "Table",
+  "visualization": {
+    "cellDisplay": "StatusIcon",
+    "statusIcons": {
+      "unknownSymbol": "?",
+      "unknownColor": "gray",
+      "mappings": [
+        { "value": "ok", "text": "✓", "color": "green" },
+        { "value": "success", "text": "✓", "color": "green" },
+        { "value": "passed", "text": "✓", "color": "green" },
+        { "value": "running", "text": "✓", "color": "green" },
+        { "value": "warning", "text": "⚠", "color": "yellow" },
+        { "value": "start pending", "text": "⚠", "color": "yellow" },
+        { "value": "error", "text": "✕", "color": "red" },
+        { "value": "failed", "text": "✕", "color": "red" },
+        { "value": "stopped", "text": "✕", "color": "red" }
+      ]
+    },
+    "columns": [
+      { "name": "Computer", "cellDisplay": "Text", "width": 180 },
+      { "name": "Timestamp", "cellDisplay": "Text", "unit": "datetime", "width": 190 }
+    ]
+  },
+  "unit": "",
+  "defaultTimeRangeMinutes": 1440,
+  "maxTimeRangeMinutes": 43200,
+  "defaultBinMinutes": 15,
+  "minimumRole": "Operator"
+}

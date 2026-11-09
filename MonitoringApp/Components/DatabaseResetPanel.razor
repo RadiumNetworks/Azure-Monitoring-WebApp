@@ -2,24 +2,20 @@
 @inject DatabaseConfigurationStatus DatabaseConfiguration
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ILogger<DatabaseResetPanel> Logger
+@inject UiText Text
 
 <section class="admin-editor" aria-labelledby="database-reset-heading">
     <div class="admin-section-heading">
         <div>
-            <p class="eyebrow">Danger zone</p>
-            <h2 id="database-reset-heading">Initialize / reset operational data</h2>
+            <p class="eyebrow">@Text["DatabaseReset.DangerZone"]</p>
+            <h2 id="database-reset-heading">@Text["DatabaseReset.Title"]</h2>
         </div>
     </div>
     <div class="admin-message admin-message-warning" role="alert">
-        <strong>Permanent deletion. Back up the database first.</strong>
-        <p>Removes all alerts, history, comments, logbook entries, inventory, custom rules,
-            analysis jobs and reviews, RCA cases with prompts, analysis, comments and changelogs, RCA alert links,
-            analysis queries and versions, dashboards and inbox layouts, scheduled KQL rules with states and pending notifications.</p>
-        <p>Restores the default alert rules. Users, permissions and connection/application settings
-            are preserved. AD query templates are not installed automatically.</p>
-        <p>Pause ingestion, scheduled KQL checks and query-refresh agents first if the database must remain empty.
-            Incoming monitoring data can populate it again after the reset.
-            Reload other open application tabs after completion.</p>
+        <strong>@Text["DatabaseReset.BackupWarning"]</strong>
+        <p>@Text["DatabaseReset.ScopeWarning"]</p>
+        <p>@Text["DatabaseReset.PreservedWarning"]</p>
+        <p>@Text["DatabaseReset.PauseWarning"]</p>
     </div>
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
@@ -30,7 +26,7 @@
         <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
     }
     <button class="admin-danger" type="button" disabled="@(isResetting || !DatabaseConfiguration.IsValid)"
-            @onclick="BeginReset">Initialize / reset database...</button>
+            @onclick="BeginReset">@Text[resetReviewRequired ? "DatabaseReset.PrepareAgain" : "DatabaseReset.Begin"]</button>
 </section>
 
 @if (showConfirmation)
@@ -38,16 +34,27 @@
     <div class="admin-dialog-backdrop" role="presentation">
         <section class="admin-dialog" role="dialog" aria-modal="true"
                  aria-labelledby="confirm-database-reset-heading" aria-describedby="database-reset-warning">
-            <p class="eyebrow">Permanent action</p>
-            <h2 id="confirm-database-reset-heading">Reset database operational data?</h2>
+            <p class="eyebrow">@Text["Common.PermanentAction"]</p>
+            <h2 id="confirm-database-reset-heading">@Text["DatabaseReset.ConfirmTitle"]</h2>
             <p id="database-reset-warning">
-                This permanently deletes the operational data listed above and replaces all alert rules
-                with the defaults. This cannot be undone. Users and settings will not be deleted.
+                @Text["DatabaseReset.ConfirmBody"]
             </p>
-            <p>Database: <strong>@DatabaseConfiguration.Connection.InitialCatalog</strong>
-                on <strong>@DatabaseConfiguration.Connection.DataSource</strong></p>
+            @if (resetReviewRequired)
+            {
+                <p class="admin-message admin-message-warning" role="alert">@Text["DatabaseReset.ReviewRequired"]</p>
+                <label class="admin-check">
+                    <input type="checkbox" disabled="@isResetting" @bind="databaseReviewed" />
+                    @Text["DatabaseReset.ReviewAcknowledgement"]
+                </label>
+            }
+            <p>
+                <LocalizedContent ResourceKey="DatabaseReset.DatabaseTarget">
+                    <Value0><strong>@DatabaseConfiguration.Database</strong></Value0>
+                    <Value1><strong>@DatabaseConfiguration.Server</strong></Value1>
+                </LocalizedContent>
+            </p>
             <label class="admin-field">
-                <span>Type RESET to confirm</span>
+                <span><LocalizedContent ResourceKey="DatabaseReset.ConfirmationHint"><Value0>RESET</Value0></LocalizedContent></span>
                 <input autocomplete="off" spellcheck="false" disabled="@isResetting"
                        @bind="confirmation" @bind:event="oninput" />
             </label>
@@ -56,9 +63,9 @@
                 <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
             }
             <div class="admin-form-actions">
-                <button class="admin-secondary" type="button" disabled="@isResetting" @onclick="CancelReset">Cancel</button>
-                <button class="admin-danger" type="button" disabled="@(isResetting || confirmation != "RESET")"
-                        @onclick="ResetAsync">@(isResetting ? "Resetting..." : "Permanently reset database")</button>
+                <button class="admin-secondary" type="button" disabled="@isResetting" @onclick="CancelReset">@Text["Common.Cancel"]</button>
+                <button class="admin-danger" type="button" disabled="@(isResetting || confirmation != "RESET" || resetReviewRequired && !databaseReviewed)"
+                        @onclick="ResetAsync">@Text[isResetting ? "DatabaseReset.Resetting" : "DatabaseReset.Confirm"]</button>
             </div>
         </section>
     </div>
@@ -67,13 +74,17 @@
 @code {
     private bool showConfirmation;
     private bool isResetting;
+    private bool resetReviewRequired;
+    private bool databaseReviewed;
     private string confirmation = string.Empty;
     private string? statusMessage;
     private string? errorMessage;
 
     private void BeginReset()
     {
+        if (isResetting) return;
         confirmation = string.Empty;
+        databaseReviewed = false;
         statusMessage = null;
         errorMessage = null;
         showConfirmation = true;
@@ -81,8 +92,10 @@
 
     private void CancelReset()
     {
+        if (isResetting) return;
         showConfirmation = false;
         confirmation = string.Empty;
+        databaseReviewed = false;
         errorMessage = null;
     }
 
@@ -90,6 +103,13 @@
     {
         if (isResetting)
             return;
+
+        if (resetReviewRequired && (!showConfirmation || !databaseReviewed))
+        {
+            errorMessage = Text["DatabaseReset.ReviewRequired"];
+            Logger.LogWarning("Blocked database reset pending explicit database-state review.");
+            return;
+        }
 
         isResetting = true;
         statusMessage = null;
@@ -99,12 +119,26 @@
             var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
             var ruleCount = await DatabaseReset.ResetAsync(user, confirmation);
             showConfirmation = false;
-            statusMessage = $"Database reset completed. Restored {ruleCount} default alert rules. Users and settings were preserved; no AD queries were installed.";
+            resetReviewRequired = false;
+            databaseReviewed = false;
+            statusMessage = Text.Plural("DatabaseReset.Completed", ruleCount);
         }
         catch (Exception exception)
         {
-            Logger.LogError(exception, "The admin database reset action failed.");
-            errorMessage = exception.Message;
+            var validation = MaintenanceErrorPresentation.ValidationMessage(exception, legacy: false, Text);
+            if (validation is not null)
+            {
+                Logger.LogWarning(exception, "The admin database reset action was rejected.");
+                errorMessage = validation;
+            }
+            else
+            {
+                Logger.LogError(exception, "The admin database reset outcome is unconfirmed.");
+                errorMessage = Text["DatabaseReset.Unconfirmed"];
+                resetReviewRequired = true;
+                databaseReviewed = false;
+                showConfirmation = false;
+            }
         }
         finally
         {

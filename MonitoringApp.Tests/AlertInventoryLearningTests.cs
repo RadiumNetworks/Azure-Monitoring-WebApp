@@ -73,7 +73,7 @@ public sealed class AlertInventoryLearningTests
     }
 
     [Fact]
-    public void EnrichesExistingSystemsAcrossSubscriptionsWithoutChangingTheirIdentity()
+    public void LinksExistingSystemsAcrossSubscriptionsWithoutChangingInventory()
     {
         var existing = new ComputerInventoryEntry
         {
@@ -82,15 +82,14 @@ public sealed class AlertInventoryLearningTests
         };
         var inventory = new[] { existing };
 
-        var skipped = AlertInventoryLearning.EnrichExistingDcPortSystems(DcPortAlert(), inventory);
+        Assert.Same(existing, AlertInventoryLearning.FindExistingDcPortTarget(DcPortAlert(), inventory));
 
         Assert.Single(inventory);
         Assert.Equal("registered-sub", existing.SubscriptionId);
         Assert.Equal("registered-rg", existing.ResourceGroup);
         Assert.Equal("Domain Controller", existing.Role);
         Assert.True(existing.Maintenance);
-        Assert.Equal("Remote site", existing.Site);
-        Assert.Equal(["LOCAL-DC"], skipped);
+        Assert.Null(existing.Site);
     }
 
     [Fact]
@@ -104,15 +103,14 @@ public sealed class AlertInventoryLearningTests
         {
             SubscriptionId = "sub-b", Computer = "REMOTE-DC", Domain = "example.test"
         };
-        AlertInventoryLearning.EnrichExistingDcPortSystems(DcPortAlert(), [first]);
+        Assert.Same(first, AlertInventoryLearning.FindExistingDcPortTarget(DcPortAlert(), [first]));
         Assert.Equal("Known site", first.Site);
 
-        var skipped = AlertInventoryLearning.EnrichExistingDcPortSystems(DcPortAlert(), [first, second]);
-        Assert.Contains("REMOTE-DC", skipped);
+        Assert.Null(AlertInventoryLearning.FindExistingDcPortTarget(DcPortAlert(), [first, second]));
         Assert.Null(second.Site);
 
         second.Domain = "different.test";
-        AlertInventoryLearning.EnrichExistingDcPortSystems(DcPortAlert(), [second]);
+        Assert.Null(AlertInventoryLearning.FindExistingDcPortTarget(DcPortAlert(), [second]));
         Assert.Null(second.Site);
         Assert.Equal("different.test", second.Domain);
     }
@@ -124,18 +122,18 @@ public sealed class AlertInventoryLearningTests
         {
             SubscriptionId = "registered-sub", Computer = "REMOTE-DC"
         };
-        AlertInventoryLearning.EnrichExistingDcPortSystems(DcPortAlert(), [existing]);
+        Assert.Null(AlertInventoryLearning.FindExistingDcPortTarget(DcPortAlert(), [existing]));
         Assert.Null(existing.Domain);
         Assert.Null(existing.Site);
 
         var alert = DcPortAlert() with { RawJson = DcPortPayload.Replace("example.test", "") };
         existing.Domain = "example.test";
-        AlertInventoryLearning.EnrichExistingDcPortSystems(alert, [existing]);
+        Assert.Null(AlertInventoryLearning.FindExistingDcPortTarget(alert, [existing]));
         Assert.Null(existing.Site);
 
         existing.SubscriptionId = "source-sub";
-        AlertInventoryLearning.EnrichExistingDcPortSystems(alert, [existing]);
-        Assert.Equal("Remote site", existing.Site);
+        Assert.Same(existing, AlertInventoryLearning.FindExistingDcPortTarget(alert, [existing]));
+        Assert.Null(existing.Site);
     }
 
     [Fact]
@@ -168,7 +166,7 @@ public sealed class AlertInventoryLearningTests
 
         var entry = Assert.Single(await store.GetComputerInventoryAsync());
         Assert.Equal("registered-sub", entry.SubscriptionId);
-        Assert.Equal("Remote site", entry.Site);
+        Assert.Null(entry.Site);
         await using var verification = factory.CreateDbContext();
         Assert.Single(await verification.Alerts.ToArrayAsync());
         var parsed = Assert.Single(await verification.ParsedAlerts.ToArrayAsync());
@@ -186,11 +184,9 @@ public sealed class AlertInventoryLearningTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task HistoricalDcPortAlertsOnlyEnrichExistingSystems(bool backfill, bool hasExistingSystem)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HistoricalDcPortAlertsOnlyLinkExistingSystems(bool hasExistingSystem)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -217,33 +213,21 @@ public sealed class AlertInventoryLearningTests
         var store = new AlertStore(factory,
             new DatabaseConfigurationStatus(true, null, new SqlConnectionStringBuilder()),
             presenter, new AlertRuleEvaluator(presenter), NullLogger<AlertStore>.Instance);
-        if (backfill)
-        {
-            var records = await store.GetAlertGraphRecordsAsync(DateTimeOffset.UtcNow.AddDays(-1));
-            if (hasExistingSystem)
-                Assert.Contains(records, record => record.AlertId == alert.AlertId &&
-                    record.Target == "REMOTE-DC" && record.SubscriptionId == "registered-sub");
-            else
-                Assert.Empty(records);
-            await using var verification = factory.CreateDbContext();
-            var parsed = Assert.Single(await verification.ParsedAlerts.ToArrayAsync());
-            Assert.Equal(hasExistingSystem ? "registered-sub" : null, parsed.InventorySubscriptionId);
-        }
+        var records = await store.GetAlertGraphRecordsAsync(DateTimeOffset.UtcNow.AddDays(-1));
+        if (hasExistingSystem)
+            Assert.Contains(records, record => record.AlertId == alert.AlertId &&
+                record.Target == "REMOTE-DC" && record.SubscriptionId == "registered-sub");
         else
-        {
-            var result = await store.PrefillComputerInventoryFromLastSevenDaysAsync();
-            Assert.Equal(0, result.SystemsCreated);
-            Assert.Equal(hasExistingSystem ? 1 : 0, result.SitesFilled);
-            var repeated = await store.PrefillComputerInventoryFromLastSevenDaysAsync();
-            Assert.Equal(0, repeated.SystemsCreated);
-            Assert.Equal(0, repeated.SitesFilled);
-        }
+            Assert.Empty(records);
+        await using var verification = factory.CreateDbContext();
+        var parsed = Assert.Single(await verification.ParsedAlerts.ToArrayAsync());
+        Assert.Equal(hasExistingSystem ? "registered-sub" : null, parsed.InventorySubscriptionId);
         var inventory = await store.GetComputerInventoryAsync();
         if (hasExistingSystem)
         {
             var entry = Assert.Single(inventory);
             Assert.Equal("registered-sub", entry.SubscriptionId);
-            Assert.Equal("Remote site", entry.Site);
+            Assert.Null(entry.Site);
         }
         else
         {

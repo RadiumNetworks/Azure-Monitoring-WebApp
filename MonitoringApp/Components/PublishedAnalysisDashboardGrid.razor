@@ -1,7 +1,9 @@
-<section class="analysis-dashboard-canvas" aria-label="Read-only published dashboard">
+@inject UiText Text
+
+<section class="analysis-dashboard-canvas" aria-label="@Text["AnalysisPublications.ReadOnlyCanvas"]">
 @if (Document.Widgets.Count == 0)
 {
-    <p class="admin-empty">This published dashboard has no widgets.</p>
+    <p class="admin-empty">@Text["AnalysisPublications.Empty"]</p>
 }
 <div class="inbox-dashboard-grid analysis-dashboard-grid"
      style="--columns:@Document.Columns;--rows:@Document.Rows;--row-height:@(Document.RowHeight)px">
@@ -12,7 +14,7 @@
         <article @key="widget.Id" class="inbox-dashboard-widget analysis-dashboard-widget accent-@widget.Accent"
                  style="grid-column:@widget.Column / span @widget.ColumnSpan;grid-row:@widget.Row / span @widget.RowSpan">
             <header class="inbox-widget-header">
-                <div><strong>@widget.Title</strong><small>@AnalysisQuerySelections.TimeRangeLabel(Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @((Document.BinMinutesOverride ?? widget.BinMinutes) is int bin ? $"{bin} min" : "Query default interval") · @widget.GroupBy</small></div>
+                <div><strong>@widget.Title</strong><small>@AnalysisSelectionLabels.TimeRange(Text, Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @((Document.BinMinutesOverride ?? widget.BinMinutes) is int bin ? $"{bin} min" : Text["AnalysisSelections.QueryDefaultInterval"]) · @widget.GroupBy</small></div>
             </header>
             <div class="inbox-widget-body analysis-widget-body">
                 @if (error is not null)

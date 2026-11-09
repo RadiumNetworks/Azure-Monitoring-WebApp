@@ -1,6 +1,7 @@
 {
   "type": "*",
   "label": "Default alert identity",
+  "labelKey": "QueryResults.DefaultIdentity",
   "identity": {
     "targetDimensions": ["SourceDSA", "Computer"],
     "siteDimensions": ["Site", "SourceDSASite"]

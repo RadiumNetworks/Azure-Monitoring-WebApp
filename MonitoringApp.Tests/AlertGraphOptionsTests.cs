@@ -2,6 +2,31 @@ namespace MonitoringApp.Tests;
 
 public sealed class AlertGraphOptionsTests
 {
+    [Theory]
+    [InlineData("{}", true)]
+    [InlineData("{\"SLocations\":true}", true)]
+    [InlineData("{\"SLocations\":false}", false)]
+    [InlineData("{\"SLocations\":\"true\"}", true)]
+    [InlineData("{\"SLocations\":\"false\"}", false)]
+    [InlineData("{\"slocations\":\"False\"}", false)]
+    public void SLocationsUsesCompatibleDefaultAndAcceptsBooleanOrString(string json, bool enabled)
+    {
+        var options = DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(DatabaseSettingsLoader.AlertGraph, json);
+        Assert.Equal(enabled, options.SLocations);
+        using var serialized = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(options));
+        Assert.Equal(enabled, serialized.RootElement.GetProperty("SLocations").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("{\"SLocations\":\"invalid\"}")]
+    [InlineData("{\"SLocations\":1}")]
+    [InlineData("{\"SLocations\":null}")]
+    public void InvalidSLocationsIsRejected(string json)
+    {
+        Assert.Throws<DatabaseSettingsValidationException>(() =>
+            DatabaseSettingsLoader.Deserialize<AlertGraphOptions>(DatabaseSettingsLoader.AlertGraph, json));
+    }
+
     private static readonly AlertGraphOptionsTestCases TestCases =
         TestCaseLoader.Load<AlertGraphOptionsTestCases>("alert-graph-options.json");
 

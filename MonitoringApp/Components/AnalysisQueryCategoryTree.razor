@@ -1,11 +1,13 @@
+@inject UiText Text
+
 @foreach (var category in Nodes)
 {
     <details class="analysis-query-category" @key="category.Path">
         <summary @ondragover:preventDefault="@AllowDrop" @ondrop:preventDefault="@AllowDrop"
                  @ondrop:stopPropagation="@AllowDrop" @ondrop="() => DropAsync(category.Path)"
-                 title="@(AllowDrop ? $"Drop a query into {category.Path}" : category.Path)">
+                 title="@(AllowDrop ? Text.Format("AnalysisCategories.DropQuery", category.Path) : category.Path)">
             <strong>@category.Name</strong>
-            <span>@category.QueryCount queries</span>
+            <span>@Text.Plural("AnalysisCategories.QueryCount", category.QueryCount)</span>
         </summary>
         <div class="analysis-query-category-body">
             @if (CategoryActions is not null)
@@ -26,7 +28,7 @@
             }
             @if (category.QueryCount == 0)
             {
-                <p class="admin-empty">No queries in this category.</p>
+                <p class="admin-empty">@Text["AnalysisCategories.Empty"]</p>
             }
         </div>
     </details>

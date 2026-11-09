@@ -3,21 +3,23 @@
 @attribute [Authorize(Policy = "AdminAccess")]
 @inject CrossTenantLogAnalyticsOptions Options
 @inject LogAnalyticsConnectionDiagnostics Diagnostics
+@inject UiText Text
+@inject ILogger<AdminLogAnalytics> Logger
 
-<PageTitle>Log Analytics Connections</PageTitle>
+<PageTitle>@Text["LogAnalyticsAdmin.PageTitle"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Administration</p>
-        <h1>Log Analytics connections</h1>
-        <p class="subtitle">Test Key Vault, tenant authentication, and workspace access without exposing credentials.</p>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["LogAnalyticsAdmin.Title"]</h1>
+        <p class="subtitle">@Text["LogAnalyticsAdmin.Subtitle"]</p>
     </div>
     <div class="admin-heading-actions">
         <button class="admin-secondary"
                 type="button"
                 disabled="@isRunning"
                 @onclick="RunDiagnosticsAsync">
-            @(isRunning ? "Testing..." : "Run connection test")
+            @Text[isRunning ? "LogAnalyticsAdmin.Testing" : "LogAnalyticsAdmin.Run"]
         </button>
     </div>
 </section>
@@ -25,8 +27,11 @@
 @if (!Options.Enabled)
 {
     <div class="admin-message admin-message-warning" role="status">
-        <strong>Cross-tenant Log Analytics is disabled.</strong>
-        Set <code>CrossTenantLogAnalytics:Enabled</code> to <code>true</code> in the target environment after completing its non-secret configuration.
+        <strong>@Text["LogAnalyticsAdmin.Disabled"]</strong>
+        <LocalizedContent ResourceKey="LogAnalyticsAdmin.EnableHint">
+            <Value0><code>CrossTenantLogAnalytics:Enabled</code></Value0>
+            <Value1><code>true</code></Value1>
+        </LocalizedContent>
     </div>
 }
 
@@ -37,7 +42,7 @@
 
 @if (report is not null)
 {
-    <p class="admin-diagnostics-time">Checked @report.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</p>
+    <p class="admin-diagnostics-time">@Text.Format("LogAnalyticsAdmin.CheckedAt", report.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss"))</p>
     <section class="admin-diagnostics-section" aria-labelledby="key-vault-diagnostic">
         <h2 id="key-vault-diagnostic">Key Vault</h2>
         <DiagnosticStepView Step="report.KeyVault" />
@@ -55,9 +60,9 @@
         }
     </div>
 }
-else
+else if (string.IsNullOrWhiteSpace(errorMessage))
 {
-    <p class="admin-empty">No connection test has been run in this application process.</p>
+    <p class="admin-empty">@Text["LogAnalyticsAdmin.NoReport"]</p>
 }
 
 @code {
@@ -78,9 +83,15 @@ else
         {
             report = await Diagnostics.RunAsync();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException exception)
         {
-            errorMessage = "The connection test was cancelled.";
+            errorMessage = Text["LogAnalyticsAdmin.Cancelled"];
+            Logger.LogWarning(exception, "Log Analytics diagnostics were cancelled.");
+        }
+        catch (Exception exception)
+        {
+            errorMessage = Text["LogAnalyticsAdmin.Failed"];
+            Logger.LogError(exception, "Log Analytics diagnostics failed. The previous report is retained.");
         }
         finally
         {

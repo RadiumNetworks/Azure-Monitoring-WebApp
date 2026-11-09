@@ -5,35 +5,40 @@
 @inject ApplicationAuthenticationOptions AuthenticationOptions
 @inject CrossTenantLogAnalyticsOptions Options
 @inject TimeProvider Clock
+@inject UiText Text
+@inject ILogger<PublishedAnalysisDashboardView> Logger
 
-<section aria-label="Published dashboard">
+<section aria-label="@Text["AnalysisPublications.PublishedDashboard"]">
     @if (errorMessage is not null)
     {
         <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
+        <button type="button" class="admin-secondary" disabled="@(disposed || running || isReloading)" @onclick="ReloadViewAsync">
+            @Text[isReloading ? "AnalysisPublications.Reloading" : "AnalysisPublications.Reload"]
+        </button>
     }
     @if (snapshot is not null)
     {
         <div class="admin-section-heading">
             <div>
                 <h2>@snapshot.Publication.Name</h2>
-                <p>Published by @snapshot.Publication.Owner · version @snapshot.Publication.Version · read-only</p>
-                <p>Selected systems: @string.Join(", ", DisplayedSystems.Select(system => system.Computer).DefaultIfEmpty("None"))</p>
+                <p>@Text.Format("AnalysisPublications.PublishedBy", snapshot.Publication.Owner, snapshot.Publication.Version)</p>
+                <p>@Text.Format("AnalysisPublications.SelectedSystems", string.Join(", ", DisplayedSystems.Select(system => system.Computer).DefaultIfEmpty(Text["AnalysisPublications.NoSystems"])))</p>
             </div>
             @if (ShowControls)
             {
-                <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>Auto-refresh (30 seconds)</span></label>
-                <button class="admin-primary" type="button" disabled="@(running || !Options.Enabled)" @onclick="RunAsync">@(running ? "Running dashboard..." : "Run dashboard")</button>
+                <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>@Text["Analysis.AutoRefresh"]</span></label>
+                <button class="admin-primary" type="button" disabled="@(disposed || running || isReloading || !Options.Enabled)" @onclick="RunAsync">@(running ? Text["Analysis.RunningDashboard"] : Text["Analysis.RunDashboard"])</button>
             }
         </div>
         @if (ShowControls)
         {
         <AnalysisDashboardExecutionControls TimeRangeMinutes="snapshot.Document.TimeRangeMinutesOverride"
-            BinMinutes="snapshot.Document.BinMinutesOverride" Disabled="@running" SessionOnly="true"
+            BinMinutes="snapshot.Document.BinMinutesOverride" Disabled="@(disposed || running || isReloading)" SessionOnly="true"
             Changed="ExecutionSettingsChanged" />
         }
         @if (!Options.Enabled)
         {
-            <div class="admin-message admin-message-warning">Live Log Analytics is disabled.</div>
+            <div class="admin-message admin-message-warning">@Text["Analysis.Disabled"]</div>
         }
         @if (ShowControls && status is not null)
         {
@@ -57,8 +62,13 @@
     private readonly Dictionary<string, AnalysisQueryResponse> results = [];
     private readonly Dictionary<string, string> errors = [];
     private readonly CancellationTokenSource cancellation = new();
+    private readonly SemaphoreSlim reloadGate = new(1, 1);
     private Task? refreshTask;
     private Task? executionTask;
+    private Task? disposeTask;
+    private bool disposed;
+    private bool isReloading;
+    private bool refreshPreferenceInitialized;
     private bool running;
     private bool autoRefresh;
     private bool wasAutoRunEnabled;
@@ -72,41 +82,53 @@
 
     protected override async Task OnInitializedAsync()
     {
-        user = (await AuthenticationStateTask).User;
-        if (await ReloadAsync())
-            autoRefresh = snapshot!.Document.AutoRefreshEnabled;
-        refreshTask = AnalysisRefreshLoop.RunAsync(() => InvokeAsync(async () =>
-        {
-            if (running)
-                return;
-            // Even with query refresh paused, withdrawal must clear an already open view.
-            if (await ReloadAsync() && autoRefresh && Options.Enabled)
-                await RunAsync();
-            StateHasChanged();
-        }), cancellation.Token, Clock);
+        await ReloadAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (disposed) return;
+        refreshTask ??= AnalysisRefreshLoop.RunAsync(() => InvokeAsync(async () =>
+        {
+            if (disposed || running || isReloading) return;
+            // Even with query refresh paused, withdrawal must clear an already open view.
+            if (await ReloadAsync() && autoRefresh && Options.Enabled)
+                await RunAsync();
+            if (!disposed) StateHasChanged();
+        }), cancellation.Token, Clock);
         var shouldRun = AutoRunOnOpen && !wasAutoRunEnabled;
         wasAutoRunEnabled = AutoRunOnOpen;
         if (shouldRun)
         {
             await RunAsync();
-            StateHasChanged();
+            if (!disposed) StateHasChanged();
         }
     }
 
     private async Task<bool> ReloadAsync()
     {
+        if (disposed) return false;
+        var token = cancellation.Token;
+        var acquired = false;
+        var identityResolved = false;
         try
         {
-            var current = await Publishing.LoadAsync(DashboardId, user, cancellation.Token);
+            await reloadGate.WaitAsync(token);
+            acquired = true;
+            if (disposed || token.IsCancellationRequested) return false;
+            isReloading = true;
+            StateHasChanged();
+            var authenticationTask = AuthenticationStateTask;
+            var authentication = await authenticationTask.WaitAsync(token);
+            identityResolved = true;
+            if (!CanApplyRead(authenticationTask, token)) return false;
+            var current = await Publishing.LoadAsync(DashboardId, authentication.User, token);
+            if (!CanApplyRead(authenticationTask, token)) return false;
             if (snapshot?.Publication.Version != current.Publication.Version)
             {
                 results.Clear();
                 errors.Clear();
-                status = "Published version loaded. Run the dashboard to retrieve current data.";
+                status = Text["AnalysisStatus.VersionLoaded"];
             }
             else if (snapshot is not null)
             {
@@ -114,108 +136,194 @@
                 current.Document.BinMinutesOverride = snapshot.Document.BinMinutesOverride;
             }
             snapshot = current;
+            user = authentication.User;
+            if (!refreshPreferenceInitialized)
+            {
+                autoRefresh = current.Document.AutoRefreshEnabled;
+                refreshPreferenceInitialized = true;
+            }
             errorMessage = null;
             return true;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            snapshot = null;
-            results.Clear();
-            errors.Clear();
-            errorMessage = $"The published dashboard is unavailable: {exception.Message}";
             return false;
         }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load published analysis dashboard {DashboardId}.", DashboardId);
+            if (disposed || token.IsCancellationRequested) return false;
+            ClearView(Text[identityResolved ? exception switch
+            {
+                KeyNotFoundException => "Analysis.Errors.PublicationUnavailable",
+                UnauthorizedAccessException => "Analysis.Errors.PublicationNotAllowed",
+                _ => "Analysis.Errors.PublishedReadFailed"
+            } : "Analysis.Errors.PublishedReadFailed"]);
+            return false;
+        }
+        finally
+        {
+            if (acquired)
+            {
+                isReloading = false;
+                reloadGate.Release();
+                if (!disposed) StateHasChanged();
+            }
+        }
+    }
+
+    private bool CanApplyRead(Task<AuthenticationState> authenticationTask, CancellationToken token)
+    {
+        if (disposed || token.IsCancellationRequested) return false;
+        if (ReferenceEquals(authenticationTask, AuthenticationStateTask)) return true;
+        Logger.LogWarning("The published dashboard reader changed during a required read.");
+        ClearView(Text["Analysis.Errors.PublishedReaderChanged"]);
+        return false;
+    }
+
+    private void ClearView(string error)
+    {
+        snapshot = null;
+        results.Clear();
+        errors.Clear();
+        status = null;
+        errorMessage = error;
+    }
+
+    private async Task ReloadViewAsync()
+    {
+        if (disposed || running || isReloading) return;
+        if (await ReloadAsync() && AutoRunOnOpen && Options.Enabled && !disposed)
+            await RunAsync();
     }
 
     private Task RunAsync()
     {
-        if (running || !Options.Enabled || cancellation.IsCancellationRequested)
+        if (disposed || running || isReloading || !Options.Enabled)
             return Task.CompletedTask;
         return executionTask = ExecuteAsync();
     }
 
     private void ExecutionSettingsChanged((int? TimeRangeMinutes, int? BinMinutes) settings)
     {
-        if (running || snapshot is null)
+        if (disposed || running || isReloading || snapshot is null)
             return;
-        AnalysisDashboardDocument.ValidateExecutionOverrides(settings.TimeRangeMinutes, settings.BinMinutes);
+        try { AnalysisDashboardDocument.ValidateExecutionOverrides(settings.TimeRangeMinutes, settings.BinMinutes); }
+        catch (AnalysisValidationException exception)
+        {
+            Logger.LogWarning(exception, "Invalid published analysis session overrides.");
+            errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+            return;
+        }
+        errorMessage = null;
         snapshot.Document.TimeRangeMinutesOverride = settings.TimeRangeMinutes;
         snapshot.Document.BinMinutesOverride = settings.BinMinutes;
         results.Clear();
         errors.Clear();
-        status = "Session settings changed. Run the dashboard to retrieve current data.";
+        status = Text["AnalysisStatus.SessionChanged"];
     }
 
     private async Task ExecuteAsync()
     {
+        var token = cancellation.Token;
+        var readerTask = AuthenticationStateTask;
         running = true;
         try
         {
-            if (!await ReloadAsync())
+            if (!await ReloadAsync() || !CanApplyRead(readerTask, token))
                 return;
             var executing = snapshot!;
             if (executing.Document.Systems.Count == 0)
             {
-                errorMessage = "The creator must select systems and republish this dashboard before it can run.";
+                errorMessage = Text["Analysis.Errors.CreatorSystemsRequired"];
+                Logger.LogWarning("Published analysis dashboard {DashboardId} has no systems.", DashboardId);
                 return;
             }
             StateHasChanged();
             var systems = executing.Document.Systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray();
-            var publishedQueries = (await Registry.ListPublishedAsync(cancellation.Token))
+            var publishedQueries = (await Registry.ListPublishedAsync(token))
                 .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
                 .Select(query => query.Id).ToHashSet();
+            if (!CanApplyRead(readerTask, token)) return;
             foreach (var widget in executing.Document.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column))
             {
                 // Recheck publication before every query, not just when opening the page.
-                if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
                     return;
                 try
                 {
                     if (!publishedQueries.Contains(widget.QueryDefinitionId))
-                        throw new InvalidOperationException("The published query is unavailable or your role does not permit it.");
+                        throw new KeyNotFoundException("The published query is unavailable or your role does not permit it.");
                     var response = await Execution.ExecuteAsync(
                         executing.Document.CreateExecutionRequest(widget, systems)
-                            with { WorkspaceKey = WorkspaceKey, Domain = Domain, Site = Site, Role = Role }, cancellation.Token);
-                    if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                            with { WorkspaceKey = WorkspaceKey, Domain = Domain, Site = Site, Role = Role }, token);
+                    if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
                         return;
                     results[widget.Id] = response;
                     errors.Remove(widget.Id);
                 }
-                catch (Exception exception) when (exception is not OperationCanceledException || !cancellation.IsCancellationRequested)
+                catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)
                 {
-                    if (!await ReloadAsync() || snapshot!.Publication.Version != executing.Publication.Version)
+                    Logger.LogError(exception, "Published analysis widget {WidgetId} execution failed.", widget.Id);
+                    if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
                         return;
                     results.Remove(widget.Id);
-                    errors[widget.Id] = exception.Message;
+                    errors[widget.Id] = exception is KeyNotFoundException
+                        ? Text["Analysis.Errors.QueryUnavailableOrDenied"]
+                        : AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
                 }
-                StateHasChanged();
+                if (!disposed) StateHasChanged();
                 await Task.Yield();
             }
-            if (await ReloadAsync() && snapshot!.Publication.Version == executing.Publication.Version)
-                status = $"Dashboard refreshed · {DateTimeOffset.UtcNow:u}";
+            if (await ReloadAsync() && CanApplyRead(readerTask, token) && snapshot!.Publication.Version == executing.Publication.Version)
+            {
+                var failedWidgets = executing.Document.Widgets.Count(widget => errors.ContainsKey(widget.Id));
+                status = failedWidgets > 0
+                    ? Text.Format(failedWidgets == 1 ? "AnalysisStatus.RefreshFailures.One" : "AnalysisStatus.RefreshFailures.Other",
+                        failedWidgets, DateTimeOffset.UtcNow)
+                    : Text.Format("AnalysisStatus.Refreshed", DateTimeOffset.UtcNow);
+            }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            errorMessage = $"The published dashboard could not be refreshed: {exception.Message}";
+            Logger.LogError(exception, "Published analysis dashboard {DashboardId} refresh failed.", DashboardId);
+            if (!disposed && !token.IsCancellationRequested)
+                errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.PublishedRefreshFailed");
         }
         finally
         {
             running = false;
-            if (!cancellation.IsCancellationRequested)
+            if (!disposed)
                 StateHasChanged();
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(disposeTask ??= DisposeCoreAsync());
+
+    private async Task DisposeCoreAsync()
     {
-        await cancellation.CancelAsync();
-        if (refreshTask is not null)
-            await refreshTask;
-        if (executionTask is not null)
-            await executionTask;
+        disposed = true;
+        var token = cancellation.Token;
+        try { await cancellation.CancelAsync(); }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Published dashboard cancellation failed during teardown.");
+        }
+        foreach (var task in new[] { refreshTask, executionTask })
+        {
+            if (task is null) continue;
+            try { await task; }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Published dashboard operation failed during teardown.");
+            }
+        }
+        await reloadGate.WaitAsync();
+        reloadGate.Dispose();
         cancellation.Dispose();
     }
 }

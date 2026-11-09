@@ -2,39 +2,45 @@
 @layout LoginLayout
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject UiText Text
 
-<PageTitle>Sign in</PageTitle>
+<PageTitle>@Text["Authentication.SignIn"]</PageTitle>
 
 <section class="login-shell">
     <div class="login-panel">
-        <p class="eyebrow">Restricted access</p>
-        <h1>Sign in</h1>
+        <p class="eyebrow">@Text["Authentication.RestrictedAccess"]</p>
+        <h1>@Text["Authentication.SignIn"]</h1>
         @if (AuthenticationOptions.IsOpen)
         {
-            <p class="subtitle">SQL authentication is not enabled. The application is configured for open access.</p>
-            <a class="admin-primary login-home-link" href="/">Open Alert Console</a>
+            <p class="subtitle">@Text["Authentication.OpenModeDescription"]</p>
+            <a class="admin-primary login-home-link" href="/">@Text["Authentication.OpenConsole"]</a>
+        }
+        else if (AuthenticationOptions.IsEntra)
+        {
+            <p class="subtitle">@Text["Authentication.EntraModeDescription"]</p>
+            <a class="admin-primary login-home-link" href="@("/.auth/login/aad?post_login_redirect_uri=" + Uri.EscapeDataString(SafeReturnUrl))">@Text["Authentication.SignInWithMicrosoft"]</a>
         }
         else
         {
-            <p class="subtitle">Enter an account stored in the application authentication database.</p>
+            <p class="subtitle">@Text["Authentication.SqlModeDescription"]</p>
             @if (Error == "invalid")
             {
                 <div class="admin-message admin-message-error" role="alert">
-                    The username or password is incorrect.
+                    @Text["Authentication.InvalidCredentials"]
                 </div>
             }
             <form class="login-form" method="post" action="/auth/login">
                 <AntiforgeryToken />
                 <input type="hidden" name="ReturnUrl" value="@SafeReturnUrl" />
                 <label class="admin-field">
-                    <span>Username</span>
+                    <span>@Text["Authentication.Username"]</span>
                     <input name="Username" required maxlength="128" autocomplete="username" autofocus />
                 </label>
                 <label class="admin-field">
-                    <span>Password</span>
+                    <span>@Text["Authentication.Password"]</span>
                     <input name="Password" type="password" required maxlength="1024" autocomplete="current-password" />
                 </label>
-                <button class="admin-primary" type="submit">Sign in</button>
+                <button class="admin-primary" type="submit">@Text["Authentication.SignIn"]</button>
             </form>
         }
     </div>

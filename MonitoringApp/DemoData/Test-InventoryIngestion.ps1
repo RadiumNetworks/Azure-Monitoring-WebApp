@@ -20,7 +20,7 @@ $subscriptionId = 'inventory-test-subscription'
 $computer = 'INVENTORY-TEST-01'
 $expectedSite = 'INVENTORY-TEST-SITE'
 $alertIds = @('inventory-test-without-site', 'inventory-test-with-site')
-$payloadPath = Join-Path $PSScriptRoot 'inventory-enrichment-alerts.json'
+$payloadPath = Join-Path $PSScriptRoot 'inventory-heartbeat-events.json'
 $settingsPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'appsettings.Development.json'
 $payloads = Get-Content $payloadPath -Raw | ConvertFrom-Json
 
@@ -66,11 +66,11 @@ DELETE FROM dbo.ComputerInventory WHERE SubscriptionId = @subscriptionId AND Com
             -ContentType 'application/json' `
             -Body ($payload | ConvertTo-Json -Depth 30)
 
-        if (-not $response.created) {
-            throw "Expected alert '$alertId' to be created, but the endpoint reported a duplicate."
+        if ($response.created -or -not $response.suppressed) {
+            throw "Expected InventoryHeartbeat '$alertId' to update inventory without storing an inbox alert. Verify that the inventory-status rule is enabled."
         }
 
-        Write-Host "Created alert '$alertId'."
+        Write-Host "Reconciled InventoryHeartbeat '$alertId'."
     }
 
     $verify = $connection.CreateCommand()

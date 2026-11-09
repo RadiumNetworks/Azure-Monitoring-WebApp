@@ -1,50 +1,58 @@
 @inherits LayoutComponentBase
 @inject ApplicationAuthenticationOptions AuthenticationOptions
 @inject CurrentUserIdentity CurrentUserIdentity
+@inject UiText Text
 
 <header class="app-header">
     <div class="header-inner">
-        <a class="brand" href="/" aria-label="Alert Console home">
+        <a class="brand" href="/" aria-label="@Text["Brand.HomeLabel"]">
             <span class="brand-mark" aria-hidden="true"></span>
             <span>Alert Console</span>
         </a>
         <div class="header-actions">
-            <nav class="view-navigation" aria-label="Primary navigation">
+            <nav class="view-navigation" aria-label="@Text["Navigation.PrimaryLabel"]">
                 <div class="navigation-group">
-                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Overview</button>
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Overview"]</button>
                     <div class="navigation-submenu">
-                        <NavLink href="/" Match="NavLinkMatch.All">Inbox</NavLink>
-                        <NavLink href="/graph">Graph</NavLink>
-                        <NavLink href="/analysis">Dashboards</NavLink>
+                        <NavLink href="/" Match="NavLinkMatch.All">@Text["Navigation.Inbox"]</NavLink>
+                        <NavLink href="/graph">@Text["Navigation.Graph"]</NavLink>
+                        <NavLink href="/analysis">@Text["Navigation.Dashboards"]</NavLink>
                     </div>
                 </div>
                 <div class="navigation-group">
-                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">Analyze</button>
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Support"]</button>
                     <div class="navigation-submenu">
-                        <NavLink href="/queries">Queries</NavLink>
-                        <NavLink href="/logbook">Logbook</NavLink>
-                        <NavLink href="/rca">Root cause analysis</NavLink>
-                        <NavLink href="/prompt">Analysis workspace</NavLink>
+                        <NavLink href="/support/lockouts">@Text["Lockouts.Title"]</NavLink>
+                    </div>
+                </div>
+                <div class="navigation-group">
+                    <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Analyze"]</button>
+                    <div class="navigation-submenu">
+                        <NavLink href="/queries">@Text["Navigation.Queries"]</NavLink>
+                        <NavLink href="/logbook">@Text["Navigation.Logbook"]</NavLink>
+                        <NavLink href="/rca">@Text["Navigation.RootCauseAnalysis"]</NavLink>
+                        <NavLink href="/prompt">@Text["Navigation.AnalysisWorkspace"]</NavLink>
                     </div>
                 </div>
                 <AuthorizeView Policy="OperatorAccess">
                     <div class="navigation-group">
-                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">Configuration</button>
+                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Configuration"]</button>
                         <div class="navigation-submenu">
-                            <NavLink href="/admin/rules">Rules</NavLink>
-                            <NavLink href="/admin/inventory">Inventory</NavLink>
+                            <NavLink href="/admin/rules">@Text["Navigation.Rules"]</NavLink>
+                            <NavLink href="/admin/inventory">@Text["Navigation.Inventory"]</NavLink>
+                            <NavLink href="/kql">@Text["FreeKql.Title"]</NavLink>
                         </div>
                     </div>
                 </AuthorizeView>
                 <AuthorizeView Policy="AdminAccess">
                     <div class="navigation-group">
-                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">Admin</button>
+                        <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Admin"]</button>
                         <div class="navigation-submenu">
-                            <NavLink href="/admin/settings">Settings</NavLink>
+                            <NavLink href="/admin/settings">@Text["Navigation.Settings"]</NavLink>
                             <NavLink href="/admin/log-analytics">Log Analytics</NavLink>
-                            <NavLink href="/admin/alert-authentication">Alert authentication</NavLink>
-                            <NavLink href="/admin/analysis-queries">Analysis queries</NavLink>
-                            <NavLink href="/admin/users">Users</NavLink>
+                            <NavLink href="/admin/alert-authentication">@Text["Navigation.AlertAuthentication"]</NavLink>
+                            <NavLink href="/admin/analysis-queries">@Text["Navigation.AnalysisQueries"]</NavLink>
+                            <NavLink href="/admin/users">@Text["Navigation.Users"]</NavLink>
                         </div>
                     </div>
                 </AuthorizeView>
@@ -52,7 +60,7 @@
             @if (!string.IsNullOrWhiteSpace(currentUser))
             {
                 <span class="signed-in-user" title="@currentUser">
-                    <span>Signed in</span>
+                    <span>@Text["Authentication.SignedIn"]</span>
                     <strong>@currentUser</strong>
                 </span>
             }
@@ -60,9 +68,14 @@
             {
                 <form method="post" action="/auth/logout" class="logout-form">
                     <AntiforgeryToken />
-                    <button type="submit">Sign out</button>
+                    <button type="submit">@Text["Authentication.SignOut"]</button>
                 </form>
             }
+            else if (AuthenticationOptions.IsEntra)
+            {
+                <a class="admin-secondary" href="/.auth/logout?post_logout_redirect_uri=/login">@Text["Authentication.SignOut"]</a>
+            }
+            <LanguageSelector />
             <span class="environment">Azure Monitor</span>
         </div>
     </div>
@@ -76,9 +89,12 @@
 
     private string? currentUser;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        var authenticationState = await AuthenticationStateTask;
-        currentUser = CurrentUserIdentity.GetDisplayName(authenticationState.User);
+        currentUser = null;
+        var readerTask = AuthenticationStateTask;
+        var authenticationState = await readerTask;
+        if (ReferenceEquals(readerTask, AuthenticationStateTask) && authenticationState.User.Identity?.IsAuthenticated == true)
+            currentUser = CurrentUserIdentity.GetDisplayName(authenticationState.User);
     }
 }

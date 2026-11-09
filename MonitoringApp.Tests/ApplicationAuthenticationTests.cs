@@ -37,6 +37,7 @@ public sealed class ApplicationAuthenticationOptionsTests
         Assert.Empty(options.Validate());
         Assert.Equal(testCase.IsOpen, options.IsOpen);
         Assert.Equal(testCase.IsSql, options.IsSql);
+        Assert.Equal(testCase.IsEntra, options.IsEntra);
     }
 
     [Theory]
@@ -125,6 +126,8 @@ public sealed class CurrentUserIdentityTests
     {
         var headers = new HeaderDictionary
         {
+            ["X-MS-CLIENT-PRINCIPAL"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+                """{"auth_typ":"aad","claims":[{"typ":"preferred_username","val":"operator@contoso.test"},{"typ":"roles","val":"Operator"}]}""")),
             ["X-MS-CLIENT-PRINCIPAL-NAME"] = "operator@contoso.test",
             ["X-MS-CLIENT-PRINCIPAL-ID"] = "11111111-2222-3333-4444-555555555555"
         };
@@ -137,6 +140,7 @@ public sealed class CurrentUserIdentityTests
         Assert.Equal(
             "11111111-2222-3333-4444-555555555555",
             principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        Assert.True(principal.IsInRole(SqlAuthenticationRoles.Operator));
     }
 
     private static CurrentUserIdentity CreateIdentity(DefaultHttpContext? context = null)

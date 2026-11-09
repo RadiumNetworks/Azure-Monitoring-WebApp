@@ -1,10 +1,13 @@
+@inject UiText Text
+@inject QueryTextPresentation QueryText
+
 @if (Result.Tables?.Any(table => table.Rows.Count > 0) != true)
 {
-    <div class="admin-message admin-message-warning">The query returned no statistics. No data is not an OK status.</div>
+    <div class="admin-message admin-message-warning">@Text["AnalysisResults.NoStats"]</div>
 }
 else
 {
-    <div class="analysis-stats" role="list" aria-label="@Result.Name">
+    <div class="analysis-stats" role="list" aria-label="@QueryText.Name(Result)">
         @foreach (var table in Result.Tables)
         {
             var names = table.Columns.Select(column => column.Name).ToList();
@@ -14,7 +17,7 @@ else
             var unitIndex = names.IndexOf("Unit");
             if (seriesIndex < 0 || valueIndex < 0)
             {
-                <div class="admin-message admin-message-error">Statistics require Series and Value columns.</div>
+                <div class="admin-message admin-message-error">@Text.Format("AnalysisResults.StatsColumns", "Series", "Value")</div>
                 continue;
             }
             @foreach (var row in table.Rows)

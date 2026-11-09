@@ -1,12 +1,13 @@
 @page "/error"
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@inject UiText Text
 
-<PageTitle>Error</PageTitle>
+<PageTitle>@Text["ErrorPage.Title"]</PageTitle>
 
 <section class="page-heading">
     <div>
         <p class="eyebrow">Alert Console</p>
-        <h1>Something went wrong</h1>
-        <p class="subtitle">The request could not be completed.</p>
+        <h1>@Text["ErrorPage.Heading"]</h1>
+        <p class="subtitle">@Text["ErrorPage.Description"]</p>
     </div>
 </section>

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @using System.Security.Claims
+@using System.Globalization
 @inject AlertStore AlertStore
 @inject IncidentAnalysisSnapshotService SnapshotService
 @inject AlertGraphOptions GraphOptions
@@ -11,76 +12,78 @@
 @inject ApplicationAuthenticationOptions Authentication
 @inject MicrosoftSourceCatalog SourceCatalog
 @inject IJSRuntime JS
+@inject UiText Text
+@inject ILogger<Prompt> Logger
 
-<PageTitle>Analysis workspace</PageTitle>
+<PageTitle>@Text["Navigation.AnalysisWorkspace"]</PageTitle>
 
 <section class="agent-heading">
     <div>
-        <p class="eyebrow">Assisted triage</p>
-        <h1>Analysis workspace</h1>
-        <p class="subtitle">Prepare, inspect, and persist a controlled incident snapshot before any external handoff.</p>
+        <p class="eyebrow">@Text["Prompt.Triage"]</p>
+        <h1>@Text["Navigation.AnalysisWorkspace"]</h1>
+        <p class="subtitle">@Text["Prompt.Description"]</p>
     </div>
-    <div class="agent-status" aria-label="Selected alert summary">
+    <div class="agent-status" aria-label="@Text["Prompt.SelectionSummary"]">
         <strong>@SelectedAlerts.Count</strong>
-        <span>selected of @VisibleAlerts.Count</span>
+        <span>@Text.Format("Prompt.SelectedOf", VisibleAlerts.Count)</span>
     </div>
 </section>
 
 <div class="agent-notice" role="note">
-    <strong>@(Orchestrator.ExecutionState.IsEnabled ? "Human-controlled handoff" : "Agent analysis unavailable")</strong>
+    <strong>@Text[Orchestrator.ExecutionState.IsEnabled ? "Prompt.ControlledHandoff" : "Prompt.Unavailable"]</strong>
     <span>@ExecutionNotice</span>
 </div>
 
-<section class="agent-controls" aria-label="Copilot prompt settings">
+<section class="agent-controls" aria-label="@Text["Prompt.Settings"]">
     <label>
-        <span>Analysis scope</span>
+        <span>@Text["Prompt.AnalysisScope"]</span>
         <select value="@analysisScopeType" @onchange="ChangeAnalysisScope">
-            <option value="@nameof(IncidentAnalysisScopeType.Incident)">Selected incident events</option>
-            <option value="@nameof(IncidentAnalysisScopeType.Target)">Single target</option>
-            <option value="@nameof(IncidentAnalysisScopeType.GraphSubtree)" disabled>Graph subtree (authorization pending)</option>
+            <option value="@nameof(IncidentAnalysisScopeType.Incident)">@Text["Prompt.Incident"]</option>
+            <option value="@nameof(IncidentAnalysisScopeType.Target)">@Text["Prompt.Target"]</option>
+            <option value="@nameof(IncidentAnalysisScopeType.GraphSubtree)" disabled>@Text["Prompt.Subtree"]</option>
         </select>
     </label>
     <label>
-        <span>Alert scope</span>
+        <span>@Text["Prompt.AlertScope"]</span>
         <select value="@scope" @onchange="ChangeScope">
-            <option value="active">Active alerts</option>
-            <option value="recent">Recent events</option>
+            <option value="active">@Text["Prompt.ActiveAlerts"]</option>
+            <option value="recent">@Text["Prompt.RecentEvents"]</option>
         </select>
     </label>
     <label>
-        <span>Time range</span>
+        <span>@Text["Prompt.TimeRange"]</span>
         <select value="@lookbackHours" @onchange="ChangeTimeRange">
-            <option value="1">1 hour</option>
-            <option value="4">4 hours</option>
-            <option value="24">1 day</option>
-            <option value="168">7 days</option>
+            <option value="1">@Text["Prompt.OneHour"]</option>
+            <option value="4">@Text["Prompt.FourHours"]</option>
+            <option value="24">@Text["Prompt.OneDay"]</option>
+            <option value="168">@Text["Prompt.SevenDays"]</option>
         </select>
     </label>
-    <fieldset class="agent-detail-options" aria-label="Automatic evidence context">
-        <legend>Automatic evidence context</legend>
-        <label><input type="checkbox" checked="@includeSystemHistory" @onchange="ToggleSystemHistory" /> 7-day target history</label>
-        <label><input type="checkbox" checked="@includeRelatedContext" @onchange="ToggleRelatedContext" /> 24-hour related context</label>
-        <span>Graph, inventory, lifecycle, and rule trace are always included.</span>
+    <fieldset class="agent-detail-options" aria-label="@Text["Prompt.AutomaticContext"]">
+        <legend>@Text["Prompt.AutomaticContext"]</legend>
+        <label><input type="checkbox" checked="@includeSystemHistory" @onchange="ToggleSystemHistory" /> @Text["Prompt.TargetHistory"]</label>
+        <label><input type="checkbox" checked="@includeRelatedContext" @onchange="ToggleRelatedContext" /> @Text["Prompt.RelatedHistory"]</label>
+        <span>@Text["Prompt.AlwaysIncluded"]</span>
     </fieldset>
 </section>
 
 <section class="agent-scope-summary" aria-labelledby="agent-scope-heading">
     <div>
-        <p class="eyebrow">Scope preview</p>
-        <h2 id="agent-scope-heading">Data prepared for analysis</h2>
+        <p class="eyebrow">@Text["Prompt.ScopePreview"]</p>
+        <h2 id="agent-scope-heading">@Text["Prompt.PreparedData"]</h2>
     </div>
     <dl>
-        <div><dt>Mode</dt><dd>@Orchestrator.ExecutionState.Mode</dd></div>
-        <div><dt>Profile</dt><dd>@DisplayValue(Orchestrator.ExecutionState.Profile, "Local manual handoff")</dd></div>
-        <div><dt>Primary events</dt><dd>@SelectedAlerts.Count / @AgentAnalysisJobApi.MaxPrimaryEvents</dd></div>
-        <div><dt>System history</dt><dd>@HistoryPreview(previewSnapshot?.SystemHistory.Count, includeSystemHistory, "7 days")</dd></div>
-        <div><dt>Related context</dt><dd>@HistoryPreview(previewSnapshot?.Context24Hours.Count, includeRelatedContext, "24 hours")</dd></div>
-        <div><dt>Rule decisions</dt><dd>@DisplayRuleDecisionSummary()</dd></div>
-        <div><dt>Subscriptions</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.SubscriptionId))</dd></div>
-        <div><dt>Targets</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.TargetDisplayName))</dd></div>
-        <div><dt>Selected range</dt><dd>@lookbackHours hour(s)</dd></div>
+        <div><dt>@Text["Prompt.Mode"]</dt><dd>@Orchestrator.ExecutionState.Mode</dd></div>
+        <div><dt>@Text["Prompt.Profile"]</dt><dd>@DisplayValue(Orchestrator.ExecutionState.Profile, Text["Prompt.LocalManual"])</dd></div>
+        <div><dt>@Text["Prompt.PrimaryEvents"]</dt><dd>@SelectedAlerts.Count / @AgentAnalysisJobApi.MaxPrimaryEvents</dd></div>
+        <div><dt>@Text["Prompt.SystemHistory"]</dt><dd>@HistoryPreview(previewSnapshot?.SystemHistory.Count, includeSystemHistory, Text["Prompt.SevenDays"])</dd></div>
+        <div><dt>@Text["Prompt.RelatedContext"]</dt><dd>@HistoryPreview(previewSnapshot?.Context24Hours.Count, includeRelatedContext, Text["Prompt.TwentyFourHours"])</dd></div>
+        <div><dt>@Text["Prompt.RuleDecisions"]</dt><dd>@DisplayRuleDecisionSummary()</dd></div>
+        <div><dt>@Text["Prompt.Subscriptions"]</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.SubscriptionId))</dd></div>
+        <div><dt>@Text["Prompt.Targets"]</dt><dd>@DisplayValues(SelectedAlerts.Select(alert => alert.TargetDisplayName))</dd></div>
+        <div><dt>@Text["Prompt.SelectedRange"]</dt><dd>@Text.Plural("Prompt.Hours", lookbackHours)</dd></div>
     </dl>
-    <p>No data is sent automatically. Creating a job stores the versioned snapshot for the configured retention period.</p>
+    <p>@Text["Prompt.RetentionHelp"]</p>
 </section>
 
 @if (previewSnapshot is not null)
@@ -88,10 +91,10 @@
     <section class="agent-evidence" aria-labelledby="agent-evidence-heading">
         <div class="agent-section-heading">
             <div>
-                <p class="eyebrow">Evidence preview</p>
-                <h2 id="agent-evidence-heading">Included evidence and rule decisions</h2>
+                <p class="eyebrow">@Text["Prompt.EvidencePreview"]</p>
+                <h2 id="agent-evidence-heading">@Text["Prompt.IncludedEvidence"]</h2>
             </div>
-            <span class="agent-prompt-size">@previewSnapshot.AlertCount events</span>
+            <span class="agent-prompt-size">@Text.Plural("Prompt.Events", previewSnapshot.AlertCount)</span>
         </div>
         <div class="agent-evidence-grid">
             @foreach (var group in EvidenceGroups())
@@ -100,7 +103,7 @@
                     <h3>@group.Label <span>@group.Items.Count</span></h3>
                     @if (group.Items.Count == 0)
                     {
-                        <p class="agent-job-empty">@(group.Included ? "No matching evidence." : "Excluded by operator.")</p>
+                        <p class="agent-job-empty">@Text[group.Included ? "Prompt.NoEvidence" : "Prompt.ExcludedMessage"]</p>
                     }
                     else
                     {
@@ -112,10 +115,10 @@
                                     <span>@evidence.Target · @evidence.SubscriptionId</span>
                                 </div>
                                 <span class="agent-decision agent-decision-@evidence.Decision.Type.ToString().ToLowerInvariant()">@evidence.Decision.Type</span>
-                                <small>Event <code>@evidence.EventId</code></small>
+                                <small>@Text["Prompt.Event"] <code>@evidence.EventId</code></small>
                                 @if (evidence.Decision.RuleId is not null)
                                 {
-                                    <small>Rule <code>@evidence.Decision.RuleId</code> · @evidence.Decision.RuleName · @evidence.Decision.VisibleClassification</small>
+                                    <small>@Text["Prompt.Rule"] <code>@evidence.Decision.RuleId</code> · @evidence.Decision.RuleName · @evidence.Decision.VisibleClassification</small>
                                 }
                             </article>
                         }
@@ -130,22 +133,27 @@
     <section class="agent-alerts" aria-labelledby="agent-alerts-heading">
         <div class="agent-section-heading">
             <div>
-                <p class="eyebrow">Source</p>
-                <h2 id="agent-alerts-heading">Observed alerts</h2>
+                <p class="eyebrow">@Text["Prompt.Source"]</p>
+                <h2 id="agent-alerts-heading">@Text["Prompt.ObservedAlerts"]</h2>
             </div>
             <div class="agent-selection-actions">
-                <button type="button" @onclick="SelectAll" disabled="@(!VisibleAlerts.Any())">Select all</button>
-                <button type="button" @onclick="ClearSelection" disabled="@(!selectedAlertIds.Any())">Clear</button>
+                <button type="button" @onclick="SelectAll" disabled="@(!VisibleAlerts.Any())">@Text["Prompt.SelectAll"]</button>
+                <button type="button" @onclick="ClearSelection" disabled="@(!selectedAlertIds.Any())">@Text["Common.Clear"]</button>
             </div>
         </div>
 
+        @if (alertLoadError is not null)
+        {
+            <p class="agent-job-error" role="alert">@alertLoadError</p>
+            <button type="button" @onclick="() => ReloadAlertsAsync(selectDefaults: false)">@Text["AdminScheduledQueries.Refresh"]</button>
+        }
         @if (isLoading)
         {
-            <p class="agent-empty">Loading alerts...</p>
+            <p class="agent-empty">@Text["Prompt.LoadingAlerts"]</p>
         }
-        else if (!VisibleAlerts.Any())
+        else if (alertLoadError is null && !VisibleAlerts.Any())
         {
-            <p class="agent-empty">No alerts match this scope.</p>
+            <p class="agent-empty">@Text["Prompt.NoAlerts"]</p>
         }
         else
         {
@@ -169,31 +177,35 @@
     <section class="agent-prompt" aria-labelledby="agent-prompt-heading">
         <div class="agent-section-heading">
             <div>
-                <p class="eyebrow">Preview</p>
-                <h2 id="agent-prompt-heading">Incident analysis prompt</h2>
+                <p class="eyebrow">@Text["AdminAnalysisQueries.Preview"]</p>
+                <h2 id="agent-prompt-heading">@Text["Prompt.IncidentPrompt"]</h2>
             </div>
-            <span class="agent-prompt-size">@GeneratedPrompt.Length characters</span>
+            <span class="agent-prompt-size">@Text.Plural("Prompt.Characters", PreviewPrompt.Length)</span>
         </div>
 
-        <textarea class="agent-prompt-preview" readonly aria-label="Generated Copilot prompt" value="@GeneratedPrompt"></textarea>
+        <textarea class="agent-prompt-preview" readonly aria-label="@Text["Prompt.GeneratedPrompt"]" value="@PreviewPrompt"></textarea>
 
         <div class="agent-handoff">
             <span class="agent-copy-status" role="status">@copyStatus</span>
-            <button class="agent-copy" type="button" disabled="@(!CanStartConfiguredMode || isSavingJob || isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError))" @onclick="CreateJobAsync">
-                @(isSavingJob ? "Creating job..." : PrimaryActionLabel)
+            <button class="agent-copy" type="button" disabled="@(!CanStartConfiguredMode || alertLoadError is not null || isSavingJob || jobReloadRequired || isSavingReview || isRefreshingJob || isCopyingClipboard || isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError))" @onclick="CreateJobAsync">
+                @(isSavingJob ? Text["Prompt.CreatingJob"] : PrimaryActionLabel)
             </button>
-            <button class="agent-copy" type="button" disabled="@(isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError))" @onclick="CopyPromptAsync">
-                @(isGenerating ? "Building snapshot..." : "Copy prompt")
+            <button class="agent-copy" type="button" disabled="@(isCopyingClipboard || isSavingReview || alertLoadError is not null || isGenerating || !SelectedAlerts.Any() || !string.IsNullOrWhiteSpace(generationError) || string.IsNullOrWhiteSpace(GeneratedPrompt))" @onclick="CopyPromptAsync">
+                @Text[isCopyingClipboard ? "Prompt.Copying" : isGenerating ? "Prompt.BuildingSnapshot" : "Prompt.Copy"]
             </button>
-            <a class="agent-open" href="https://copilot.microsoft.com/" target="_blank" rel="noopener noreferrer">Open Copilot</a>
+            <a class="agent-open" href="https://copilot.microsoft.com/" target="_blank" rel="noopener noreferrer">@Text["Prompt.OpenCopilot"]</a>
         </div>
+        @if (copyError is not null)
+        {
+            <p class="agent-footnote" role="alert">@copyError</p>
+        }
         @if (!string.IsNullOrWhiteSpace(generationError))
         {
             <p class="agent-footnote" role="alert">@generationError</p>
         }
         else
         {
-            <p class="agent-footnote">Operator comments and raw alert JSON are excluded. Historical evidence is tiered and carries its selection reason and relationship to primary events.</p>
+            <p class="agent-footnote">@Text["Prompt.EvidenceHelp"]</p>
         }
     </section>
 </div>
@@ -201,20 +213,20 @@
 <section class="agent-jobs" aria-labelledby="agent-jobs-heading">
     <div class="agent-section-heading">
         <div>
-            <p class="eyebrow">Persisted analysis</p>
-            <h2 id="agent-jobs-heading">Recent jobs</h2>
+            <p class="eyebrow">@Text["Prompt.PersistedAnalysis"]</p>
+            <h2 id="agent-jobs-heading">@Text["Prompt.RecentJobs"]</h2>
         </div>
         @if (activeJob is not null)
         {
-            <button class="agent-copy" type="button" disabled="@isRefreshingJob" @onclick="RefreshActiveJobAsync">
-                @(isRefreshingJob ? "Refreshing..." : "Refresh status")
+            <button class="agent-copy" type="button" disabled="@(isRefreshingJob || isSavingReview)" @onclick="RefreshActiveJobAsync">
+                @Text[isRefreshingJob ? "Common.Refreshing" : "AdminScheduledQueries.Refresh"]
             </button>
         }
     </div>
 
     @if (!CanCreateJob)
     {
-        <p class="agent-footnote">Operator or administrator access is required to create and view analysis jobs.</p>
+        <p class="agent-footnote">@Text["Prompt.AccessHelp"]</p>
     }
     else
     {
@@ -222,17 +234,23 @@
         {
             <p class="agent-job-error" role="alert">@jobError</p>
         }
-        @if (recentJobs.Count == 0)
+        @if (jobReloadRequired)
         {
-            <p class="agent-job-empty">No persisted analysis jobs are available for this operator.</p>
+            <button type="button" disabled="@(isSavingJob || isSavingReview || isRefreshingJob)" @onclick="RefreshJobHistoryAsync">
+                @Text["Prompt.Job.RefreshHistory"]
+            </button>
+        }
+        @if (recentJobs.Count == 0 && string.IsNullOrWhiteSpace(jobError))
+        {
+            <p class="agent-job-empty">@Text["Prompt.NoJobs"]</p>
         }
         else
         {
             <div class="agent-job-layout">
-                <div class="agent-job-list" aria-label="Recent analysis jobs">
+                <div class="agent-job-list" aria-label="@Text["Prompt.RecentJobsLabel"]">
                     @foreach (var job in recentJobs)
                     {
-                        <button type="button" class="@(activeJob?.Id == job.Id ? "selected" : null)" @onclick="() => SelectJobAsync(job.Id)">
+                        <button type="button" disabled="@(isSavingReview || isSavingJob || isRefreshingJob)" class="@(activeJob?.Id == job.Id ? "selected" : null)" @onclick="() => SelectJobAsync(job.Id)">
                             <span><strong>@job.ScopeValue</strong><small>@job.ScopeType · @job.Mode</small></span>
                             <span class="agent-job-state">@job.Status</span>
                             <time datetime="@job.CreatedAt.ToString("O")">@job.CreatedAt.ToLocalTime().ToString("g")</time>
@@ -243,17 +261,17 @@
                 <div class="agent-job-detail">
                     @if (activeJob is null)
                     {
-                        <p class="agent-job-empty">Select a job to inspect its status and result.</p>
+                        <p class="agent-job-empty">@Text["Prompt.SelectJob"]</p>
                     }
                     else
                     {
                         <dl class="agent-job-metadata">
-                            <div><dt>Status</dt><dd>@activeJob.Status</dd></div>
-                            <div><dt>Analysis ID</dt><dd><code>@activeJob.AnalysisId</code></dd></div>
-                            <div><dt>Version</dt><dd>@activeJob.ResultVersion</dd></div>
-                            <div><dt>Mode / profile</dt><dd>@activeJob.Mode / @DisplayValue(activeJob.ExecutionProfile, "none")</dd></div>
-                            <div><dt>Evidence window</dt><dd>@activeJob.DataFrom.ToLocalTime().ToString("g") – @activeJob.DataTo.ToLocalTime().ToString("g")</dd></div>
-                            <div><dt>Retention</dt><dd>Until @activeJob.ExpiresAt.ToLocalTime().ToString("g")</dd></div>
+                            <div><dt>@Text["AdminScheduledQueries.Status"]</dt><dd>@activeJob.Status</dd></div>
+                            <div><dt>@Text["Prompt.AnalysisId"]</dt><dd><code>@activeJob.AnalysisId</code></dd></div>
+                            <div><dt>@Text["Prompt.Version"]</dt><dd>@activeJob.ResultVersion</dd></div>
+                            <div><dt>@Text["Prompt.ModeProfile"]</dt><dd>@activeJob.Mode / @DisplayValue(activeJob.ExecutionProfile, Text["Prompt.NoProfile"])</dd></div>
+                            <div><dt>@Text["Prompt.EvidenceWindow"]</dt><dd>@activeJob.DataFrom.ToLocalTime().ToString("g") – @activeJob.DataTo.ToLocalTime().ToString("g")</dd></div>
+                            <div><dt>@Text["Prompt.Retention"]</dt><dd>@Text.Format("Prompt.Until", activeJob.ExpiresAt.ToLocalTime().ToString("g"))</dd></div>
                         </dl>
                         @if (!string.IsNullOrWhiteSpace(activeJob.StatusReason))
                         {
@@ -261,11 +279,11 @@
                         }
                         @if (!string.IsNullOrWhiteSpace(activeJob.ErrorMessage))
                         {
-                            <p class="agent-job-error" role="alert"><strong>@DisplayValue(activeJob.ErrorCode, "Analysis failed"):</strong> @activeJob.ErrorMessage</p>
+                            <p class="agent-job-error" role="alert"><strong>@DisplayValue(activeJob.ErrorCode, Text["Prompt.AnalysisFailed"]):</strong> @activeJob.ErrorMessage</p>
                         }
                         @if (activeJob.Status == AgentAnalysisJobStatuses.Completed)
                         {
-                            <a class="agent-download" href="@AttachmentPath(activeJob.Id)">Download Markdown</a>
+                            <a class="agent-download" href="@AttachmentPath(activeJob.Id)">@Text["Prompt.Download"]</a>
                         }
                     }
                 </div>
@@ -279,14 +297,14 @@
     <section class="agent-result" aria-labelledby="agent-result-heading">
         <div class="agent-section-heading">
             <div>
-                <p class="eyebrow">Validated result</p>
-                <h2 id="agent-result-heading">Full analysis</h2>
+                <p class="eyebrow">@Text["Prompt.ValidatedResult"]</p>
+                <h2 id="agent-result-heading">@Text["Prompt.FullAnalysis"]</h2>
             </div>
             <span class="agent-prompt-size">@activeResult.ContractVersion · v@activeResult.ResultVersion</span>
         </div>
 
         <div class="agent-result-section">
-            <h3>Teams summary</h3>
+            <h3>@Text["Prompt.TeamsSummary"]</h3>
             <ul>
                 @foreach (var bullet in activeResult.TeamsSummary)
                 {
@@ -297,13 +315,13 @@
 
         <div class="agent-result-grid">
             <section class="agent-result-section">
-                <h3>Observed facts</h3>
+                <h3>@Text["Prompt.ObservedFacts"]</h3>
                 @foreach (var statement in StatementsByKind("ObservedFact"))
                 {
                     <article>
                         <span class="agent-result-kind">@statement.Kind</span>
                         <p>@statement.Text</p>
-                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        <small>@Text.Format("Prompt.EvidenceRules", DisplayIds(statement.EvidenceIds), DisplayIds(statement.RuleIds))</small>
                         @foreach (var source in ResolveSources(statement.SourceIds))
                         {
                             <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
@@ -313,13 +331,13 @@
             </section>
 
             <section class="agent-result-section">
-                <h3>Rule assessments</h3>
+                <h3>@Text["Prompt.RuleAssessments"]</h3>
                 @foreach (var statement in StatementsByKind("RuleAssessment"))
                 {
                     <article>
                         <span class="agent-result-kind">@statement.Kind</span>
                         <p>@statement.Text</p>
-                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        <small>@Text.Format("Prompt.EvidenceRules", DisplayIds(statement.EvidenceIds), DisplayIds(statement.RuleIds))</small>
                         @foreach (var source in ResolveSources(statement.SourceIds))
                         {
                             <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
@@ -329,13 +347,13 @@
             </section>
 
             <section class="agent-result-section">
-                <h3>Correlations and contradictions</h3>
+                <h3>@Text["Prompt.Correlations"]</h3>
                 @foreach (var statement in StatementsByKind("GraphCorrelation", "HistoricalPattern", "Contradiction"))
                 {
                     <article>
                         <span class="agent-result-kind">@statement.Kind</span>
                         <p>@statement.Text</p>
-                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        <small>@Text.Format("Prompt.EvidenceRules", DisplayIds(statement.EvidenceIds), DisplayIds(statement.RuleIds))</small>
                         @foreach (var source in ResolveSources(statement.SourceIds))
                         {
                             <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
@@ -345,38 +363,38 @@
             </section>
 
             <section class="agent-result-section">
-                <h3>Open evidence</h3>
+                <h3>@Text["Prompt.OpenEvidence"]</h3>
                 @foreach (var statement in StatementsByKind("MissingEvidence"))
                 {
                     <article>
                         <span class="agent-result-kind">@statement.Kind</span>
                         <p>@statement.Text</p>
-                        <small>Evidence: @DisplayIds(statement.EvidenceIds) · Rules: @DisplayIds(statement.RuleIds)</small>
+                        <small>@Text.Format("Prompt.EvidenceRules", DisplayIds(statement.EvidenceIds), DisplayIds(statement.RuleIds))</small>
                     </article>
                 }
             </section>
 
             <section class="agent-result-section">
-                <h3>Hypotheses</h3>
+                <h3>@Text["Prompt.Hypotheses"]</h3>
                 @foreach (var hypothesis in activeResult.DetailedAnalysis.Hypotheses)
                 {
                     <article>
-                        <strong class="agent-confidence">Confidence: @hypothesis.Confidence</strong>
+                        <strong class="agent-confidence">@Text.Format("Prompt.Confidence", Convert.ToString(hypothesis.Confidence, CultureInfo.CurrentCulture))</strong>
                         <p>@hypothesis.Statement</p>
-                        <small>Supporting evidence: @DisplayIds(hypothesis.SupportingEvidenceIds) · Contradicting evidence: @DisplayIds(hypothesis.ContradictingEvidenceIds)</small>
-                        <small>Confirm or reject with: @hypothesis.ConfirmationOrRejectionEvidence</small>
+                        <small>@Text.Format("Prompt.SupportingEvidence", DisplayIds(hypothesis.SupportingEvidenceIds), DisplayIds(hypothesis.ContradictingEvidenceIds))</small>
+                        <small>@Text.Format("Prompt.ConfirmWith", hypothesis.ConfirmationOrRejectionEvidence)</small>
                     </article>
                 }
             </section>
 
             <section class="agent-result-section">
-                <h3>Recommended checks</h3>
+                <h3>@Text["Prompt.Checks"]</h3>
                 @foreach (var check in activeResult.DetailedAnalysis.RecommendedChecks)
                 {
                     <article>
                         <strong>@check.Action</strong>
-                        <p>@check.Target · Expected: @check.ExpectedSignal</p>
-                        <small>Impact: @check.Impact · Prerequisites: @check.Prerequisites · Rollback: @check.Rollback</small>
+                        <p>@Text.Format("Prompt.Expected", check.Target, check.ExpectedSignal)</p>
+                        <small>@Text.Format("Prompt.Impact", check.Impact, check.Prerequisites, check.Rollback)</small>
                         @foreach (var source in ResolveSources(check.SourceIds))
                         {
                             <a href="@source.Url" target="_blank" rel="noopener noreferrer">@source.Title</a>
@@ -386,32 +404,36 @@
             </section>
 
             <section class="agent-result-section">
-                <h3>Operator handoff</h3>
-                <p><strong>Decision:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.CurrentDecision</p>
-                <p><strong>Unresolved risk:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.UnresolvedRisk</p>
-                <p><strong>Missing evidence:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.MissingEvidence</p>
-                <p><strong>Audience:</strong> @activeResult.DetailedAnalysis.OperatorHandoff.Audience</p>
+                <h3>@Text["Prompt.Handoff"]</h3>
+                <p><strong>@Text["Prompt.Decision"]</strong> @activeResult.DetailedAnalysis.OperatorHandoff.CurrentDecision</p>
+                <p><strong>@Text["Prompt.Risk"]</strong> @activeResult.DetailedAnalysis.OperatorHandoff.UnresolvedRisk</p>
+                <p><strong>@Text["Prompt.MissingEvidence"]</strong> @activeResult.DetailedAnalysis.OperatorHandoff.MissingEvidence</p>
+                <p><strong>@Text["Prompt.Audience"]</strong> @activeResult.DetailedAnalysis.OperatorHandoff.Audience</p>
             </section>
         </div>
 
         <section class="agent-review" aria-labelledby="agent-review-heading">
             <div>
-                <h3 id="agent-review-heading">Operator review</h3>
-                <p>Actions are recorded against analysis @activeResult.AnalysisId, result version @activeResult.ResultVersion.</p>
+                <h3 id="agent-review-heading">@Text["Prompt.Review"]</h3>
+                <p>@Text.Format("Prompt.ReviewHelp", activeResult.AnalysisId, activeResult.ResultVersion.ToString(CultureInfo.CurrentCulture))</p>
             </div>
             <label>
-                <span>Review comment</span>
-                <textarea rows="3" maxlength="4000" @bind="reviewComment" placeholder="Required when commenting or rejecting"></textarea>
+                <span>@Text["Prompt.ReviewComment"]</span>
+                <textarea rows="3" maxlength="4000" @bind="reviewComment" disabled="@isSavingReview" placeholder="@Text["Prompt.ReviewPlaceholder"]"></textarea>
             </label>
             <div class="agent-review-actions">
-                <button type="button" disabled="@isSavingReview" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Accepted)">Accept</button>
-                <button type="button" disabled="@(isSavingReview || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Commented)">Add comment</button>
-                <button class="danger" type="button" disabled="@(isSavingReview || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Rejected)">Reject</button>
-                <button type="button" disabled="@isSavingReview" @onclick="CopyHandoffAsync">Copy handoff</button>
+                <button type="button" disabled="@ReviewActionsUnavailable" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Accepted)">@Text["Prompt.Accept"]</button>
+                <button type="button" disabled="@(ReviewActionsUnavailable || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Commented)">@Text["Prompt.AddComment"]</button>
+                <button class="danger" type="button" disabled="@(ReviewActionsUnavailable || string.IsNullOrWhiteSpace(reviewComment))" @onclick="() => SubmitReviewAsync(AgentAnalysisReviewActions.Rejected)">@Text["Prompt.Reject"]</button>
+                <button type="button" disabled="@ReviewActionsUnavailable" @onclick="CopyHandoffAsync">@Text["Prompt.CopyHandoff"]</button>
             </div>
             @if (!string.IsNullOrWhiteSpace(reviewStatus))
             {
                 <p class="agent-copy-status" role="status">@reviewStatus</p>
+            }
+            @if (reviewError is not null)
+            {
+                <p class="admin-message admin-message-error" role="alert">@reviewError</p>
             }
             @if (reviewEvents.Count > 0)
             {
@@ -455,7 +477,18 @@
     private bool isSavingJob;
     private bool isRefreshingJob;
     private bool isSavingReview;
+    private bool reviewReloadRequired;
+    private string? reviewError;
+    private bool ReviewActionsUnavailable => disposed || isCopyingClipboard || isSavingReview || reviewReloadRequired || jobReloadRequired || isSavingJob || isRefreshingJob;
+    private bool jobReloadRequired;
+    private string? alertLoadError;
+    private int alertReloadVersion;
+    private bool disposed;
     private string copyStatus = string.Empty;
+    private string? copyError;
+    private bool isCopyingClipboard;
+    private int promptVersion;
+    private readonly CancellationTokenSource clipboardCancellation = new();
     private string generatedPrompt = "Select at least one alert to prepare an incident analysis prompt.";
     private string? generationError;
     private string? jobError;
@@ -481,15 +514,17 @@
     private bool CanStartConfiguredMode => CanCreateJob && Orchestrator.ExecutionState.IsEnabled;
 
     private string GeneratedPrompt => generatedPrompt;
+    private string PreviewPrompt => SelectedAlerts.Count == 0 && generationError is null ? Text["Prompt.SelectAlert"] : GeneratedPrompt;
     private string PrimaryActionLabel => Orchestrator.ExecutionState.Mode switch
     {
-        AgentAnalysisExecutionModes.TeamsWorkflow => "Send to Teams workflow",
-        AgentAnalysisExecutionModes.Api => "Start analysis via API",
-        _ => "Create analysis job"
+        AgentAnalysisExecutionModes.TeamsWorkflow => Text["Prompt.SendTeams"],
+        AgentAnalysisExecutionModes.Api => Text["Prompt.StartApi"],
+        _ => Text["Prompt.CreateJob"]
     };
     private string ExecutionNotice => Orchestrator.ExecutionState.IsEnabled
-        ? $"Mode: {Orchestrator.ExecutionState.Mode}. No alert data is sent automatically. The prompt includes primary evidence, target history, 24-hour context, lifecycles, graph, inventory, and rule decisions."
-        : $"Mode: {Orchestrator.ExecutionState.Mode}. {Orchestrator.ExecutionState.DisabledReason}";
+        ? Text.Format("Prompt.ExecutionNotice", Orchestrator.ExecutionState.Mode)
+        : Text.Format("Prompt.DisabledNotice", Orchestrator.ExecutionState.Mode,
+            AgentAnalysisErrorPresentation.DisabledReason(Orchestrator.ExecutionState, Text));
 
     protected override async Task OnInitializedAsync()
     {
@@ -497,20 +532,55 @@
         await ReloadAlertsAsync(selectDefaults: true);
         if (CanCreateJob)
         {
-            await ReloadRecentJobsAsync();
+            try
+            {
+                await ReloadRecentJobsAsync();
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not load the initial analysis job history.");
+                jobError = exception is AgentAnalysisJobValidationException ? JobStartError(exception) : ResultError(exception);
+            }
         }
         AlertStore.Changed += HandleStoreChanged;
     }
 
-    private void HandleStoreChanged() => _ = InvokeAsync(() => ReloadAlertsAsync(selectDefaults: false));
+    private void HandleStoreChanged()
+    {
+        if (!disposed) _ = InvokeAsync(() => ReloadAlertsAsync(selectDefaults: false));
+    }
 
     private async Task ReloadAlertsAsync(bool selectDefaults)
     {
-        alerts = await AlertStore.GetAllAsync();
-        isLoading = false;
-        SyncSelection(selectDefaults);
-        await GeneratePromptAsync();
-        await InvokeAsync(StateHasChanged);
+        if (disposed) return;
+        var version = ++alertReloadVersion;
+        try
+        {
+            var loaded = await AlertStore.GetAllRequiredAsync();
+            if (disposed || version != alertReloadVersion) return;
+            alerts = loaded;
+            alertLoadError = null;
+            SyncSelection(selectDefaults);
+            await GeneratePromptAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not reload alerts for the analysis workspace.");
+            if (!disposed && version == alertReloadVersion)
+            {
+                alertLoadError = Text["Prompt.AlertLoadFailed"];
+                promptCancellation?.Cancel();
+                isGenerating = false;
+            }
+        }
+        finally
+        {
+            if (!disposed && version == alertReloadVersion)
+            {
+                isLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
     }
 
     private async Task ChangeScope(ChangeEventArgs args)
@@ -624,14 +694,83 @@
 
     private async Task CopyPromptAsync()
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GeneratedPrompt);
-        copyStatus = "Prompt copied. Review it once more before pasting.";
+        if (disposed || isCopyingClipboard || isSavingReview) return;
+        copyStatus = string.Empty;
+        copyError = null;
+        if (alertLoadError is not null)
+        {
+            Logger.LogWarning("Cannot copy an analysis prompt while its alert source is unavailable.");
+            copyError = Text["Prompt.AlertLoadFailed"];
+            return;
+        }
+        if (isGenerating || generationError is not null || !SelectedAlerts.Any() || string.IsNullOrWhiteSpace(GeneratedPrompt))
+        {
+            Logger.LogWarning("Cannot copy an analysis prompt without a current valid selection and prepared prompt.");
+            copyError = Text["Prompt.CopyUnavailable"];
+            return;
+        }
+        var version = promptVersion;
+        var text = GeneratedPrompt;
+        if (await CopyTextToClipboardAsync(text, handoff: false))
+            copyStatus = Text[version == promptVersion && GeneratedPrompt == text && alertLoadError is null && !isGenerating
+                ? "Prompt.Copied" : "Prompt.CopiedPrevious"];
+    }
+
+    private async Task<bool> CopyTextToClipboardAsync(string text, bool handoff)
+    {
+        if (disposed || isCopyingClipboard) return false;
+        isCopyingClipboard = true;
+        var cancellationToken = clipboardCancellation.Token;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", cancellationToken, text);
+            return !disposed && !cancellationToken.IsCancellationRequested;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (JSDisconnectedException) when (disposed)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not confirm the analysis clipboard copy for {Kind}.", handoff ? "handoff" : "prompt");
+            if (!disposed)
+            {
+                if (handoff) reviewError = Text["Prompt.Review.ClipboardFailed"];
+                else copyError = Text["Prompt.CopyFailed"];
+            }
+            return false;
+        }
+        finally
+        {
+            isCopyingClipboard = false;
+        }
     }
 
     private async Task CreateJobAsync()
     {
+        if (disposed || isCopyingClipboard || isSavingReview || isRefreshingJob || isSavingJob || jobReloadRequired) return;
+        if (alertLoadError is not null)
+        {
+            Logger.LogWarning("Cannot start an analysis job while its alert source is unavailable.");
+            jobError = Text["Prompt.AlertLoadFailed"];
+            return;
+        }
+        if (!CanStartConfiguredMode)
+        {
+            Logger.LogWarning("The current user or execution mode cannot start an analysis job.");
+            jobError = CanCreateJob
+                ? AgentAnalysisErrorPresentation.DisabledReason(Orchestrator.ExecutionState, Text)
+                : Text["Prompt.AccessHelp"];
+            return;
+        }
         isSavingJob = true;
         jobError = null;
+        copyStatus = string.Empty;
+        var confirmed = false;
         try
         {
             var response = await JobService.StartAsync(
@@ -644,19 +783,33 @@
                     IncludeSystemHistory: includeSystemHistory,
                     IncludeRelatedContext: includeRelatedContext),
                 currentUser);
+            confirmed = true;
             generatedPrompt = response.ManualPrompt;
+            if (activeJob?.Id != response.Job.Id ||
+                activeResult is null ||
+                activeResult.AnalysisId != response.Job.AnalysisId ||
+                activeResult.ResultVersion != response.Job.ResultVersion)
+            {
+                activeResult = null;
+                reviewEvents = [];
+                reviewStatus = null;
+            }
             activeJob = response.Job;
+            copyStatus = Text["Prompt.JobCreated"];
             await ReloadRecentJobsAsync();
             await LoadActiveResultAsync(response.Job.Id);
-            copyStatus = "Analysis job created. Review and copy the manual prompt when ready.";
         }
-        catch (Exception exception) when (exception is
-            AgentAnalysisRequestValidationException or
-            AgentAnalysisScopeDeniedException or
-            AgentAnalysisUnavailableException or
-            InvalidOperationException)
+        catch (Exception exception)
         {
-            jobError = exception.Message;
+            if (!confirmed && IsJobStartRejection(exception))
+                Logger.LogWarning(exception, "Analysis job request was rejected.");
+            else
+            {
+                Logger.LogError(exception, "Could not confirm or reload the analysis job. Confirmed: {Confirmed}.", confirmed);
+                jobReloadRequired = true;
+                reviewReloadRequired = true;
+            }
+            jobError = confirmed ? Text["Prompt.Job.CreatedReloadFailed"] : JobStartError(exception);
         }
         finally
         {
@@ -669,14 +822,84 @@
         recentJobs = await JobService.ListAccessibleAsync(currentUser);
     }
 
+    private async Task RefreshJobHistoryAsync()
+    {
+        if (isSavingReview || isSavingJob || isRefreshingJob) return;
+        isRefreshingJob = true;
+        try
+        {
+            await ReloadRecentJobsAsync();
+            if (activeJob is not null) await LoadActiveResultAsync(activeJob.Id);
+            jobReloadRequired = false;
+            jobError = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not refresh analysis job history after an unconfirmed start or reload.");
+            jobError = ResultError(exception);
+        }
+        finally
+        {
+            isRefreshingJob = false;
+        }
+    }
+
+    private static bool IsJobStartRejection(Exception exception) => exception switch
+    {
+        AgentAnalysisRequestValidationException or AgentAnalysisUnavailableException => true,
+        AgentAnalysisScopeDeniedException { Code: { } code } => Enum.IsDefined(code),
+        AgentAnalysisJobValidationException validation => Enum.IsDefined(validation.Code),
+        _ => SnapshotCode(exception) is not null
+    };
+
+    private string JobStartError(Exception exception) => exception switch
+    {
+        AgentAnalysisRequestValidationException => Text["Prompt.Job.RequestInvalid"],
+        AgentAnalysisUnavailableException => Text["Prompt.Job.Unavailable"],
+        AgentAnalysisScopeDeniedException { Code: { } code } when Enum.IsDefined(code) => Text[$"Prompt.Job.{code}"],
+        AgentAnalysisJobValidationException validation when Enum.IsDefined(validation.Code) => Text[$"Prompt.Job.{validation.Code}"],
+        _ => SnapshotError(exception, "Prompt.Job.StartFailed")
+    };
+
+    private static IncidentAnalysisSnapshotCode? SnapshotCode(Exception exception)
+    {
+        IncidentAnalysisSnapshotCode? code = exception switch
+        {
+            IncidentAnalysisSnapshotRangeException range => range.Code,
+            IncidentAnalysisSnapshotArgumentException argument => argument.Code,
+            IncidentAnalysisSnapshotException snapshot => snapshot.Code,
+            _ => null
+        };
+        return code is { } value && Enum.IsDefined(value) ? value : null;
+    }
+
+    private string SnapshotError(Exception exception, string fallbackKey) =>
+        SnapshotCode(exception) is { } code ? Text[$"Prompt.Snapshot.{code}"] : Text[fallbackKey];
+
     private async Task SelectJobAsync(Guid id)
     {
+        if (isSavingReview || isSavingJob || isRefreshingJob) return;
+        isRefreshingJob = true;
         jobError = null;
-        await LoadActiveResultAsync(id);
+        try
+        {
+            await LoadActiveResultAsync(id);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load analysis job {JobId} and its review history.", id);
+            reviewReloadRequired = true;
+            jobError = ResultError(exception);
+        }
+        finally
+        {
+            isRefreshingJob = false;
+        }
     }
 
     private async Task RefreshActiveJobAsync()
     {
+        if (isSavingReview || isSavingJob || isRefreshingJob) return;
         if (activeJob is null)
         {
             return;
@@ -688,6 +911,13 @@
         {
             await LoadActiveResultAsync(activeJob.Id);
             await ReloadRecentJobsAsync();
+            jobReloadRequired = false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not refresh the analysis job and its review history.");
+            reviewReloadRequired = true;
+            jobError = ResultError(exception);
         }
         finally
         {
@@ -702,50 +932,70 @@
         {
             activeJob = null;
             activeResult = null;
-            jobError = "The analysis job is no longer available.";
+            jobError = Text["Prompt.JobUnavailable"];
             return;
         }
 
-        activeJob = AgentAnalysisJobResponse.FromJob(job);
-        activeResult = null;
-        reviewEvents = [];
-        reviewStatus = null;
+        AgentAnalysisResult? loadedResult = null;
+        IReadOnlyList<AgentAnalysisReviewEvent> loadedReviews = [];
         if (job.Status == AgentAnalysisJobStatuses.Completed && !string.IsNullOrWhiteSpace(job.ResultJson))
         {
-            try
-            {
-                activeResult = AgentAnalysisResultParser.ParseStored(job.ResultJson);
-                reviewEvents = await JobService.ListReviewsAsync(id, currentUser);
-            }
-            catch (InvalidOperationException)
-            {
-                jobError = "The stored result cannot be displayed because its schema is invalid.";
-            }
+            loadedResult = AgentAnalysisResultParser.ParseStored(job.ResultJson);
+            loadedReviews = await JobService.ListReviewsAsync(id, currentUser);
         }
+        activeJob = AgentAnalysisJobResponse.FromJob(job);
+        activeResult = loadedResult;
+        reviewEvents = loadedReviews;
+        reviewStatus = null;
+        jobError = null;
+        reviewReloadRequired = false;
+        reviewError = null;
     }
 
     private async Task SubmitReviewAsync(string action, string? comment = null)
     {
+        if (ReviewActionsUnavailable) return;
         if (activeJob is null || activeResult is null)
         {
+            Logger.LogWarning("Cannot review an analysis without a selected result.");
+            reviewError = Text["Prompt.Review.ResultRequired"];
             return;
         }
 
         isSavingReview = true;
         reviewStatus = null;
+        reviewError = null;
+        var jobId = activeJob.Id;
+        var version = activeResult.ResultVersion;
         try
         {
             var effectiveComment = comment ?? (action is AgentAnalysisReviewActions.Commented or AgentAnalysisReviewActions.Rejected
                 ? reviewComment
                 : null);
-            await JobService.ReviewAsync(activeJob.Id, currentUser, action, effectiveComment);
-            reviewEvents = await JobService.ListReviewsAsync(activeJob.Id, currentUser);
+            await JobService.ReviewAsync(jobId, currentUser, action, effectiveComment);
             reviewComment = string.Empty;
-            reviewStatus = $"{action} recorded for result version {activeResult.ResultVersion}.";
+            reviewStatus = Text.Format("Prompt.ReviewRecorded", action, version.ToString(CultureInfo.CurrentCulture));
+            try
+            {
+                reviewEvents = await JobService.ListReviewsAsync(jobId, currentUser);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Review was saved but its history could not be reloaded for job {JobId}.", jobId);
+                reviewReloadRequired = true;
+                reviewError = Text["Prompt.Review.ReloadFailed"];
+            }
         }
-        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+        catch (Exception exception)
         {
-            reviewStatus = exception.Message;
+            if (exception is AgentAnalysisReviewValidationException or KeyNotFoundException or UnauthorizedAccessException)
+                Logger.LogWarning(exception, "Analysis review rejected for job {JobId}.", jobId);
+            else
+            {
+                Logger.LogError(exception, "Analysis review write outcome is unknown for job {JobId}.", jobId);
+                reviewReloadRequired = true;
+            }
+            reviewError = ReviewError(exception);
         }
         finally
         {
@@ -755,20 +1005,60 @@
 
     private async Task CopyHandoffAsync()
     {
-        if (activeResult is null)
+        if (ReviewActionsUnavailable) return;
+        if (activeResult is null || activeJob is null)
         {
+            Logger.LogWarning("Cannot copy an analysis handoff without a selected result.");
+            reviewError = Text["Prompt.Review.ResultRequired"];
             return;
         }
 
         var handoff = activeResult.DetailedAnalysis.OperatorHandoff;
+        var jobId = activeJob.Id;
+        var resultVersion = activeResult.ResultVersion;
+        reviewStatus = null;
+        reviewError = null;
         var text = string.Join(Environment.NewLine,
             $"Decision: {handoff.CurrentDecision}",
             $"Unresolved risk: {handoff.UnresolvedRisk}",
             $"Missing evidence: {handoff.MissingEvidence}",
             $"Audience: {handoff.Audience}");
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        isSavingReview = true;
+        try
+        {
+            if (!await CopyTextToClipboardAsync(text, handoff: true)) return;
+        }
+        finally
+        {
+            isSavingReview = false;
+        }
+        if (disposed) return;
+        if (activeJob?.Id != jobId || activeResult?.ResultVersion != resultVersion)
+        {
+            Logger.LogWarning("The selected analysis result changed while its handoff was being copied.");
+            reviewError = Text["Prompt.Review.CopySelectionChanged"];
+            return;
+        }
         await SubmitReviewAsync(AgentAnalysisReviewActions.HandoffCopied);
+        if (reviewError is not null && reviewStatus is null)
+            reviewError = Text["Prompt.Review.CopyAuditFailed"];
     }
+
+    private string ReviewError(Exception exception) => exception switch
+    {
+        AgentAnalysisReviewValidationException validation when Enum.IsDefined(validation.Code) =>
+            Text[$"Prompt.Review.{validation.Code}"],
+        KeyNotFoundException => Text["Prompt.JobUnavailable"],
+        UnauthorizedAccessException => Text["Prompt.Review.NotAllowed"],
+        _ => Text["Prompt.Review.SaveFailed"]
+    };
+
+    private string ResultError(Exception exception) => exception switch
+    {
+        AgentAnalysisResultException result when Enum.IsDefined(result.Code) =>
+            Text[$"Prompt.Result.{result.Code}"],
+        _ => Text["Prompt.Review.HistoryLoadFailed"]
+    };
 
     private string ScopeValue()
     {
@@ -789,20 +1079,20 @@
         return SourceCatalog.ApprovedSources.Where(source => ids.Contains(source.Id)).ToArray();
     }
 
-    private static string DisplayValues(IEnumerable<string> values)
+    private string DisplayValues(IEnumerable<string> values)
     {
         var distinct = values
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        return distinct.Length == 0 ? "None" : string.Join(", ", distinct);
+        return distinct.Length == 0 ? Text["Common.None"] : string.Join(", ", distinct);
     }
 
-    private static string DisplayIds(IEnumerable<Guid> ids)
+    private string DisplayIds(IEnumerable<Guid> ids)
     {
         var values = ids.Select(id => id.ToString()).ToArray();
-        return values.Length == 0 ? "None" : string.Join(", ", values);
+        return values.Length == 0 ? Text["Common.None"] : string.Join(", ", values);
     }
 
     private static string DisplayValue(string? value, string fallback) =>
@@ -812,7 +1102,7 @@
     {
         if (previewSnapshot is null)
         {
-            return isGenerating ? "Calculating..." : "None";
+            return Text[isGenerating ? "Prompt.Calculating" : "Common.None"];
         }
 
         var decisions = previewSnapshot.PrimaryEvidence
@@ -822,8 +1112,8 @@
         return string.Join(", ", decisions);
     }
 
-    private static string HistoryPreview(int? count, bool included, string range) =>
-        included ? $"{count ?? 0} events / {range}" : "Excluded by operator";
+    private string HistoryPreview(int? count, bool included, string range) =>
+        included ? Text.Format("Prompt.HistoryPreview", count ?? 0, range) : Text["Prompt.Excluded"];
 
     private static string AttachmentPath(Guid id) => $"/api/agent-analysis/jobs/{id:D}/attachment";
 
@@ -839,13 +1129,22 @@
         ? []
         :
         [
-            new("Primary evidence", previewSnapshot.PrimaryEvidence, true),
-            new("System history", previewSnapshot.SystemHistory, includeSystemHistory),
-            new("Related context", previewSnapshot.Context24Hours, includeRelatedContext)
+            new(Text["Prompt.PrimaryEvidence"], previewSnapshot.PrimaryEvidence, true),
+            new(Text["Prompt.SystemHistory"], previewSnapshot.SystemHistory, includeSystemHistory),
+            new(Text["Prompt.RelatedContext"], previewSnapshot.Context24Hours, includeRelatedContext)
         ];
 
     private async Task GeneratePromptAsync()
     {
+        promptVersion++;
+        copyStatus = string.Empty;
+        copyError = null;
+        if (alertLoadError is not null)
+        {
+            Logger.LogWarning("Cannot generate an incident snapshot while its alert source is unavailable.");
+            generationError = Text["Prompt.AlertLoadFailed"];
+            return;
+        }
         promptCancellation?.Cancel();
         promptCancellation?.Dispose();
         promptCancellation = new CancellationTokenSource();
@@ -858,7 +1157,7 @@
         if (!Orchestrator.ExecutionState.IsEnabled)
         {
             generatedPrompt = string.Empty;
-            generationError = Orchestrator.ExecutionState.DisabledReason ?? "Agent analysis is disabled.";
+            generationError = AgentAnalysisErrorPresentation.DisabledReason(Orchestrator.ExecutionState, Text);
             isGenerating = false;
             return;
         }
@@ -890,16 +1189,28 @@
                     IncludeRelatedContext: includeRelatedContext,
                     InventoryCorrelationLayers: AnalysisContextOptions.InventoryCorrelationLayers),
                 cancellationToken: cancellationToken);
+            var prepared = Orchestrator.Prepare(snapshot);
+            if (cancellationToken.IsCancellationRequested) return;
             previewSnapshot = snapshot;
-            generatedPrompt = Orchestrator.Prepare(snapshot).Prompt;
+            generatedPrompt = prepared.Prompt;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            generatedPrompt = string.Empty;
-            generationError = $"The incident snapshot could not be generated: {exception.Message}";
+            if (SnapshotCode(exception) is not null ||
+                exception is AgentAnalysisJobValidationException { Code: AgentAnalysisJobValidationCode.ScopeUnsupported })
+                Logger.LogWarning(exception, "Incident analysis snapshot validation failed.");
+            else
+                Logger.LogError(exception, "Could not generate the incident analysis snapshot.");
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                generatedPrompt = string.Empty;
+                generationError = exception is AgentAnalysisJobValidationException { Code: AgentAnalysisJobValidationCode.ScopeUnsupported }
+                    ? Text["Prompt.Job.ScopeUnsupported"]
+                    : SnapshotError(exception, "Prompt.GenerationFailed");
+            }
         }
         finally
         {
@@ -917,9 +1228,14 @@
 
     public void Dispose()
     {
+        if (disposed) return;
+        disposed = true;
+        alertReloadVersion++;
         AlertStore.Changed -= HandleStoreChanged;
         promptCancellation?.Cancel();
         promptCancellation?.Dispose();
+        clipboardCancellation.Cancel();
+        clipboardCancellation.Dispose();
     }
 
     private sealed record EvidencePreviewGroup(

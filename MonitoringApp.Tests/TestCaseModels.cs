@@ -438,6 +438,7 @@ public sealed class AuthenticationTypeCase
     public string Type { get; init; } = string.Empty;
     public bool IsOpen { get; init; }
     public bool IsSql { get; init; }
+    public bool IsEntra { get; init; }
 }
 
 public sealed class AuthenticationRoleCase

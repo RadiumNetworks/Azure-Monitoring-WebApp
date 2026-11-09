@@ -1,14 +1,20 @@
 @page "/access-denied"
 @layout LoginLayout
 @attribute [AllowAnonymous]
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject UiText Text
 
-<PageTitle>Access denied</PageTitle>
+<PageTitle>@Text["AccessDenied.Title"]</PageTitle>
 
 <section class="login-shell">
     <div class="login-panel">
-        <p class="eyebrow">Restricted access</p>
-        <h1>Access denied</h1>
-        <p class="subtitle">Your account does not have the role required to open this page.</p>
-        <a class="admin-primary login-home-link" href="/">Return to Alert Console</a>
+        <p class="eyebrow">@Text["Authentication.RestrictedAccess"]</p>
+        <h1>@Text["AccessDenied.Title"]</h1>
+        <p class="subtitle">@Text["AccessDenied.Description"]</p>
+        <a class="admin-primary login-home-link" href="/">@Text["AccessDenied.ReturnToConsole"]</a>
+        @if (AuthenticationOptions.IsEntra)
+        {
+            <a class="admin-secondary login-home-link" href="/.auth/logout?post_logout_redirect_uri=/login">@Text["AccessDenied.UseAnotherAccount"]</a>
+        }
     </div>
 </section>

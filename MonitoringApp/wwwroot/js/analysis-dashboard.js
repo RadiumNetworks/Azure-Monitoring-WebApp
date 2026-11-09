@@ -3,6 +3,7 @@ import { initialize as initializeWidgets, dispose as disposeWidgets } from "./in
 const cleanups = new WeakMap();
 
 export function initialize(dotNetReference, root) {
+    dispose(root);
     initializeWidgets(dotNetReference, root);
     let draggedQuery = null;
     let preview = null;
@@ -59,8 +60,11 @@ export function initialize(dotNetReference, root) {
         const handle = event.target.closest("[data-analysis-panel-resize]");
         if (!handle || event.button !== 0) return;
         event.preventDefault();
+        cancelResize?.();
         const panel = handle.closest("[data-analysis-panel]");
         const bounds = panel.getBoundingClientRect();
+        const originalWidth = panel.style.width;
+        const originalHeight = panel.style.height;
         const startX = event.clientX;
         const startY = event.clientY;
         let width = Math.round(bounds.width);
@@ -77,18 +81,18 @@ export function initialize(dotNetReference, root) {
             handle.removeEventListener("pointermove", move);
             handle.removeEventListener("pointerup", stop);
             handle.removeEventListener("pointercancel", cancel);
+            if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
             cancelResize = null;
         };
         const cancel = () => {
             cleanup();
-            panel.style.width = `${bounds.width}px`;
-            panel.style.height = `${bounds.height}px`;
+            panel.style.width = originalWidth;
+            panel.style.height = originalHeight;
         };
         const stop = async () => {
             cleanup();
             await dotNetReference.invokeMethodAsync("CommitAnalysisPanelResize", panel.dataset.analysisPanel, width, height);
         };
-        cancelResize?.();
         cancelResize = cancel;
         handle.addEventListener("pointermove", move);
         handle.addEventListener("pointerup", stop);

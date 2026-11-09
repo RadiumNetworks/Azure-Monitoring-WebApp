@@ -1,0 +1,3 @@
+{
+  "kql": "Event\n| where EventID == 4740\n| extend User = parse_xml(ParameterXml).Param[0]\n| distinct tostring(User)"
+}

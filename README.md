@@ -122,7 +122,7 @@ Nicht jede Meldung braucht dieselbe Aufmerksamkeit. Regeln helfen dabei, bekannt
 
 Beispielsweise kann ein einzelner bekannter Prüffehler anders behandelt werden als mehrere gleichzeitig fehlgeschlagene Prüfungen. Regeln können außerdem dabei helfen, die Aufgabe eines erkannten Systems im Inventar zuzuordnen. Die Bewertung bleibt zentral pflegbar, statt sich auf persönliche Gewohnheiten einzelner Operatoren zu verlassen.
 
-Geplante KQL-Alert-Regeln ergänzen eingehende Meldungen um eigene regelmäßige Prüfungen. Ein gemessener Grenzwertverstoß kann eine Störung auslösen, eine gemessene Erholung sie wieder auflösen. Fehler und fehlende Daten bleiben dabei von einer echten Entwarnung unterscheidbar.
+Geplante KQL-Alert-Regeln ergänzen eingehende Meldungen um eigene regelmäßige Prüfungen. Neben systembezogenen Prüfungen lassen sich ganze Workspaces unabhängig vom Computerinventar überwachen. Vorlagen für Anmeldungen und Kerberos, Verzeichnis- und Accountänderungen sowie DSRM-Passwort-Resets erleichtern den Einstieg. Ein gemessener Grenzwertverstoß kann eine Störung auslösen, eine gemessene Erholung sie wieder auflösen. Fehler und fehlende Daten bleiben dabei von einer echten Entwarnung unterscheidbar.
 
 ## Logbook // Das Gedächtnis der Crew
 
@@ -194,10 +194,11 @@ Ein typischer Run: Mehrere Meldungen treffen an einem Standort ein. In der Inbox
 Diese README gibt den Überblick. Konfigurationsbeispiele, Datenbank-Upgrades und Betriebsdetails gehören in die weiterführende Dokumentation:
 
 - [Technische Dokumentation und lokale Entwicklung](./MonitoringApp/README.md)
-- [Authentifizierung einrichten](./MonitoringApp/AUTHENTICATION-SETUP.md)
+- [Projekt- und Testpläne](./doc/README.md)
+- [Authentifizierung einrichten](./MonitoringApp/doc/AUTHENTICATION-SETUP.md)
 - [Lokale Demodaten laden](./MonitoringApp/DemoData/README.md)
 - [CLI](./AlertConsoleCli/README.md) und [Web-Agent](./AlertWebAgent/README.md)
-- [Externe Komponenten und Lizenzen](./THIRD-PARTY-DEPENDENCIES.md)
+- [Externe Komponenten und Lizenzen](./doc/THIRD-PARTY-DEPENDENCIES.md)
 
 Für den echten Einsatz gilt: Zugriffe bewusst vergeben, vertrauliche Daten schützen und Backups prüfen. Das Trainingsgelände ist nicht das Produktionsnetz.
 

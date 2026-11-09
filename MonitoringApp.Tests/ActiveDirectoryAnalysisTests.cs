@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Net;
+using System.Reflection;
 using System.Text.Json;
 using System.ClientModel.Primitives;
 using Azure.Monitor.Query.Logs.Models;
@@ -44,20 +47,22 @@ public sealed class ActiveDirectoryAnalysisTests
     [InlineData("TimeGenerated")]
     [InlineData("")]
     public void RejectsUnknownOrInjectedGroupings(string group) =>
-        Assert.Throws<InvalidOperationException>(() => AnalysisQueryRunner.BuildEffectiveKql("source", [], 15, 60, group));
+        Assert.Equal(AnalysisValidationCode.GroupingInvalid,
+            Assert.Throws<AnalysisValidationException>(() => AnalysisQueryRunner.BuildEffectiveKql("source", [], 15, 60, group)).Code);
 
     [Theory]
     [InlineData(0)]
     [InlineData(5)]
     [InlineData(1440)]
     public void RejectsUnsupportedOperatorIntervals(int bin) =>
-        Assert.Throws<InvalidOperationException>(() => AnalysisQuerySelections.Validate(bin, "SourceDSA"));
+        Assert.Equal(AnalysisValidationCode.IntervalInvalid,
+            Assert.Throws<AnalysisValidationException>(() => AnalysisQuerySelections.Validate(bin, "SourceDSA")).Code);
 
     [Fact]
     public void LibraryCoversWorkbookExceptDeferredPatchQuery()
     {
         var queries = ActiveDirectoryAnalysisQueries.Create();
-        Assert.Equal(38, queries.Count);
+        Assert.Equal(39, queries.Count);
         Assert.Equal(queries.Count, queries.DistinctBy(query => query.Key).Count());
         foreach (var query in queries)
         {
@@ -292,28 +297,134 @@ public sealed class ActiveDirectoryAnalysisTests
     [Fact]
     public async Task DropdownContainsAllRequestedChoicesAndSeparateReplicationGrouping()
     {
-        var html = await RenderComponentAsync<AnalysisExecutionSelections>(new()
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+        try
         {
-            ["TimeRangeMinutes"] = 1440, ["BinMinutes"] = 15, ["ShowGrouping"] = true
-        });
-        foreach (var value in new[] { "1h", "4h", "8h", "24h", "2 days", "7 days", "30 days", "15 min", "30 min", "Naming Context", "Source DC", "Destination site" })
-            Assert.Contains(value, html);
+            var html = await RenderComponentAsync<AnalysisExecutionSelections>(new()
+            {
+                ["TimeRangeMinutes"] = 1440, ["BinMinutes"] = 15, ["ShowGrouping"] = true
+            });
+            foreach (var value in new[] { "1h", "4h", "8h", "24h", "2 days", "7 days", "30 days", "15 min", "30 min", "Naming Context", "Source DC", "Destination site" })
+                Assert.Contains(value, html);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]
     public async Task RendersEntireGridSizeControlsWithSupportedLimits()
     {
-        var html = await RenderComponentAsync<AnalysisGridControls>(new()
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+        try
         {
-            ["Document"] = new AnalysisDashboardDocument { Columns = 5, Rows = 16, RowHeight = 100 }
-        });
-        Assert.Contains("Dashboard grid size", html);
-        Assert.Contains("Columns", html);
-        Assert.Contains("Rows", html);
-        Assert.Contains("Row height (px)", html);
-        Assert.Contains("min=\"2\" max=\"6\" value=\"5\"", html);
-        Assert.Contains("min=\"8\" max=\"120\" value=\"16\"", html);
-        Assert.Contains("min=\"64\" max=\"132\" value=\"100\"", html);
+            var html = await RenderComponentAsync<AnalysisGridControls>(new()
+            {
+                ["Document"] = new AnalysisDashboardDocument { Columns = 5, Rows = 16, RowHeight = 100 }
+            });
+            Assert.Contains("Dashboard grid size", html);
+            Assert.Contains("Columns", html);
+            Assert.Contains("Rows", html);
+            Assert.Contains("Row height (px)", html);
+            Assert.Contains("min=\"2\" max=\"6\" value=\"5\"", html);
+            Assert.Contains("min=\"8\" max=\"120\" value=\"16\"", html);
+            Assert.Contains("min=\"64\" max=\"132\" value=\"100\"", html);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    [Theory]
+    [InlineData("en-US", "ChangeColumns", 2, 6)]
+    [InlineData("de-DE", "ChangeColumns", 2, 6)]
+    [InlineData("en-US", "ChangeRows", 8, 120)]
+    [InlineData("de-DE", "ChangeRows", 8, 120)]
+    [InlineData("en-US", "ChangeRowHeight", 64, 132)]
+    [InlineData("de-DE", "ChangeRowHeight", 64, 132)]
+    public async Task GridControlsLocalizeWithoutChangingLimitsCallbacksOrDocument(
+        string culture, string handler, int minimum, int maximum)
+    {
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        var originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        try
+        {
+            var document = new AnalysisDashboardDocument { Columns = 5, Rows = 16, RowHeight = 100 };
+            var originalDocument = JsonSerializer.Serialize(document);
+            var changes = new List<(int Columns, int Rows, int RowHeight)>();
+            var activator = new GridComponentActivator();
+            await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+                .AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
+            await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+            foreach (var disabled in new[] { true, false })
+            {
+                var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<AnalysisGridControls>(
+                    ParameterView.FromDictionary(new Dictionary<string, object?>
+                    {
+                        ["Document"] = document, ["Disabled"] = disabled,
+                        ["SizeChanged"] = EventCallback.Factory.Create<(int Columns, int Rows, int RowHeight)>(
+                            changes, value => changes.Add(value))
+                    })));
+                var html = WebUtility.HtmlDecode(await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
+                foreach (var label in culture == "de-DE"
+                    ? new[] { "Dashboardrastergröße", "Rastergröße", "Spalten", "Zeilen", "Zeilenhöhe (px)",
+                        "Widgets werden passend angeordnet. Bei Bedarf werden Zeilen ergänzt, damit alle Widgets erhalten bleiben." }
+                    : new[] { "Dashboard grid size", "Grid size", "Columns", "Rows", "Row height (px)",
+                        "Widgets are rearranged to fit. Rows expand when needed to keep all widgets." })
+                    Assert.Contains(label, html);
+                Assert.Equal(disabled, html.Contains(" disabled"));
+                Assert.Contains("min=\"2\" max=\"6\" value=\"5\"", html);
+                Assert.Contains("min=\"8\" max=\"120\" value=\"16\"", html);
+                Assert.Contains("min=\"64\" max=\"132\" value=\"100\"", html);
+                if (disabled) continue;
+
+                var component = Assert.IsType<AnalysisGridControls>(activator.Component);
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                async Task<string> Change(object? value)
+                {
+                    await renderer.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await (Task)typeof(AnalysisGridControls).GetMethod(handler, flags)!
+                            .Invoke(component, [new ChangeEventArgs { Value = value }])!;
+                        typeof(ComponentBase).GetMethod("StateHasChanged", flags)!.Invoke(component, []);
+                    });
+                    return WebUtility.HtmlDecode(await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
+                }
+                foreach (var invalid in new object?[] { null, "", "invalid", "1.5", minimum - 1, maximum + 1 })
+                {
+                    var invalidHtml = await Change(invalid);
+                    Assert.Contains(culture == "de-DE"
+                        ? $"Eine ganze Zahl zwischen {minimum} und {maximum} eingeben."
+                        : $"Enter a whole number between {minimum} and {maximum}.", invalidHtml);
+                    Assert.Contains("role=\"alert\"", invalidHtml);
+                    Assert.Empty(changes);
+                }
+                foreach (var valid in new[] { minimum, maximum })
+                {
+                    Assert.DoesNotContain("role=\"alert\"", await Change(valid));
+                    Assert.Equal(handler switch
+                    {
+                        "ChangeColumns" => (valid, 16, 100),
+                        "ChangeRows" => (5, valid, 100),
+                        _ => (5, 16, valid)
+                    }, changes[^1]);
+                }
+                Assert.Equal(2, changes.Count);
+            }
+            Assert.Equal(originalDocument, JsonSerializer.Serialize(document));
+            Assert.Equal("fr-FR", CultureInfo.CurrentCulture.Name);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+            CultureInfo.CurrentCulture = originalCulture;
+        }
     }
 
     [Fact]
@@ -359,7 +470,7 @@ public sealed class ActiveDirectoryAnalysisTests
         var options = new CrossTenantLogAnalyticsOptions { Workspaces = [new() { Key = "test" }] };
         var registry = new AnalysisQueryRegistry(factory, options,
             new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options)));
-        Assert.Equal(38, await registry.InstallActiveDirectoryLibraryAsync("admin"));
+        Assert.Equal(39, await registry.InstallActiveDirectoryLibraryAsync("admin"));
         var first = (await registry.ListAsync()).First();
         first.Name = "Customized";
         first.Kql += "\n| take 1";
@@ -370,7 +481,7 @@ public sealed class ActiveDirectoryAnalysisTests
         await registry.SaveDraftAsync(first, "admin");
         Assert.Equal(0, await registry.InstallActiveDirectoryLibraryAsync("admin"));
         var saved = await registry.ListAsync();
-        Assert.Equal(38, saved.Count);
+        Assert.Equal(39, saved.Count);
         var customized = Assert.Single(saved, query => query.Id == first.Id);
         Assert.Equal("Customized", customized.Name);
         Assert.Equal(first.Kql, customized.Kql);
@@ -410,15 +521,35 @@ public sealed class ActiveDirectoryAnalysisTests
             [new("Site A -> Site B", null, "Workspace A", [new(now, 1000, null)])], [], visualization);
     }
 
-    private static Task<string> RenderAsync(AnalysisQueryResponse response) =>
-        RenderComponentAsync<AnalysisResultView>(new() { ["Result"] = response });
+    private static async Task<string> RenderAsync(AnalysisQueryResponse response)
+    {
+        var originalUi = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+            return await RenderComponentAsync<AnalysisResultView>(new() { ["Result"] = response });
+        }
+        finally { CultureInfo.CurrentUICulture = originalUi; }
+    }
 
     private static async Task<string> RenderComponentAsync<T>(Dictionary<string, object?> parameters) where T : IComponent
     {
-        await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<T>(ParameterView.FromDictionary(parameters))).ToHtmlString());
+    }
+
+    private sealed class GridComponentActivator : IComponentActivator
+    {
+        public AnalysisGridControls? Component { get; private set; }
+
+        public IComponent CreateInstance(Type componentType)
+        {
+            var component = (IComponent)Activator.CreateInstance(componentType)!;
+            if (component is AnalysisGridControls controls) Component = controls;
+            return component;
+        }
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<AlertDbContext> options) : IDbContextFactory<AlertDbContext>

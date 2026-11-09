@@ -16,6 +16,7 @@
 
 # Local deployment configuration
 /alertconsole.local.json
+/config/alertconsole.local.json
 
 # Playwright output and authentication state
 **/playwright-report/
@@ -30,9 +31,17 @@ AlertConsoleCli/temp_parsed.json
 
 # Deployment-specific database setup; publish the template instead
 MonitoringApp/Database/CreateMonitoringDatabase.sql
-MonitoringApp/logic-app-*.codeview.json
+MonitoringApp/Services/EFCore/Scripts/CreateMonitoringDatabase.sql
+MonitoringApp/doc/LogicApps/logic-app-*.codeview.json
 *.txt
 *.md
+!/doc/README.md
+!/doc/EFCORE-PROJEKTPLAN.md
+!/doc/KQL-PROJEKTPLAN.md
+!/doc/XDR-ADVANCED-HUNTING.md
+!/doc/LOCALIZATION-PROJEKTPLAN.md
+!/doc/LOCALIZATION-AP1.md
+!/doc/STAGING-TESTPLAN.md
 /.tools
 /Learn/SQLAuth/wwwroot
 /Learn/UI/wwwroot
@@ -41,3 +50,4 @@ MonitoringApp/logic-app-*.codeview.json
 /Learn/UIDynamic/wwwroot
 /Learn/Blazor/wwwroot
 *.zip
+/doc

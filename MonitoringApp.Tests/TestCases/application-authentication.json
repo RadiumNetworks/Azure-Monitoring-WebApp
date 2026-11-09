@@ -3,9 +3,11 @@
     { "type": "open", "isOpen": true, "isSql": false },
     { "type": "OPEN", "isOpen": true, "isSql": false },
     { "type": "sql", "isOpen": false, "isSql": true },
-    { "type": "SQL", "isOpen": false, "isSql": true }
+    { "type": "SQL", "isOpen": false, "isSql": true },
+    { "type": "entra", "isOpen": false, "isSql": false, "isEntra": true },
+    { "type": "ENTRA", "isOpen": false, "isSql": false, "isEntra": true }
   ],
-  "unsupportedTypes": ["", "entra", "anonymous", null],
+  "unsupportedTypes": ["", "anonymous", null],
   "password": "correct horse battery staple",
   "wrongPassword": "wrong password",
   "malformedHashes": [

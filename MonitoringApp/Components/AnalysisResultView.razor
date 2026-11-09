@@ -1,18 +1,22 @@
+@using System.Globalization
+@inject UiText Text
+@inject QueryTextPresentation QueryText
+
 @if (Result is null)
 {
-    <p class="admin-empty">Run the dashboard to load this widget.</p>
+    <p class="admin-empty">@Text["AnalysisResults.RunDashboard"]</p>
 }
 else
 {
     @if (Result.Scope == AnalysisQueryScopes.Workspace)
     {
         <div class="admin-message admin-message-warning" role="status">
-            Workspace-wide results: selected systems determine the workspaces, not the returned systems/domains. All environments in the routed, approved workspaces may be included.
+            @Text["AnalysisResults.WorkspaceWarning"]
         </div>
     }
     @foreach (var warning in Result.Warnings)
     {
-        <div class="admin-message admin-message-warning"><strong>@warning.Workspace</strong> @warning.Message</div>
+        <div class="admin-message admin-message-warning"><strong>@warning.Workspace</strong> @AnalysisQueryWarningPresentation.Message(warning, Text)</div>
     }
     @if (AllowTableView && Result.VisualizationType != AnalysisQueryVisualizationTypes.Table &&
         (visibleSeries.Any(series => series.Points.Count > 0) ||
@@ -20,25 +24,25 @@ else
     {
         <label class="inbox-edit-toggle analysis-result-toggle">
             <input type="checkbox" role="switch" checked="@ShowTable" @onchange="args => ShowTableChanged.InvokeAsync(args.Value is true)" />
-            <span>Table view</span>
+            <span>@Text["AnalysisResults.TableView"]</span>
         </label>
     }
     @if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Table)
     {
         @if (Result.Tables?.Any(table => table.Rows.Count > 0) == true)
         {
-            <AnalysisTableView Tables="Result.Tables" Name="@Result.Name" Options="DisplayOptions" />
+            <AnalysisTableView Tables="Result.Tables" Name="@QueryText.Name(Result)" Options="DisplayOptions" />
         }
         else
         {
-            <div class="admin-message admin-message-warning">The query completed successfully but returned no table rows. No data is not an OK status.</div>
+            <div class="admin-message admin-message-warning">@Text["AnalysisResults.NoTableRows"]</div>
         }
     }
     else if (Result.VisualizationType == AnalysisQueryVisualizationTypes.Stat)
     {
         @if (AllowTableView && ShowTable && Result.Tables?.Count > 0)
         {
-            <AnalysisTableView Tables="Result.Tables" Name="@Result.Name" Options="DisplayOptions" />
+            <AnalysisTableView Tables="Result.Tables" Name="@QueryText.Name(Result)" Options="DisplayOptions" />
         }
         else
         {
@@ -48,8 +52,8 @@ else
     else if (!visibleSeries.Any(series => series.Points.Count > 0))
     {
         <div class="admin-message admin-message-warning">
-            <strong>The query completed successfully but returned no time-series rows.</strong>
-            Check the selected systems, source table, counters, and time range.
+            <strong>@Text["AnalysisResults.NoSeriesTitle"]</strong>
+            @Text["AnalysisResults.NoSeriesHelp"]
         </div>
     }
     else
@@ -58,15 +62,15 @@ else
         {
             @if (Result.Tables?.Count > 0)
             {
-                <AnalysisTableView Tables="Result.Tables" Name="@($"{Result.Name} · {Result.Unit}")" Options="DisplayOptions" />
+                <AnalysisTableView Tables="Result.Tables" Name="@($"{QueryText.Name(Result)} · {Result.Unit}")" Options="DisplayOptions" />
             }
             else
             {
-            <div class="analysis-result-table" tabindex="0" role="region" aria-label="Query result table">
+            <div class="analysis-result-table" tabindex="0" role="region" aria-label="@Text["AnalysisResults.TableLabel"]">
                 <table>
-                    <caption>@Result.Name · @Result.Unit</caption>
+                    <caption>@QueryText.Name(Result) · @Result.Unit</caption>
                     <thead>
-                        <tr><th scope="col">Timestamp (UTC)</th><th scope="col">Series</th><th scope="col">Dimension</th><th scope="col">Workspace</th><th scope="col">Value (@Result.Unit)</th><th scope="col">Label</th></tr>
+                        <tr><th scope="col">@Text["AnalysisResults.TimestampUtc"]</th><th scope="col">@Text["AnalysisResults.Series"]</th><th scope="col">@Text["AnalysisResults.Dimension"]</th><th scope="col">@Text["Filters.Workspace"]</th><th scope="col">@Text.Format("AnalysisResults.Value", Result.Unit)</th><th scope="col">@Text["AnalysisResults.Label"]</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var row in Result.Series.SelectMany(series => series.Points.Select(point => (Series: series, Point: point))).OrderBy(row => row.Point.Timestamp).ThenBy(row => row.Series.Name))
@@ -92,9 +96,9 @@ else
         }
         else
         {
-        var chart = AnalysisChartGeometry.Create(Result with { Series = visibleSeries });
-        <div class="analysis-chart-container" tabindex="0" role="group" aria-label="Chart with legend shown on hover or keyboard focus">
-        <div class="analysis-chart-legend" role="list" aria-label="Series legend">
+        var chart = AnalysisChartGeometry.CreateForDisplay(Result with { Series = visibleSeries });
+        <div class="analysis-chart-container" tabindex="0" role="group" aria-label="@Text["AnalysisResults.ChartNavigation"]">
+        <div class="analysis-chart-legend" role="list" aria-label="@Text["AnalysisResults.SeriesLegend"]">
             @for (var index = 0; index < visibleSeries.Count; index++)
             {
                 <span role="listitem" style="--series-color:@SeriesColor(index)"><i aria-hidden="true"></i>@SeriesLabel(visibleSeries[index])</span>
@@ -126,7 +130,7 @@ else
                     <polyline points="@chart.Lines[index]" style="stroke:@SeriesColor(index)" />
                 }
             </g>
-            <text x="540" y="378" text-anchor="middle">Time (UTC)</text>
+            <text x="540" y="378" text-anchor="middle">@Text["AnalysisResults.TimeUtc"]</text>
         </svg>
         </div>
         }
@@ -160,8 +164,10 @@ else
             ? $"{AnalysisVisualization.Column(DisplayOptions, series.Name)?.DisplayName ?? series.Name} · {series.Workspace}"
             : $"{series.Name} · {AnalysisVisualization.Column(DisplayOptions, series.Dimension)?.DisplayName ?? series.Dimension} · {series.Workspace}";
 
-    private static string ChartDescription(AnalysisQueryResponse response) =>
-        $"{response.Name}, {response.Series.Count} series from {response.From:u} to {response.To:u}";
+    private string ChartDescription(AnalysisQueryResponse response) =>
+        Text.Format(response.Series.Count == 1 ? "AnalysisResults.ChartDescription.One" : "AnalysisResults.ChartDescription.Other",
+            QueryText.Name(response), response.Series.Count.ToString(CultureInfo.CurrentCulture),
+            response.From.ToString("u", CultureInfo.CurrentCulture), response.To.ToString("u", CultureInfo.CurrentCulture));
 
     private string SeriesColor(int index)
     {

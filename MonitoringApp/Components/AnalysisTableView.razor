@@ -1,6 +1,10 @@
+@using System.Globalization
+@inject UiText Text
+
 @for (var tableIndex = 0; tableIndex < Tables.Count; tableIndex++)
 {
     var currentIndex = tableIndex;
+    var sourceTables = Tables;
     var table = Tables[currentIndex];
     var columnNames = table.Columns.Select(column => column.Name).ToList();
     var visible = table.Columns.Select((column, index) =>
@@ -12,13 +16,16 @@
     var page = Math.Min(pages.GetValueOrDefault(currentIndex), Math.Max(0, (table.Rows.Count - 1) / PageSize));
     @if (table.Rows.Count > PageSize)
     {
-        <nav class="analysis-table-pagination" aria-label="@($"Table pages: {table.Workspace}")">
-            <button type="button" class="admin-secondary" disabled="@(page == 0)" @onclick="() => ChangePage(currentIndex, -1)">Previous</button>
-            <span>Rows @(page * PageSize + 1)-@Math.Min((page + 1) * PageSize, table.Rows.Count) of @table.Rows.Count</span>
-            <button type="button" class="admin-secondary" disabled="@((page + 1) * PageSize >= table.Rows.Count)" @onclick="() => ChangePage(currentIndex, 1)">Next</button>
+        <nav class="analysis-table-pagination" aria-label="@Text.Format("AnalysisResults.TablePages", table.Workspace)">
+            <button type="button" class="admin-secondary" disabled="@(page == 0)" @onclick="() => ChangePageForTables(sourceTables, currentIndex, -1)">@Text["Common.Previous"]</button>
+            <span>@Text.Format("AnalysisResults.Rows",
+                (page * PageSize + 1).ToString(CultureInfo.CurrentCulture),
+                Math.Min((page + 1) * PageSize, table.Rows.Count).ToString(CultureInfo.CurrentCulture),
+                table.Rows.Count.ToString(CultureInfo.CurrentCulture))</span>
+            <button type="button" class="admin-secondary" disabled="@((page + 1) * PageSize >= table.Rows.Count)" @onclick="() => ChangePageForTables(sourceTables, currentIndex, 1)">@Text["Common.Next"]</button>
         </nav>
     }
-    <div class="analysis-result-table" tabindex="0" role="region" aria-label="@($"Query result: {table.Workspace}")">
+    <div class="analysis-result-table" tabindex="0" role="region" aria-label="@Text.Format("AnalysisResults.TableResult", table.Workspace)">
         <table>
             <caption>@Name · @table.Workspace</caption>
             <thead><tr>
@@ -37,14 +44,25 @@
                             var statusIndex = column.StatusIndex;
                             var isStatus = column.Column.Name == "Status";
                             var value = row[column.Index];
+                            var iconOnly = (AnalysisVisualization.Column(Options, column.Column.Name)?.CellDisplay ?? Options.CellDisplay) == "StatusIcon";
                             <td style="@AnalysisVisualization.CellStyle(Options, value, column.Column.Name)">
-                                @if (statusIndex >= 0 || isStatus)
+                                @if (iconOnly)
                                 {
-                                    var status = AnalysisResultFormatting.Status(statusIndex >= 0 ? row[statusIndex] : value);
-                                    <span class="analysis-status analysis-status-@status" aria-label="@status" title="@status">@AnalysisResultFormatting.StatusSymbol(status)</span>
+                                    var icon = AnalysisVisualization.StatusIcon(Options, value);
+                                    var label = icon.Label ?? Text["AnalysisResults.Status.unknown"];
+                                    <span class="analysis-status" aria-label="@label" title="@label">@icon.Symbol</span>
                                 }
-                                @AnalysisVisualization.TableText(Options, value, column.Column.Name)
-                                @(AnalysisVisualization.Unit(Options, column.Column.Name) is string unit ? $" {unit}" : "")
+                                else
+                                {
+                                    @if (statusIndex >= 0 || isStatus)
+                                    {
+                                        var status = AnalysisResultFormatting.Status(statusIndex >= 0 ? row[statusIndex] : value);
+                                        var statusLabel = Text[$"AnalysisResults.Status.{status}"];
+                                        <span class="analysis-status analysis-status-@status" aria-label="@statusLabel" title="@statusLabel">@AnalysisResultFormatting.StatusSymbol(status)</span>
+                                    }
+                                    @AnalysisVisualization.TableText(Options, value, column.Column.Name)
+                                    @(AnalysisVisualization.Unit(Options, column.Column.Name) is string unit ? $" {unit}" : "")
+                                }
                             </td>
                         }
                     </tr>
@@ -69,8 +87,14 @@
         previousTables = Tables;
     }
 
+    private void ChangePageForTables(IReadOnlyList<AnalysisQueryTable> source, int tableIndex, int direction)
+    {
+        if (ReferenceEquals(source, Tables)) ChangePage(tableIndex, direction);
+    }
+
     private void ChangePage(int tableIndex, int direction)
     {
+        if (tableIndex < 0 || tableIndex >= Tables.Count) return;
         var lastPage = Math.Max(0, (Tables[tableIndex].Rows.Count - 1) / PageSize);
         pages[tableIndex] = Math.Clamp(pages.GetValueOrDefault(tableIndex) + direction, 0, lastPage);
     }

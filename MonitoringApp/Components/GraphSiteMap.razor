@@ -1,3 +1,5 @@
+@inject UiText Text
+
 @{
     var solarOverlay = AlertGraphSolarOverlay.Build(TimeUtc);
     var siteMarkers = AlertGraphSiteMap.Build(Records, Locations, TimeUtc);
@@ -32,7 +34,7 @@
         <svg class="graph-site-map-svg"
              viewBox="0 0 2756 1399"
              role="img"
-             aria-label="World map showing alert status for @siteMarkers.Count configured sites@(EasterEgg?.Sites.Any(site => site.EarthLocation is not null || site.EarthLocationOptions is not null || site.IsOrbiting) == true ? $" and {EasterEgg.Heading}" : "")">
+             aria-label="@MapDescription(siteMarkers.Count)">
             <image href="/world-map-configurable.svg" x="0" y="0" width="2756" height="1399" preserveAspectRatio="xMidYMid meet" />
             <g class="graph-solar-overlay" aria-hidden="true">
                 @foreach (var path in solarOverlay.Paths)
@@ -44,8 +46,8 @@
             {
                 <g class="graph-site-marker @(marker.HasOpenAlerts ? "graph-site-marker-alert" : "graph-site-marker-healthy")"
                    transform="translate(@Coordinate(marker.X) @Coordinate(marker.Y))" role="group"
-                   aria-label="@marker.Name, @marker.StatusLabel, @marker.SolarPhaseLabel">
-                    <title>@marker.Name · @marker.StatusLabel · @marker.SolarPhaseLabel</title>
+                   aria-label="@MarkerDescription(marker, false)">
+                    <title>@MarkerDescription(marker, true)</title>
                     <circle class="graph-site-marker-pulse" r="31" aria-hidden="true" />
                     <circle class="graph-site-marker-point" r="18" aria-hidden="true" />
                     <text x="@Coordinate(marker.LabelOffsetX)" y="@Coordinate(marker.LabelOffsetY)" text-anchor="@marker.TextAnchor">@marker.Name</text>
@@ -60,7 +62,7 @@
                         var (x, y) = AlertGraphSiteMap.Project(location.Latitude, location.Longitude);
                         <g class="graph-earth-easter-site graph-easter-marker-@site.Tone"
                            transform="translate(@Coordinate(x) @Coordinate(y))" role="group" tabindex="0"
-                           aria-label="@SiteTitle(site), Easter egg">
+                           aria-label="@Text.Format("GraphMap.EasterEggSite", SiteTitle(site))">
                             <title>@SiteTitle(site)</title>
                             <line class="graph-easter-leader" x1="0" y1="0" x2="@Coordinate(location.OffsetX)" y2="@Coordinate(location.OffsetY)" />
                             <circle class="graph-easter-anchor" r="7" />
@@ -82,8 +84,8 @@
                 }
                 @foreach (var site in EasterEgg.Sites.Where(site => site.IsOrbiting))
                 {
-                    <g class="graph-easter-orbit" role="group" aria-label="@site.Name Earth orbit">
-                        <title>@site.Name Earth orbit</title>
+                    <g class="graph-easter-orbit" role="group" aria-label="@Text.Format("GraphMap.EarthOrbit", site.Name)">
+                        <title>@Text.Format("GraphMap.EarthOrbit", site.Name)</title>
                         <ellipse class="graph-orbit-path" cx="1378" cy="699" rx="1250" ry="610" />
                         <g class="graph-orbiting-site graph-easter-marker-@site.Tone">
                             <circle class="graph-easter-disc" r="38" />
@@ -96,9 +98,9 @@
         @if (moonSites.Length > 0)
         {
             <aside class="graph-moon-panel" aria-labelledby="graph-moon-heading">
-                <h3 id="graph-moon-heading">@(EasterEgg?.Theme == "lunar" ? "Moon landing anniversary" : "Moon")</h3>
+                <h3 id="graph-moon-heading">@Text[EasterEgg?.Theme == "lunar" ? "GraphMap.MoonAnniversary" : "GraphMap.Moon"]</h3>
                 <svg class="graph-moon-svg" viewBox="0 0 798 768" role="img"
-                     aria-label="@($"Moon with {moonSites.Length} lunar site {(moonSites.Length == 1 ? "marker" : "markers")}")">
+                     aria-label="@Text.Plural("GraphMap.MoonDescription", moonSites.Length)">
                     <image href="/moon-easter-egg.png" width="798" height="768" preserveAspectRatio="xMidYMid meet" />
                     @for (var index = 0; index < moonSites.Length; index++)
                     {
@@ -106,7 +108,7 @@
                         var position = site.MoonPosition!;
                         <g class="graph-moon-site graph-easter-marker-@site.Tone"
                            transform="translate(@Coordinate(position.X * 798) @Coordinate(position.Y * 768))"
-                           role="group" tabindex="0" aria-label="@SiteTitle(site), Moon site">
+                           role="group" tabindex="0" aria-label="@Text.Format("GraphMap.MoonSite", SiteTitle(site))">
                             <title>@SiteTitle(site)</title>
                             <circle class="graph-easter-disc" r="34" />
                             <EasterEggIcon Tone="@site.Tone" X="-23" Y="-23" Size="46" />
@@ -125,16 +127,16 @@
         @if (marsSites.Length > 0)
         {
             <aside class="graph-mars-panel" aria-labelledby="graph-mars-heading">
-                <h3 id="graph-mars-heading">Mars</h3>
+                <h3 id="graph-mars-heading">@Text["GraphMap.Mars"]</h3>
                 <div class="graph-mars-render">
-                    <svg class="graph-mars-svg" viewBox="0 0 530 513" role="img" aria-label="Mars with Warhammer site marker">
+                    <svg class="graph-mars-svg" viewBox="0 0 530 513" role="img" aria-label="@Text["GraphMap.MarsDescription"]">
                         <image href="/mars-easter-egg.png" width="530" height="513" preserveAspectRatio="xMidYMid meet" />
                         @foreach (var site in marsSites)
                         {
                             var position = site.MarsPosition!;
                             <g class="graph-mars-site graph-easter-marker-@site.Tone"
                                transform="translate(@Coordinate(position.X * 530) @Coordinate(position.Y * 513))"
-                               role="group" tabindex="0" aria-label="@SiteTitle(site), Mars site">
+                               role="group" tabindex="0" aria-label="@Text.Format("GraphMap.MarsSite", SiteTitle(site))">
                                 <title>@SiteTitle(site)</title>
                                 <circle class="graph-easter-disc" r="24" />
                                 <EasterEggIcon Tone="@site.Tone" X="-16" Y="-16" Size="32" />
@@ -163,6 +165,25 @@
     private readonly Dictionary<string, AlertGraphEasterEggEarthLocation> selectedEarthLocations = [];
     private string? selectedTheme;
     private bool hasRenderedInteractively;
+
+    private string MapDescription(int count) =>
+        EasterEgg?.Sites.Any(site => site.EarthLocation is not null || site.EarthLocationOptions is not null || site.IsOrbiting) == true
+            ? Text.Format("GraphMap.DescriptionWithEasterEgg", count, EasterEgg.Heading)
+            : Text.Format("GraphMap.Description", count);
+
+    private string MarkerDescription(AlertGraphSiteMarker marker, bool title)
+    {
+        var key = title ? "GraphMap.SiteTitle." : "GraphMap.SiteDescription.";
+        key += marker.OpenAlertCount == 0 ? "NoOpen" : marker.OpenAlertCount == 1 ? "One" : "Other";
+        var phase = marker.SolarPhase switch
+        {
+            AlertGraphSolarPhase.Day => Text["GraphMap.Daylight"],
+            AlertGraphSolarPhase.Twilight => Text["Graph.Twilight"],
+            AlertGraphSolarPhase.Night => Text["Graph.Night"],
+            var value => throw new ArgumentOutOfRangeException(nameof(marker), value, "Unknown graph solar phase.")
+        };
+        return Text.Format(key, marker.Name, marker.OpenAlertCount, phase);
+    }
 
     protected override void OnParametersSet()
     {

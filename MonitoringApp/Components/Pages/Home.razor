@@ -13,38 +13,62 @@
 @inject InboxDashboardState Dashboard
 @inject InboxLayoutRepository InboxLayoutRepository
 @inject IJSRuntime JS
+@inject UiText Text
+@inject ILogger<Home> Logger
 
 <PageTitle>Alert Console</PageTitle>
 
-<section class="page-heading">
+<section class="page-heading" data-language-dirty="@((Dashboard.CanUndo || Dashboard.CanRedo) ? "true" : "false")">
     <div class="heading-copy">
-        <p class="eyebrow">Operations</p>
-        <h1>Alert inbox</h1>
-        <p class="subtitle">Incoming Azure Monitor notifications, in one live view.</p>
-        <div class="current-time" aria-label="Current time in @SelectedTimeZone.Label">
-            <span>Current time</span>
+        <p class="eyebrow">@Text["Common.Operations"]</p>
+        <h1>@Text["Inbox.Title"]</h1>
+        <p class="subtitle">@Text["Inbox.Description"]</p>
+        <div class="current-time" aria-label="@Text.Format("Inbox.CurrentTimeLabel", TimeZoneLabel(SelectedTimeZone))">
+            <span>@Text["Inbox.CurrentTime"]</span>
             <time datetime="@currentTimeUtc.ToString("O")">@FormatCurrentTime()</time>
-            <small>@SelectedTimeZone.Label (@FormatUtcOffset())</small>
+            <small>@TimeZoneLabel(SelectedTimeZone) (@FormatUtcOffset())</small>
         </div>
     </div>
-    <div class="alert-count" aria-label="@RecentAlertCount alerts received in the last @HistoryWindowLabel">
+    <div class="alert-count" aria-label="@Text.Format(AlertHistory.Days == 1 ? "Inbox.ReceivedCount.One" : "Inbox.ReceivedCount.Other", RecentAlertCount, AlertHistory.Days)">
         <strong>@RecentAlertCount</strong>
-        <span>received / @HistoryWindowLabel</span>
+        <span>@Text.Plural("Inbox.ReceivedWindow", AlertHistory.Days)</span>
     </div>
 </section>
 
+@if (dashboardLoadFailed)
+{
+    <div class="admin-message admin-message-error" role="alert">
+        <span>@Text["Inbox.WorkspaceLoadFailed"]</span>
+        <button type="button" @onclick="LoadDashboardAsync" disabled="@isLoadingDashboard">@Text["Common.Refresh"]</button>
+    </div>
+}
+@if (inboxLoadError is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@inboxLoadError</div>
+}
+@if (DashboardBrowserError is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">
+        <p>@DashboardBrowserError</p>
+        <button type="button" disabled="@IsInitializingBrowser" @onclick="RetryDashboardBrowserAsync">@Text["Inbox.Browser.Retry"]</button>
+    </div>
+}
+@if (firedHistoryLoadError is not null)
+{
+    <div class="admin-message admin-message-error" role="alert">@firedHistoryLoadError</div>
+}
 @if (rcaNoticeError is not null)
 {
     <div class="admin-message admin-message-error" role="alert">@rcaNoticeError</div>
 }
 @if (openRcaNotices.Count > 0)
 {
-    <section class="admin-message admin-message-warning" role="status" aria-label="Open root cause analyses">
+    <section class="admin-message admin-message-warning" role="status" aria-label="@Text["Inbox.OpenRcaNotices"]">
         @foreach (var notice in openRcaNotices)
         {
             <div @key="notice.Id">
-                <a href="@($"/rca?caseId={notice.Id}")">@notice.Label</a>
-                <span> / Status: @notice.StatusLabel / Assigned: @notice.AssigneeLabel</span>
+                <a href="@($"/rca?caseId={notice.Id}")">@RcaNoticeLabel(notice)</a>
+                <span>@RcaNoticeDetails(notice)</span>
             </div>
         }
     </section>
@@ -53,39 +77,39 @@
 <details class="inbox-designer-panel">
     <summary>
         <span class="inbox-designer-icon" aria-hidden="true">◇</span>
-        <span><strong>Designer</strong><small>Workspace controls and elements</small></span>
-        <span class="inbox-designer-action">Open workspace controls <i aria-hidden="true">⌄</i></span>
+        <span><strong>@Text["Inbox.Designer"]</strong><small>@Text["Inbox.DesignerDescription"]</small></span>
+        <span class="inbox-designer-action">@Text["Inbox.OpenDesigner"] <i aria-hidden="true">⌄</i></span>
     </summary>
-    <section class="inbox-command-bar inbox-designer-commands" aria-label="Inbox workspace commands">
+    <section class="inbox-command-bar inbox-designer-commands" aria-label="@Text["Inbox.CommandsLabel"]">
         <label class="inbox-edit-toggle">
-            <input type="checkbox" @bind="isDashboardEditEnabled" @bind:after="DashboardEditModeChanged" />
-            <span>Edit</span>
+            <input type="checkbox" @bind="isDashboardEditEnabled" @bind:after="DashboardEditModeChanged" disabled="@(dashboardLoadFailed || isLoadingDashboard)" />
+            <span>@Text["Common.Edit"]</span>
         </label>
-        <button type="button" @onclick="UndoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanUndo)">↶ Undo</button>
-        <button type="button" @onclick="RedoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanRedo)">↷ Redo</button>
-        <button type="button" @onclick="ToggleDashboardGridAsync">@(Dashboard.Document.ShowGrid ? "Hide grid" : "Show grid")</button>
-        <button class="danger" type="button" @onclick="ResetDashboardAsync" disabled="@(!isDashboardEditEnabled)">Reset</button>
+        <button type="button" @onclick="UndoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanUndo)">@Text["Inbox.Undo"]</button>
+        <button type="button" @onclick="RedoDashboardAsync" disabled="@(!isDashboardEditEnabled || !Dashboard.CanRedo)">@Text["Inbox.Redo"]</button>
+        <button type="button" @onclick="ToggleDashboardGridAsync" disabled="@(dashboardLoadFailed || isLoadingDashboard)">@Text[Dashboard.Document.ShowGrid ? "Inbox.HideGrid" : "Inbox.ShowGrid"]</button>
+        <button class="danger" type="button" @onclick="ResetDashboardAsync" disabled="@(!isDashboardEditEnabled)">@Text["Common.Reset"]</button>
         <span class="inbox-command-spacer"></span>
         <label class="inbox-grid-setting">
-            <span>Rows</span>
-            <input type="number" min="8" max="40" step="1" value="@Dashboard.Document.Rows" @onchange="ChangeDashboardRowsAsync" disabled="@(!isDashboardEditEnabled)" title="The minimum adjusts to the space required by the current sections." />
+            <span>@Text["Common.Rows"]</span>
+            <input type="number" min="8" max="40" step="1" value="@Dashboard.Document.Rows" @onchange="ChangeDashboardRowsAsync" disabled="@(!isDashboardEditEnabled)" title="@Text["Inbox.MinimumRowsHelp"]" />
         </label>
         <label class="inbox-grid-setting inbox-row-size-setting">
-            <span>Row size</span>
+            <span>@Text["Inbox.RowSize"]</span>
             <input type="range" min="64" max="132" step="4" value="@Dashboard.Document.RowHeight" @onchange="ChangeDashboardRowHeightAsync" disabled="@(!isDashboardEditEnabled)" />
             <output>@Dashboard.Document.RowHeight px</output>
         </label>
-        <span class="inbox-save-status" role="status"><i></i>@dashboardStatus</span>
+        <span class="inbox-save-status @((dashboardSaveFailed || dashboardLoadFailed) ? "inbox-save-status-error" : null)" role="@((dashboardSaveFailed || dashboardLoadFailed) ? "alert" : "status")"><i></i>@(dashboardStatus ?? Text["Inbox.LoadingWorkspace"])</span>
     </section>
     <div class="inbox-designer-tools">
-        <div class="inbox-elements-only" aria-label="Inbox elements">
+        <div class="inbox-elements-only" aria-label="@Text["Inbox.ElementsLabel"]">
             <div class="inbox-widget-palette">
                 @foreach (var template in InboxDashboardCatalog.Widgets)
                 {
                     var isPresent = GetWidget(template.Kind) is not null;
                     <button type="button" class="inbox-element-button @(isPresent ? "present" : null)"
                             disabled="@(!isDashboardEditEnabled || isPresent)" @onclick="() => AddDashboardWidgetAsync(template.Kind)"
-                            title="@(isPresent ? $"{template.Name} is already visible" : $"Add {template.Name}")">
+                            title="@Text.Format(isPresent ? "Inbox.WidgetAlreadyVisible" : "Inbox.AddWidget", template.Name)">
                         <span>@template.Icon</span>
                         <strong>@template.Name</strong>
                         <b aria-hidden="true">@(isPresent ? "✓" : "+")</b>
@@ -99,7 +123,7 @@
 @{
     var dashboardLayout = InboxDashboardCatalog.GetLayout(Dashboard.Document.Layout);
 }
-<section class="inbox-dashboard-canvas" aria-label="Adjustable alert inbox" @ref="dashboardRoot">
+<section class="inbox-dashboard-canvas" aria-label="@Text["Inbox.CanvasLabel"]" @ref="dashboardRoot">
     <div class="inbox-dashboard-grid @(Dashboard.Document.ShowGrid ? "show-grid" : null)" data-inbox-dashboard-grid
          data-columns="@dashboardLayout.Columns" data-rows="@Dashboard.Document.Rows" data-row-height="@Dashboard.Document.RowHeight"
          style="--columns:@dashboardLayout.Columns;--rows:@Dashboard.Document.Rows;--row-height:@(Dashboard.Document.RowHeight)px">
@@ -125,7 +149,7 @@
                   draggable="false" style="@DashboardWidgetStyle(trendsWidget)" @onclick="() => SelectDashboardWidget(trendsWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(trendsWidget.Column, trendsWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@trendsWidget.Title</strong><small>Live time series</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(trendsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(CanUseDashboardBrowser ? string.Empty : null)" title="@Text["Widgets.DragToMove"]">⠿</span><div><strong>@trendsWidget.Title</strong><small>@Text["Inbox.TrendsDescription"]</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(trendsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == trendsWidget.Id)
             {
                 <InboxWidgetActions Widget="trendsWidget" OnAction="action => HandleDashboardWidgetActionAsync(trendsWidget.Id, action)" />
@@ -143,8 +167,8 @@
     <div class="trend-stack">
         <div class="alert-trend" role="img" aria-label="@ChartDescription(hourlyCounts)">
             <div class="trend-heading">
-                <strong>Alerts per hour</strong>
-                <span>Last 48 hours / @SelectedTimeZone.Label</span>
+                <strong>@Text["Inbox.AlertsPerHour"]</strong>
+                <span>@Text.Format("Inbox.ChartWindow", TimeZoneLabel(SelectedTimeZone))</span>
             </div>
             <div class="chart-frame">
                 <span class="chart-maximum">@maximumHourlyCount</span>
@@ -169,11 +193,11 @@
         </div>
         <div class="alert-trend critical-alert-trend" role="img" aria-label="@CriticalChartDescription(criticalHourlyCounts)">
             <div class="trend-heading">
-                <strong>Active critical alerts</strong>
-                <span>Now: @criticalHourlyCounts[^1].Count / Peak (48 h): @maximumCriticalHourlyCount / @SelectedTimeZone.Label</span>
+                <strong>@Text["Inbox.ActiveCriticalAlerts"]</strong>
+                <span>@Text.Format("Inbox.CriticalChartSummary", criticalHourlyCounts[^1].Count, maximumCriticalHourlyCount, TimeZoneLabel(SelectedTimeZone))</span>
             </div>
             <div class="chart-frame">
-                <span class="chart-maximum" title="Scale maximum: peak active critical alerts over the last 48 hours">@maximumCriticalHourlyCount</span>
+                <span class="chart-maximum" title="@Text["Inbox.CriticalScaleHelp"]">@maximumCriticalHourlyCount</span>
                 <svg viewBox="0 0 640 120" preserveAspectRatio="none" aria-hidden="true">
                     <line class="chart-grid-line" x1="0" y1="10" x2="640" y2="10" />
                     <line class="chart-grid-line" x1="0" y1="60" x2="640" y2="60" />
@@ -195,7 +219,7 @@
         </div>
     </div>
             </div>
-            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @trendsWidget.Title" aria-label="Resize @trendsWidget.Title"></button>
+            <button class="inbox-resize-handle" disabled="@(!CanUseDashboardBrowser)" data-inbox-resize-handle="@(CanUseDashboardBrowser ? string.Empty : null)" draggable="false" title="@Text.Format("Widgets.DragResize", trendsWidget.Title)" aria-label="@Text.Format("Widgets.Resize", trendsWidget.Title)"></button>
         </article>
     }
 
@@ -206,46 +230,46 @@
                   draggable="false" style="@DashboardWidgetStyle(filtersWidget)" @onclick="() => SelectDashboardWidget(filtersWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(filtersWidget.Column, filtersWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@filtersWidget.Title</strong><small>Query controls</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(filtersWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(CanUseDashboardBrowser ? string.Empty : null)" title="@Text["Widgets.DragToMove"]">⠿</span><div><strong>@filtersWidget.Title</strong><small>@Text["Inbox.FiltersDescription"]</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(filtersWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == filtersWidget.Id)
             {
                 <InboxWidgetActions Widget="filtersWidget" OnAction="action => HandleDashboardWidgetActionAsync(filtersWidget.Id, action)" />
             }
             <div class="inbox-widget-body inbox-filter-body">
-<section class="controls" aria-label="Alert filters">
+<section class="controls" aria-label="@Text["Inbox.FiltersLabel"]">
     <label>
-        <span>View</span>
+        <span>@Text["Inbox.View"]</span>
         <select value="@viewMode" @onchange="ChangeViewModeAsync">
-            <option value="active">Active alerts</option>
-            <option value="history">Full history</option>
-            <option value="history-fired">History Fired</option>
+            <option value="active">@Text["Inbox.View.Active"]</option>
+            <option value="history">@Text["Inbox.View.History"]</option>
+            <option value="history-fired">@Text["Inbox.View.FiredHistory"]</option>
         </select>
     </label>
     <label class="search-field">
-        <span>Search alerts</span>
-        <input type="search" @bind="searchText" @bind:event="oninput" @bind:after="ResetPagination" placeholder="Rule, target, search query..." />
+        <span>@Text["Inbox.Search"]</span>
+        <input type="search" @bind="searchText" @bind:event="oninput" @bind:after="ResetPagination" placeholder="@Text["Inbox.SearchPlaceholder"]" />
     </label>
     <label>
-        <span>Time zone</span>
+        <span>@Text["Common.TimeZone"]</span>
         <select value="@selectedTimeZoneId" @onchange="ChangeTimeZone">
             @foreach (var timeZone in AlertTimeZones.Options)
             {
-                <option value="@timeZone.Id">@timeZone.Label</option>
+                <option value="@timeZone.Id">@TimeZoneLabel(timeZone)</option>
             }
         </select>
     </label>
     <label>
-        <span>Received from</span>
+        <span>@Text["Inbox.ReceivedFrom"]</span>
         <input type="datetime-local" value="@receivedFromInput" @onchange="ChangeReceivedFrom" @onfocus="BeginDateTimeEdit" @onblur="EndDateTimeEdit" />
     </label>
     <label>
-        <span>Received to</span>
+        <span>@Text["Inbox.ReceivedTo"]</span>
         <input type="datetime-local" value="@receivedToInput" @onchange="ChangeReceivedTo" @onfocus="BeginDateTimeEdit" @onblur="EndDateTimeEdit" />
     </label>
-    <button class="clear-filters" type="button" disabled="@(!HasFilters)" @onclick="ClearFilters">Clear filters</button>
+    <button class="clear-filters" type="button" disabled="@(!HasFilters)" @onclick="ClearFilters">@Text["Inbox.ClearFilters"]</button>
 </section>
             </div>
-            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @filtersWidget.Title" aria-label="Resize @filtersWidget.Title"></button>
+            <button class="inbox-resize-handle" disabled="@(!CanUseDashboardBrowser)" data-inbox-resize-handle="@(CanUseDashboardBrowser ? string.Empty : null)" draggable="false" title="@Text.Format("Widgets.DragResize", filtersWidget.Title)" aria-label="@Text.Format("Widgets.Resize", filtersWidget.Title)"></button>
         </article>
     }
 
@@ -272,23 +296,23 @@
                   draggable="false" style="@DashboardWidgetStyle(navigationWidget)" @onclick="() => SelectDashboardWidget(navigationWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(navigationWidget.Column, navigationWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@navigationWidget.Title</strong><small>Hierarchy filter</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(navigationWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(CanUseDashboardBrowser ? string.Empty : null)" title="@Text["Widgets.DragToMove"]">⠿</span><div><strong>@navigationWidget.Title</strong><small>@Text["Inbox.NavigationDescription"]</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(navigationWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == navigationWidget.Id)
             {
                 <InboxWidgetActions Widget="navigationWidget" OnAction="action => HandleDashboardWidgetActionAsync(navigationWidget.Id, action)" />
             }
             <div class="inbox-widget-body">
-<nav class="alert-navigation" aria-label="Alert history by domain, role, and target">
+<nav class="alert-navigation" aria-label="@Text["Inbox.NavigationLabel"]">
     <div class="tree-heading">
         <div>
-            <strong>Alert navigation</strong>
-            <span>Inventory systems / active alert counts</span>
+            <strong>@Text["Inbox.NavigationTitle"]</strong>
+            <span>@Text["Inbox.NavigationCountsLabel"]</span>
         </div>
-        <span class="tree-total">@knownSystemCount systems / @navigationTree.Sum(domain => domain.Count) open</span>
+        <span class="tree-total">@Text.Format(knownSystemCount == 1 ? "Inbox.NavigationCounts.One" : "Inbox.NavigationCounts.Other", knownSystemCount, navigationTree.Sum(domain => domain.Count))</span>
     </div>
     <div class="tree-root">
         <button type="button" class="tree-node tree-node-root @(IsTreeSelection(string.Empty, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode()">
-            <span>All domains</span>
+            <span>@Text["Filters.AllDomains"]</span>
             <span class="tree-count" style="@TreeCountStyle(navigationTree.Sum(domain => domain.Count))">@navigationTree.Sum(domain => domain.Count)</span>
         </button>
         @foreach (var domain in navigationTree)
@@ -296,7 +320,7 @@
             var domainExpanded = expandedDomains.Contains(domain.Name);
             <div class="tree-branch">
                 <div class="tree-row tree-level-1">
-                    <button type="button" class="tree-toggle" title="@(domainExpanded ? "Collapse domain" : "Expand domain")" aria-label="@(domainExpanded ? "Collapse domain" : "Expand domain")" aria-expanded="@domainExpanded" @onclick="() => ToggleDomain(domain.Name)">
+                    <button type="button" class="tree-toggle" title="@Text[domainExpanded ? "Inbox.CollapseDomain" : "Inbox.ExpandDomain"]" aria-label="@Text[domainExpanded ? "Inbox.CollapseDomain" : "Inbox.ExpandDomain"]" aria-expanded="@domainExpanded" @onclick="() => ToggleDomain(domain.Name)">
                         <span aria-hidden="true"></span>
                     </button>
                     <button type="button" class="tree-node @(IsTreeSelection(domain.Name, string.Empty, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(domain.Name)">
@@ -312,7 +336,7 @@
                         var roleExpanded = expandedRoles.Contains(roleKey);
                         <div class="tree-branch">
                             <div class="tree-row tree-level-2">
-                                <button type="button" class="tree-toggle" title="@(roleExpanded ? "Collapse role" : "Expand role")" aria-label="@(roleExpanded ? "Collapse role" : "Expand role")" aria-expanded="@roleExpanded" @onclick="() => ToggleRole(roleKey)">
+                                <button type="button" class="tree-toggle" title="@Text[roleExpanded ? "Inbox.CollapseRole" : "Inbox.ExpandRole"]" aria-label="@Text[roleExpanded ? "Inbox.CollapseRole" : "Inbox.ExpandRole"]" aria-expanded="@roleExpanded" @onclick="() => ToggleRole(roleKey)">
                                     <span aria-hidden="true"></span>
                                 </button>
                                 <button type="button" class="tree-node @(IsTreeSelection(domain.Name, role.Name, string.Empty) ? "selected" : null)" @onclick="() => SelectTreeNode(domain.Name, role.Name)">
@@ -341,7 +365,7 @@
     </div>
 </nav>
             </div>
-            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @navigationWidget.Title" aria-label="Resize @navigationWidget.Title"></button>
+            <button class="inbox-resize-handle" disabled="@(!CanUseDashboardBrowser)" data-inbox-resize-handle="@(CanUseDashboardBrowser ? string.Empty : null)" draggable="false" title="@Text.Format("Widgets.DragResize", navigationWidget.Title)" aria-label="@Text.Format("Widgets.Resize", navigationWidget.Title)"></button>
         </article>
     }
     @if (GetWidget(InboxWidgetKind.Heatmap) is { } heatmapWidget)
@@ -351,7 +375,7 @@
                   draggable="false" style="@DashboardWidgetStyle(heatmapWidget)" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(heatmapWidget.Column, heatmapWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@heatmapWidget.Title</strong><small>Target status</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(CanUseDashboardBrowser ? string.Empty : null)" title="@Text["Widgets.DragToMove"]">⠿</span><div><strong>@heatmapWidget.Title</strong><small>@Text["Inbox.TargetStatus"]</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(heatmapWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == heatmapWidget.Id)
             {
                 <InboxWidgetActions Widget="heatmapWidget" OnAction="action => HandleDashboardWidgetActionAsync(heatmapWidget.Id, action)" />
@@ -360,23 +384,23 @@
 <section class="alert-heatmap" aria-labelledby="heatmap-title">
     <div class="heatmap-heading">
         <div>
-            <strong id="heatmap-title">@(TargetOutputDisplay.ShowDomain ? "Visible targets, domains and sites" : "Visible targets and sites")</strong>
-            <span>Configured alert scale; suppressed alerts do not raise the color.</span>
+            <strong id="heatmap-title">@Text[TargetOutputDisplay.ShowDomain ? "Inbox.TargetsDomainsSites" : "Inbox.TargetsSites"]</strong>
+            <span>@Text["Inbox.HeatmapDescription"]</span>
         </div>
         @if (heatmapCells.Count > 0)
         {
             <div class="heatmap-legend" aria-label="@TargetOutputLegendDescription">
                 @foreach (var entry in TargetOutputDisplay.Legend())
                 {
-                    <i style="background:hsl(var(--heat-hue) var(--heat-saturation) var(--heat-lightness));@InboxTargetOutputDisplayOptions.ColorStyle(entry.Color)"></i><span>@entry.Label</span>
+                    <i style="background:hsl(var(--heat-hue) var(--heat-saturation) var(--heat-lightness));@InboxTargetOutputDisplayOptions.ColorStyle(entry.Color)"></i><span>@TargetLegendLabel(entry)</span>
                 }
-                <i class="heatmap-legend-missing-heartbeat"></i><span>Missing heartbeat</span>
+                <i class="heatmap-legend-missing-heartbeat"></i><span>@Text["Inbox.MissingHeartbeat"]</span>
             </div>
         }
     </div>
     @if (heatmapCells.Count == 0)
     {
-        <p class="heatmap-empty">No targets match the current view and filters.</p>
+        <p class="heatmap-empty">@Text["Inbox.NoTargets"]</p>
     }
     else
     {
@@ -393,11 +417,11 @@
                     <span class="heatmap-site">@cell.Site</span>
                     @if (cell.HasServiceHealthAlert && cell.Count == 0)
                     {
-                        <span class="heatmap-heartbeat-status">Service health alert</span>
+                        <span class="heatmap-heartbeat-status">@Text["Inbox.ServiceHealthAlert"]</span>
                     }
                     else if (cell.MissingHeartbeat)
                     {
-                        <span class="heatmap-heartbeat-status">Missing heartbeat</span>
+                        <span class="heatmap-heartbeat-status">@Text["Inbox.MissingHeartbeat"]</span>
                     }
                 </div>
             }
@@ -405,13 +429,13 @@
     }
 </section>
             </div>
-            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @heatmapWidget.Title" aria-label="Resize @heatmapWidget.Title"></button>
+            <button class="inbox-resize-handle" disabled="@(!CanUseDashboardBrowser)" data-inbox-resize-handle="@(CanUseDashboardBrowser ? string.Empty : null)" draggable="false" title="@Text.Format("Widgets.DragResize", heatmapWidget.Title)" aria-label="@Text.Format("Widgets.Resize", heatmapWidget.Title)"></button>
         </article>
     }
 
 @if (!IsTimeRangeValid)
 {
-    <p class="filter-error" role="alert">“Received from” must be earlier than “Received to”.</p>
+    <p class="filter-error" role="alert">@Text["Inbox.InvalidTimeRange"]</p>
 }
 
     @if (GetWidget(InboxWidgetKind.Results) is { } resultsWidget)
@@ -421,16 +445,19 @@
                   draggable="false" style="@DashboardWidgetStyle(resultsWidget)" @onclick="() => SelectDashboardWidget(resultsWidget.Id)"
                  @ondragover:preventDefault="true" @ondrop="() => DropDashboardWidgetAsync(resultsWidget.Column, resultsWidget.Row)"
                   >
-                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(isDashboardEditEnabled ? string.Empty : null)" title="Drag to move">⠿</span><div><strong>@resultsWidget.Title</strong><small>Alert queue</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(resultsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
+                            <header class="inbox-widget-header"><span data-inbox-drag-handle="@(CanUseDashboardBrowser ? string.Empty : null)" title="@Text["Widgets.DragToMove"]">⠿</span><div><strong>@resultsWidget.Title</strong><small>@Text["Inbox.ResultsDescription"]</small></div><button class="inbox-widget-menu" type="button" @onclick="() => SelectDashboardWidget(resultsWidget.Id)" @onclick:stopPropagation="true">•••</button></header>
                         @if (isDashboardEditEnabled && selectedDashboardWidgetId == resultsWidget.Id)
             {
                 <InboxWidgetActions Widget="resultsWidget" OnAction="action => HandleDashboardWidgetActionAsync(resultsWidget.Id, action)" />
             }
             <div class="inbox-widget-body">
 <section class="table-region" aria-live="polite">
+    <p data-table-storage-error hidden role="alert">@Text["Inbox.Columns.StorageFailed"]</p>
+    <p data-table-browser-error hidden role="alert">@Text["Inbox.Columns.BrowserFailed"]</p>
+    <button type="button" class="admin-secondary" data-table-retry hidden>@Text["Inbox.Columns.ReloadBrowser"]</button>
     <div class="result-summary">
-        Showing @PageRangeLabel(filteredAlerts.Length) of @filteredAlerts.Length matching alerts
-        (@ViewAlerts.Count() total)
+        @Text.Format(filteredAlerts.Length == 1 ? "Inbox.ResultsSummary.One" : "Inbox.ResultsSummary.Other",
+            PageRangeLabel(filteredAlerts.Length), filteredAlerts.Length, ViewAlerts.Count())
     </div>
     <div class="table-scrollbar" aria-hidden="true"><div></div></div>
     <div class="table-scroll">
@@ -446,13 +473,13 @@
             </colgroup>
             <thead>
                 <tr>
-                    <th><button type="button" @onclick="() => SortBy(nameof(AlertRecord.ReceivedAt))">Received <span class="column-zone">@SelectedTimeZone.Label</span> @SortIndicator(nameof(AlertRecord.ReceivedAt))</button></th>
-                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.Name))">Alert @SortIndicator(nameof(AlertRecord.Name))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Alert column" aria-valuemin="140" aria-valuenow="190" tabindex="0" data-column-index="1" data-column-key="alert" data-min-width="140"></span></th>
-                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.TargetName))">Target name @SortIndicator(nameof(AlertRecord.TargetName))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Target name column" aria-valuemin="120" aria-valuenow="150" tabindex="0" data-column-index="2" data-column-key="target" data-min-width="120"></span></th>
-                    <th class="resizable-column">Search query<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Query column" aria-valuemin="220" aria-valuenow="340" tabindex="0" data-column-index="3" data-column-key="query" data-min-width="220"></span></th>
-                    <th class="resizable-column">Search Result<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Search Result column" aria-valuemin="240" aria-valuenow="320" tabindex="0" data-column-index="4" data-column-key="search-result" data-min-width="240"></span></th>
-                    <th>Comments</th>
-                    <th>Log Analytics dashboard</th>
+                    <th><button type="button" @onclick="() => SortBy(nameof(AlertRecord.ReceivedAt))">@Text["Inbox.Columns.Received"] <span class="column-zone">@TimeZoneLabel(SelectedTimeZone)</span> @SortIndicator(nameof(AlertRecord.ReceivedAt))</button></th>
+                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.Name))">@Text["Inbox.Columns.Alert"] @SortIndicator(nameof(AlertRecord.Name))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="@Text["Inbox.Columns.ResizeAlert"]" aria-valuemin="140" aria-valuenow="190" tabindex="0" data-column-index="1" data-column-key="alert" data-min-width="140"></span></th>
+                    <th class="resizable-column"><button type="button" @onclick="() => SortBy(nameof(AlertRecord.TargetName))">@Text["Inbox.Columns.Target"] @SortIndicator(nameof(AlertRecord.TargetName))</button><span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="@Text["Inbox.Columns.ResizeTarget"]" aria-valuemin="120" aria-valuenow="150" tabindex="0" data-column-index="2" data-column-key="target" data-min-width="120"></span></th>
+                    <th class="resizable-column">@Text["Inbox.Columns.Query"]<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="@Text["Inbox.Columns.ResizeQuery"]" aria-valuemin="220" aria-valuenow="340" tabindex="0" data-column-index="3" data-column-key="query" data-min-width="220"></span></th>
+                    <th class="resizable-column">@Text["Inbox.Columns.Result"]<span class="column-resizer" role="separator" aria-orientation="vertical" aria-label="@Text["Inbox.Columns.ResizeResult"]" aria-valuemin="240" aria-valuenow="320" tabindex="0" data-column-index="4" data-column-key="search-result" data-min-width="240"></span></th>
+                    <th>@Text["Inbox.Columns.Comments"]</th>
+                    <th>@Text["Inbox.Columns.Dashboard"]</th>
                 </tr>
             </thead>
             <tbody>
@@ -460,8 +487,8 @@
                 {
                     <tr>
                         <td colspan="7" class="empty-state">
-                            <strong>@(alerts.Count == 0 ? "Waiting for the first alert" : "No alerts match these filters")</strong>
-                            <span>@(alerts.Count == 0 ? "POST an Azure Monitor payload to /api/alerts." : "Adjust the search or filter values.")</span>
+                            <strong>@Text[alerts.Count == 0 ? "Inbox.Waiting" : "Inbox.NoMatches"]</strong>
+                            <span>@Text[alerts.Count == 0 ? "Inbox.IngestionHelp" : "Inbox.FilterHelp"]</span>
                         </td>
                     </tr>
                 }
@@ -471,7 +498,7 @@
                     {
                         <tr class="alert-uncategorized-row">
                             <td colspan="7">
-                                <strong>Uncategorized alerts</strong>
+                                <strong>@Text["Inbox.Uncategorized"]</strong>
                                 <span>@AlertCountLabel(categorizedAlerts.Uncategorized.Count)</span>
                             </td>
                         </tr>
@@ -494,11 +521,11 @@
                     }
 
                     var alert = item.Alert!;
-                    var queryResult = QueryResultPresenter.Parse(alert.RawJson);
+                    var queryResult = QueryResultPresenter.ParseForDisplay(alert.RawJson, Text);
                     <tr class="@(expandedAlertId == alert.Id ? "selected" : null)">
                         <td class="timestamp" title="@($"{alert.ReceivedAt.ToUniversalTime():O} UTC")">@FormatTimestamp(alert.ReceivedAt)</td>
                         <td>
-                            <button class="alert-name-button @AlertTitleClass(alert.MonitorCondition)" type="button" title="Show alert details" aria-expanded="@(expandedAlertId == alert.Id ? "true" : "false")" @onclick="() => ToggleDetails(alert)">
+                            <button class="alert-name-button @AlertTitleClass(alert.MonitorCondition)" type="button" title="@Text["Inbox.ShowDetails"]" aria-expanded="@(expandedAlertId == alert.Id ? "true" : "false")" @onclick="() => ToggleDetails(alert)">
                                 <span class="alert-name-content">
                                     <span>@Display(alert.Name)</span>
                                     <span class="inbox-severity @AlertSeverityDisplay.CssClass(alert.Severity)">@Display(alert.Severity)</span>
@@ -522,7 +549,7 @@
                                 @if (alert.QueryResultRefreshedAt is { } refreshedAt)
                                 {
                                     <span class="cell-secondary" title="@($"{refreshedAt.ToUniversalTime():O} UTC")">
-                                        Refreshed @FormatTimestamp(refreshedAt)
+                                        @Text.Format("Inbox.Refreshed", FormatTimestamp(refreshedAt))
                                     </span>
                                 }
                             }
@@ -535,7 +562,7 @@
                             }
                             else
                             {
-                                <a class="search-results-link" href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">Open</a>
+                                <a class="search-results-link" href="@alert.SearchResultsUrl" target="_blank" rel="noopener noreferrer">@Text["Common.Open"]</a>
                             }
                         </td>
                     </tr>
@@ -544,11 +571,11 @@
                         <tr class="payload-row">
                             <td colspan="7">
                                 <div class="comment-editor">
-                                    <label for="comment-@alert.Id">Worker comments</label>
+                                    <label for="comment-@alert.Id">@Text["Inbox.WorkerComments"]</label>
                                     <textarea id="comment-@alert.Id" maxlength="4000" rows="3" @bind="commentDraft"></textarea>
                                     <div class="comment-actions">
                                         <button type="button" disabled="@isSavingComment" @onclick="() => SaveCommentsAsync(alert.Id)">
-                                            @(isSavingComment ? "Saving..." : "Save comments")
+                                            @Text[isSavingComment ? "Common.Saving" : "Inbox.SaveComments"]
                                         </button>
                                         <span>@commentDraft.Length / 4000</span>
                                         @if (!string.IsNullOrWhiteSpace(commentSaveError))
@@ -558,12 +585,12 @@
                                     </div>
                                 </div>
                                 <div class="payload-heading">
-                                    <strong>Raw payload</strong>
-                                    <span>Alert ID: @Display(alert.AlertId)</span>
+                                    <strong>@Text["Inbox.RawPayload"]</strong>
+                                    <span>@Text.Format("Inbox.AlertId", Display(alert.AlertId))</span>
                                     @if (alert.QueryResultRefreshedAt is { } refreshedAt)
                                     {
                                         <span title="@($"{refreshedAt.ToUniversalTime():O} UTC")">
-                                            Query refreshed: @FormatTimestamp(refreshedAt)
+                                            @Text.Format("Inbox.QueryRefreshed", FormatTimestamp(refreshedAt))
                                         </span>
                                     }
                                 </div>
@@ -577,8 +604,8 @@
     </div>
     @if (pageCount > 1)
     {
-        <nav class="inbox-pagination" aria-label="Inbox result pages">
-            <button type="button" disabled="@(currentPage == 1)" @onclick="() => ChangePage(currentPage - 1)">Previous</button>
+        <nav class="inbox-pagination" aria-label="@Text["Inbox.PagesLabel"]">
+            <button type="button" disabled="@(currentPage == 1)" @onclick="() => ChangePage(currentPage - 1)">@Text["Common.Previous"]</button>
             @foreach (var pageNumber in VisiblePageNumbers(pageCount))
             {
                 <button type="button"
@@ -588,12 +615,12 @@
                     @pageNumber
                 </button>
             }
-            <button type="button" disabled="@(currentPage == pageCount)" @onclick="() => ChangePage(currentPage + 1)">Next</button>
+            <button type="button" disabled="@(currentPage == pageCount)" @onclick="() => ChangePage(currentPage + 1)">@Text["Common.Next"]</button>
         </nav>
     }
 </section>
             </div>
-            <button class="inbox-resize-handle" data-inbox-resize-handle="@(isDashboardEditEnabled ? string.Empty : null)" draggable="false" title="Drag to resize @resultsWidget.Title" aria-label="Resize @resultsWidget.Title"></button>
+            <button class="inbox-resize-handle" disabled="@(!CanUseDashboardBrowser)" data-inbox-resize-handle="@(CanUseDashboardBrowser ? string.Empty : null)" draggable="false" title="@Text.Format("Widgets.DragResize", resultsWidget.Title)" aria-label="@Text.Format("Widgets.Resize", resultsWidget.Title)"></button>
         </article>
     }
     </div>
@@ -606,9 +633,14 @@
     private IReadOnlyList<AlertRecord> alerts = [];
     private IReadOnlyList<OpenRcaNotice> openRcaNotices = [];
     private string? rcaNoticeError;
+    private string? inboxLoadError;
+    private string? firedHistoryLoadError;
     private DateTimeOffset lastRcaNoticeRefresh;
     private IReadOnlyList<AlertRecord> firedHistoryAlerts = [];
     private IReadOnlyList<ComputerInventoryEntry> computerInventory = [];
+    private readonly SemaphoreSlim inboxReloadLock = new(1, 1);
+    private DateTimeOffset lastInboxDataRefresh;
+    private bool disposed;
     private TimeSpan currentHeartbeatAge = AlertGraphTargetStatusResolver.CurrentThreshold;
     private IReadOnlyList<AlertRule> alertRules = [];
     private IReadOnlyList<CriticalAlertLifecycle> criticalAlertLifecycles = [];
@@ -644,10 +676,16 @@
     private InboxWidgetKind? draggedDashboardTemplate;
     private (int Column, int Row)? dashboardDropTarget;
     private string dashboardOwnerKey = "open-access";
-    private string dashboardStatus = "Loading saved workspace…";
+    private string? dashboardStatus;
+    private bool dashboardSaveFailed;
+    private bool dashboardLoadFailed;
+    private bool isLoadingDashboard;
     private ElementReference dashboardRoot;
-    private IJSObjectReference? dashboardModule;
-    private DotNetObjectReference<Home>? dashboardDotNetReference;
+    private DashboardBrowserSession<Home>? dashboardBrowser;
+    private bool IsInitializingBrowser => dashboardBrowser?.IsInitializing == true;
+    private string? DashboardBrowserError => dashboardBrowser?.ErrorMessage(Text, "Inbox.Browser.");
+    private bool DashboardBrowserBlocked => disposed || IsInitializingBrowser || DashboardBrowserError is not null;
+    private bool CanUseDashboardBrowser => isDashboardEditEnabled && !DashboardBrowserBlocked;
 
     private const double ChartWidth = 640;
     private const double ChartTop = 10;
@@ -657,8 +695,8 @@
 
     private bool IsTimeRangeValid => receivedFrom is null || receivedTo is null || receivedFrom <= receivedTo;
     private AlertTimeZoneOption SelectedTimeZone => AlertTimeZones.Get(selectedTimeZoneId);
-    private string HistoryWindowLabel => AlertHistory.Days == 1 ? "day" : $"{AlertHistory.Days} days";
-    private IReadOnlyList<AlertRecord> InboxAlerts => InventoryMaintenance.FilterAlerts(alerts, computerInventory);
+    private IReadOnlyList<AlertRecord> InboxAlerts => InventoryMaintenance.FilterAlerts(
+        InboxTargetOutput.WithInventorySites(alerts, computerInventory), computerInventory);
     private IReadOnlyList<ComputerInventoryEntry> InboxInventory => computerInventory.Where(entry => !entry.Maintenance).ToArray();
     private int RecentAlertCount => InboxAlerts.Count(alert => alert.ReceivedAt >= AlertHistory.GetCutoff(currentTimeUtc));
 
@@ -679,7 +717,8 @@
     private IEnumerable<AlertRecord> ViewAlerts => viewMode switch
     {
         "history" => InboxAlerts,
-        "history-fired" => InventoryMaintenance.FilterAlerts(firedHistoryAlerts, computerInventory),
+        "history-fired" => InventoryMaintenance.FilterAlerts(
+            InboxTargetOutput.WithInventorySites(firedHistoryAlerts, computerInventory), computerInventory),
         _ => ActiveAlerts
     };
 
@@ -725,25 +764,35 @@
                     .Contains(searchText, StringComparison.OrdinalIgnoreCase)),
             AlertRuleEvaluator.Categorize(visibleAlerts, alertRules, InboxInventory, ActiveAlerts).Categories);
 
-    private string HeatmapCellDescription(InboxTargetOutputCell cell) =>
-        $"{cell.Target}, " + (TargetOutputDisplay.ShowDomain ? $"domain {cell.Domain}, " : string.Empty) +
-        $"site {cell.Site}, subscription {cell.SubscriptionId}: {AlertCountLabel(cell.Count)}" +
-        (cell.HasServiceHealthAlert && cell.Count == 0
-            ? "; Service health alert: at least one monitored service is not running"
-            : string.Empty) +
-        (cell.SuppressedOnly
-            ? "; Suppressed alerts only"
-            : $"; {cell.NonSuppressedCount} non-suppressed alerts") +
-        (cell.IsCriticalOutage ? "; Critical outage" : cell.IsOutage ? "; Outage" : string.Empty) +
-        (cell.MissingHeartbeat
-            ? $"; Missing heartbeat (older than {currentHeartbeatAge.TotalMinutes:0} minutes or never received)"
-            : string.Empty);
+    private string HeatmapCellDescription(InboxTargetOutputCell cell)
+    {
+        var domain = TargetOutputDisplay.ShowDomain ? "Domain" : "NoDomain";
+        var count = cell.HasServiceHealthAlert && cell.Count == 0 ? "ServiceHealth"
+            : cell.Count == 1 ? "One" : "Other";
+        var suppression = cell.SuppressedOnly ? "Suppressed" : "Counted";
+        var outage = cell.IsCriticalOutage ? "Critical" : cell.IsOutage ? "Outage" : "Normal";
+        var heartbeat = cell.MissingHeartbeat ? "Missing" : "Current";
+        var description = Text.Format($"Inbox.TargetCell.{domain}.{count}.{suppression}.{outage}.{heartbeat}",
+            cell.Target, cell.Domain, cell.Site, cell.SubscriptionId, cell.Count,
+            cell.NonSuppressedCount, currentHeartbeatAge.TotalMinutes);
+        return cell.NonRunningServices.Count == 0 ? description
+            : Text.Format("Inbox.TargetServicesDescription", description, string.Join(", ", cell.NonRunningServices));
+    }
 
-    private static string AlertCountLabel(int count) => $"{count} {(count == 1 ? "alert" : "alerts")}";
+    private string AlertCountLabel(int count) => Text.Plural("Inbox.AlertCount", count);
 
-    private string TargetOutputLegendDescription => string.Join("; ",
-        TargetOutputDisplay.Legend().Select(entry => $"{entry.Label}: {entry.Color.ToString().ToLowerInvariant()}")) +
-        "; Missing heartbeat: gray";
+    private string TargetLegendLabel(InboxTargetColorLegend entry) => entry.Kind switch
+    {
+        InboxTargetLegendKind.CountBand => entry.Label,
+        InboxTargetLegendKind.Suppressed => Text["Inbox.Legend.Suppressed"],
+        InboxTargetLegendKind.CriticalOutage => Text["Inbox.Legend.CriticalOutage"],
+        InboxTargetLegendKind.ServiceHealthAlert => Text["Inbox.ServiceHealthAlert"],
+        _ => throw new ArgumentOutOfRangeException(nameof(entry))
+    };
+
+    private string TargetOutputLegendDescription => Text.Format("Inbox.Legend.Description", string.Join("; ",
+        TargetOutputDisplay.Legend().Select(entry => Text.Format("Inbox.Legend.Entry",
+            TargetLegendLabel(entry), Text[$"Inbox.TargetColor.{entry.Color}"]))));
 
     private IReadOnlyList<HourlyAlertCount> GetHourlyAlertCounts()
     {
@@ -766,9 +815,15 @@
     private IReadOnlyList<HourlyCriticalAlertCount> GetHourlyCriticalAlertCounts()
     {
         var visibleAlertIds = InboxAlerts.Select(alert => alert.AlertId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeAlerts = ActiveAlerts;
+        var suppressedActiveAlertIds = AlertRuleEvaluator.Categorize(
+                activeAlerts, alertRules, InboxInventory, activeAlerts).Categories
+            .Where(category => category.AnalysisClassification == AlertRuleAnalysisClassifications.Suppressed)
+            .SelectMany(category => category.Alerts)
+            .Select(alert => alert.AlertId);
         return CriticalAlertTimeline.GetHourlyCounts(
             criticalAlertLifecycles.Where(lifecycle => visibleAlertIds.Contains(lifecycle.AlertId)),
-            GetChartFirstHour(), 48, currentTimeUtc);
+            GetChartFirstHour(), 48, currentTimeUtc, suppressedActiveAlertIds);
     }
 
     private DateTimeOffset GetChartFirstHour()
@@ -816,24 +871,24 @@
     private static string ChartTickStyle(int index, int bucketCount) =>
         FormattableString.Invariant($"--chart-tick:{index * 100d / Math.Max(1, bucketCount - 1):0.##}%");
 
-    private static string ChartDescription(IReadOnlyList<HourlyAlertCount> buckets)
+    private string ChartDescription(IReadOnlyList<HourlyAlertCount> buckets)
     {
         var total = buckets.Sum(bucket => bucket.Count);
         var maximum = buckets.Max(bucket => bucket.Count);
-        return $"Alerts received per hour over the last 48 hours. {total} total, with a maximum of {maximum} in one hour.";
+        return Text.Format("Inbox.ChartDescription", total, maximum);
     }
 
-    private static string CriticalChartDescription(IReadOnlyList<HourlyCriticalAlertCount> buckets)
+    private string CriticalChartDescription(IReadOnlyList<HourlyCriticalAlertCount> buckets)
     {
         var maximum = buckets.Max(bucket => bucket.Count);
-        return $"Active critical alerts: {buckets[^1].Count} now. Last 48 hours, with a maximum of {maximum} active at one time.";
+        return Text.Format("Inbox.CriticalChartDescription", buckets[^1].Count, maximum);
     }
 
     private DateTime ToDisplayTime(DateTimeOffset timestamp) =>
         AlertTimeZones.ToDisplayTime(timestamp, selectedTimeZoneId);
 
     private string FormatTimestamp(DateTimeOffset timestamp) =>
-        ToDisplayTime(timestamp).ToString("yyyy-MM-dd HH:mm:ss");
+        Text.Format("Inbox.TimestampValue", ToDisplayTime(timestamp));
 
     private string FormatPresentationValue(QueryResultValue value) =>
         value.Format.Equals("datetime", StringComparison.OrdinalIgnoreCase) &&
@@ -842,10 +897,13 @@
             : value.Value;
 
     private string FormatChartTime(DateTimeOffset timestamp) =>
-        ToDisplayTime(timestamp).ToString("ddd HH:mm");
+        Text.Format("Inbox.ChartTime", ToDisplayTime(timestamp));
+
+    private string TimeZoneLabel(AlertTimeZoneOption option) =>
+        Text[$"Inbox.TimeZone.{option.Id}"];
 
     private string FormatCurrentTime() =>
-        ToDisplayTime(currentTimeUtc).ToString("yyyy-MM-dd HH:mm:ss");
+        Text.Format("Inbox.ClockValue", ToDisplayTime(currentTimeUtc));
 
     private string FormatUtcOffset()
     {
@@ -912,38 +970,61 @@
             authenticationState.User,
             ApplicationAuthentication.IsOpen);
         dashboardOwnerKey = string.IsNullOrWhiteSpace(currentUser) ? "open-access" : currentUser;
-        var savedDashboard = await InboxLayoutRepository.LoadAsync(dashboardOwnerKey);
-        if (savedDashboard is not null)
-        {
-            Dashboard.Load(savedDashboard);
-            dashboardStatus = "Database workspace restored";
-        }
-        else
-        {
-            dashboardStatus = "Default workspace ready";
-        }
-        alerts = await AlertStore.GetAllAsync();
-        computerInventory = await AlertStore.GetComputerInventoryAsync();
-        alertRules = await AlertStore.GetAllAlertRulesAsync();
-        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(alertRules);
-        criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
-            GetChartFirstHour(),
-            currentTimeUtc);
+        await LoadDashboardAsync();
+        await LoadAlertsAsync();
         await RefreshRcaNoticesAsync();
         AlertStore.Changed += HandleStoreChanged;
         clockTask = RunClockAsync(clockCancellation.Token);
     }
 
+    private async Task LoadDashboardAsync()
+    {
+        if (isLoadingDashboard)
+            return;
+
+        isLoadingDashboard = true;
+        try
+        {
+            var savedDashboard = await InboxLayoutRepository.LoadRequiredAsync(dashboardOwnerKey);
+            if (savedDashboard is not null)
+            {
+                Dashboard.Load(savedDashboard);
+                dashboardStatus = Text["Inbox.WorkspaceRestored"];
+            }
+            else
+            {
+                dashboardStatus = Text["Inbox.WorkspaceReady"];
+            }
+            dashboardLoadFailed = false;
+            dashboardSaveFailed = false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the saved inbox workspace.");
+            dashboardLoadFailed = true;
+            isDashboardEditEnabled = false;
+            dashboardStatus = Text["Inbox.WorkspaceLoadFailed"];
+        }
+        finally
+        {
+            isLoadingDashboard = false;
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-        {
-            return;
-        }
+        if (!disposed && dashboardBrowser?.Initialized != true && DashboardBrowserError is null)
+            await InitializeDashboardBrowserAsync();
+    }
 
-        dashboardModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/inbox-dashboard.js");
-        dashboardDotNetReference = DotNetObjectReference.Create(this);
-        await dashboardModule.InvokeVoidAsync("initialize", dashboardDotNetReference, dashboardRoot);
+    private Task RetryDashboardBrowserAsync() => InitializeDashboardBrowserAsync();
+
+    private Task InitializeDashboardBrowserAsync()
+    {
+        if (disposed) return Task.CompletedTask;
+        dashboardBrowser ??= new(JS, Logger, "./js/inbox-dashboard.js", this, clockCancellation.Token);
+        return dashboardBrowser.InitializeAsync(dashboardRoot,
+            () => disposed ? Task.CompletedTask : InvokeAsync(StateHasChanged));
     }
 
     private async Task RunClockAsync(CancellationToken cancellationToken)
@@ -954,6 +1035,7 @@
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 currentTimeUtc = DateTimeOffset.UtcNow;
+                await InvokeAsync(RefreshLiveDataAsync);
                 if (currentTimeUtc - lastRcaNoticeRefresh >= TimeSpan.FromSeconds(30))
                 {
                     await InvokeAsync(RefreshRcaNoticesAsync);
@@ -971,8 +1053,28 @@
 
     private void HandleStoreChanged()
     {
-        _ = ReloadAlertsAsync();
+        if (!disposed) _ = InvokeAsync(ReloadAlertsAsync);
     }
+
+    private Task RefreshLiveDataAsync() => currentTimeUtc - lastInboxDataRefresh >= TimeSpan.FromSeconds(30)
+        ? LoadAlertsAsync() : Task.CompletedTask;
+
+    private string RcaNoticeLabel(OpenRcaNotice notice) => notice.Domains.Count == 0
+        ? Text.Format("Inbox.RcaNotice", notice.CategoryName)
+        : Text.Format("Inbox.RcaNoticeWithDomains", notice.CategoryName, string.Join(", ", notice.Domains));
+
+    private string RcaNoticeDetails(OpenRcaNotice notice) => Text.Format("Inbox.RcaNoticeDetails",
+        RcaStatusLabel(notice.Status),
+        string.IsNullOrWhiteSpace(notice.AssignedTo) ? Text["Inbox.RcaUnassigned"] : notice.AssignedTo);
+
+    private string RcaStatusLabel(string status) => status switch
+    {
+        RcaStatuses.Open => Text["Inbox.RcaStatus.Open"],
+        "InAnalysis" => Text["Inbox.RcaStatus.InAnalysis"],
+        "Actions" => Text["Inbox.RcaStatus.Actions"],
+        RcaStatuses.Closed => Text["Inbox.RcaStatus.Closed"],
+        _ => RcaStatuses.Label(status)
+    };
 
     private async Task RefreshRcaNoticesAsync()
     {
@@ -987,7 +1089,9 @@
         }
         catch (Exception exception)
         {
-            rcaNoticeError = $"Could not refresh open RCA notices: {exception.Message}";
+            Logger.LogError(exception, "Could not refresh open RCA notices.");
+            rcaNoticeError = Text[exception is RcaEvidenceException or RcaEvidenceJsonException
+                ? "Rca.Errors.EvidenceInvalid" : "Inbox.RcaRefreshFailed"];
         }
     }
 
@@ -995,13 +1099,24 @@
 
     private async Task ChangeViewModeAsync(ChangeEventArgs eventArgs)
     {
-        viewMode = eventArgs.Value?.ToString() ?? "active";
-        if (viewMode == "history-fired" && !isFiredHistoryLoaded)
+        var requestedViewMode = eventArgs.Value?.ToString() ?? "active";
+        if (requestedViewMode == "history-fired" && !isFiredHistoryLoaded)
         {
-            firedHistoryAlerts = await AlertStore.GetFiredHistoryAsync();
-            isFiredHistoryLoaded = true;
+            try
+            {
+                firedHistoryAlerts = await AlertStore.GetFiredHistoryRequiredAsync();
+                isFiredHistoryLoaded = true;
+                firedHistoryLoadError = null;
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not load fired alert history for the inbox.");
+                firedHistoryLoadError = Text["Inbox.FiredHistoryLoadFailed"];
+                return;
+            }
         }
 
+        viewMode = requestedViewMode;
         ResetPagination();
     }
 
@@ -1013,20 +1128,48 @@
 
     private async Task ReloadAlertsAsync()
     {
-        alerts = await AlertStore.GetAllAsync();
-        if (isFiredHistoryLoaded)
-        {
-            firedHistoryAlerts = await AlertStore.GetFiredHistoryAsync();
-        }
-
-        computerInventory = await AlertStore.GetComputerInventoryAsync();
-        alertRules = await AlertStore.GetAllAlertRulesAsync();
-        currentHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(alertRules);
-        criticalAlertLifecycles = await AlertStore.GetCriticalAlertLifecyclesAsync(
-            GetChartFirstHour(),
-            currentTimeUtc);
+        await LoadAlertsAsync();
         await RefreshRcaNoticesAsync();
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadAlertsAsync()
+    {
+        if (disposed) return;
+        await inboxReloadLock.WaitAsync();
+        try
+        {
+            if (disposed) return;
+            var refreshedAlerts = await AlertStore.GetAllRequiredAsync();
+            var refreshedHistory = isFiredHistoryLoaded
+                ? await AlertStore.GetFiredHistoryRequiredAsync()
+                : firedHistoryAlerts;
+            var refreshedInventory = await AlertStore.GetComputerInventoryAsync();
+            var refreshedRules = await AlertStore.GetAllAlertRulesAsync();
+            var refreshedHeartbeatAge = InventoryHeartbeatFreshnessRule.Resolve(refreshedRules);
+            var refreshedLifecycles = await AlertStore.GetCriticalAlertLifecyclesRequiredAsync(
+                GetChartFirstHour(),
+                currentTimeUtc);
+            if (disposed) return;
+
+            alerts = refreshedAlerts;
+            firedHistoryAlerts = refreshedHistory;
+            computerInventory = refreshedInventory;
+            alertRules = refreshedRules;
+            currentHeartbeatAge = refreshedHeartbeatAge;
+            criticalAlertLifecycles = refreshedLifecycles;
+            inboxLoadError = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the inbox alert data.");
+            inboxLoadError = Text["Inbox.LoadFailed"];
+        }
+        finally
+        {
+            lastInboxDataRefresh = currentTimeUtc;
+            inboxReloadLock.Release();
+        }
     }
 
     private void SortBy(string column)
@@ -1037,7 +1180,7 @@
     }
 
     private string SortIndicator(string column) => sortColumn == column
-        ? sortAscending ? "(asc)" : "(desc)"
+        ? Text[sortAscending ? "Inbox.SortAscending" : "Inbox.SortDescending"]
         : string.Empty;
 
     private void ToggleDetails(AlertRecord alert)
@@ -1052,20 +1195,25 @@
         isSavingComment = true;
         commentSaveError = string.Empty;
 
+        bool updated;
         try
         {
-            if (!await AlertStore.UpdateCommentsAsync(id, commentDraft, currentUser))
-            {
-                commentSaveError = "This alert no longer exists.";
-            }
+            updated = await AlertStore.UpdateCommentsAsync(id, commentDraft, currentUser);
         }
-        catch
+        catch (Exception exception)
         {
-            commentSaveError = "Comments could not be saved.";
+            Logger.LogError(exception, "Comment save could not be confirmed for alert {AlertRecordId}.", id);
+            commentSaveError = Text["Inbox.CommentSaveUnconfirmed"];
+            return;
         }
         finally
         {
             isSavingComment = false;
+        }
+
+        if (!updated)
+        {
+            commentSaveError = Text["Inbox.CommentAlertMissing"];
         }
     }
 
@@ -1272,7 +1420,7 @@
         }
 
         EndDashboardDrag();
-        await SaveDashboardAsync("Position saved");
+        await SaveDashboardAsync("Inbox.PositionSaved");
     }
 
     private async Task AddDashboardWidgetAsync(InboxWidgetKind kind)
@@ -1284,7 +1432,7 @@
 
         var widget = Dashboard.AddWidget(kind);
         selectedDashboardWidgetId = widget.Id;
-        await SaveDashboardAsync("Section added");
+        await SaveDashboardAsync("Inbox.SectionAdded");
     }
 
     private async Task ChangeDashboardRowsAsync(ChangeEventArgs eventArgs)
@@ -1292,7 +1440,7 @@
         if (isDashboardEditEnabled && int.TryParse(eventArgs.Value?.ToString(), out var rows))
         {
             Dashboard.UpdateWorkspace(document => document.Rows = rows);
-            await SaveDashboardAsync("Row count saved");
+            await SaveDashboardAsync("Inbox.RowsSaved");
         }
     }
 
@@ -1301,7 +1449,7 @@
         if (isDashboardEditEnabled && int.TryParse(eventArgs.Value?.ToString(), out var rowHeight))
         {
             Dashboard.UpdateWorkspace(document => document.RowHeight = rowHeight);
-            await SaveDashboardAsync("Row size saved");
+            await SaveDashboardAsync("Inbox.RowSizeSaved");
         }
     }
 
@@ -1314,7 +1462,7 @@
 
         var widget = Dashboard.Document.Widgets.First(item => item.Id == id);
         Dashboard.ResizeWidget(id, widget.ColumnSpan + columns, widget.RowSpan + rows);
-        await SaveDashboardAsync("Size saved");
+        await SaveDashboardAsync("Inbox.SizeSaved");
     }
 
     private async Task NudgeDashboardPositionAsync(string id, int columns, int rows)
@@ -1326,7 +1474,7 @@
 
         var widget = Dashboard.Document.Widgets.First(item => item.Id == id);
         Dashboard.MoveWidget(id, widget.Column + columns, widget.Row + rows);
-        await SaveDashboardAsync("Position saved");
+        await SaveDashboardAsync("Inbox.PositionSaved");
     }
 
     private async Task RemoveDashboardWidgetAsync(string id)
@@ -1338,7 +1486,7 @@
 
         Dashboard.RemoveWidget(id);
         selectedDashboardWidgetId = null;
-        await SaveDashboardAsync("Section removed");
+        await SaveDashboardAsync("Inbox.SectionRemoved");
     }
 
     private async Task HandleDashboardWidgetActionAsync(string id, string action)
@@ -1383,34 +1531,37 @@
     [JSInvokable]
     public async Task CommitDashboardResize(string id, int columnSpan, int rowSpan)
     {
-        if (!isDashboardEditEnabled)
+        if (!CanUseDashboardBrowser)
         {
             return;
         }
 
         Dashboard.ResizeWidget(id, columnSpan, rowSpan);
-        await SaveDashboardAsync("Size saved");
+        await SaveDashboardAsync("Inbox.SizeSaved");
         await InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]
     public async Task CommitDashboardMove(string id, int column, int row)
     {
-        if (!isDashboardEditEnabled)
+        if (!CanUseDashboardBrowser)
         {
             return;
         }
 
         selectedDashboardWidgetId = id;
         Dashboard.MoveWidget(id, column, row);
-        await SaveDashboardAsync("Position saved");
+        await SaveDashboardAsync("Inbox.PositionSaved");
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleDashboardGridAsync()
     {
+        if (dashboardLoadFailed || isLoadingDashboard)
+            return;
+
         Dashboard.UpdateWorkspace(document => document.ShowGrid = !document.ShowGrid);
-        await SaveDashboardAsync("Grid preference saved");
+        await SaveDashboardAsync("Inbox.GridSaved");
     }
 
     private async Task UndoDashboardAsync()
@@ -1422,7 +1573,7 @@
 
         Dashboard.Undo();
         selectedDashboardWidgetId = null;
-        await SaveDashboardAsync("Change undone");
+        await SaveDashboardAsync("Inbox.ChangeUndone");
     }
 
     private async Task RedoDashboardAsync()
@@ -1434,7 +1585,7 @@
 
         Dashboard.Redo();
         selectedDashboardWidgetId = null;
-        await SaveDashboardAsync("Change restored");
+        await SaveDashboardAsync("Inbox.ChangeRestored");
     }
 
     private async Task ResetDashboardAsync()
@@ -1446,20 +1597,32 @@
 
         Dashboard.Reset();
         selectedDashboardWidgetId = null;
-        await SaveDashboardAsync("Default workspace restored");
+        await SaveDashboardAsync("Inbox.DefaultRestored");
     }
 
-    private async Task SaveDashboardAsync(string status)
+    private async Task SaveDashboardAsync(string statusKey)
     {
+        if (dashboardLoadFailed || isLoadingDashboard)
+        {
+            Logger.LogWarning("Inbox workspace save is blocked until its saved layout has been loaded.");
+            return;
+        }
+
+        int revision;
         try
         {
             var result = await InboxLayoutRepository.SaveAsync(dashboardOwnerKey, Dashboard.Document);
-            dashboardStatus = $"{status} · revision {result.Revision}";
+            revision = result.Revision;
         }
-        catch
+        catch (Exception exception)
         {
-            dashboardStatus = "Workspace could not be saved";
+            Logger.LogError(exception, "Inbox workspace save could not be confirmed.");
+            dashboardSaveFailed = true;
+            dashboardStatus = Text["Inbox.WorkspaceSaveUnconfirmed"];
+            return;
         }
+        dashboardSaveFailed = false;
+        dashboardStatus = Text.Format(statusKey, revision);
     }
 
     private static string DashboardWidgetStyle(InboxDashboardWidget widget) =>
@@ -1469,22 +1632,12 @@
 
     public async ValueTask DisposeAsync()
     {
+        if (disposed) return;
+        disposed = true;
         AlertStore.Changed -= HandleStoreChanged;
         clockCancellation.Cancel();
+        if (clockTask is not null) await clockTask;
+        if (dashboardBrowser is not null) await dashboardBrowser.DisposeAsync();
         clockCancellation.Dispose();
-
-        if (dashboardModule is not null)
-        {
-            try
-            {
-                await dashboardModule.InvokeVoidAsync("dispose", dashboardRoot);
-                await dashboardModule.DisposeAsync();
-            }
-            catch (JSDisconnectedException)
-            {
-            }
-        }
-
-        dashboardDotNetReference?.Dispose();
     }
 }

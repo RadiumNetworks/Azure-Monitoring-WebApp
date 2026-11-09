@@ -1,0 +1,12 @@
+{
+  "name": "DC CPU usage above 90%",
+  "categoryName": "System Resource",
+  "scope": "SelectedSystems",
+  "kql": "Perf\n| where Computer in~ (_SelectedSystems)\n| where TimeGenerated >= _WindowStart and TimeGenerated < _WindowEnd\n| where ObjectName in (\"Processor\", \"Processor Information\") and CounterName == \"% Idle Time\" and InstanceName == \"_Total\"\n| summarize Value = 100.0 - avg(CounterValue) by Series = Computer",
+  "intervalMinutes": 5,
+  "windowMinutes": 5,
+  "ingestionDelayMinutes": 2,
+  "comparison": ">",
+  "threshold": 90,
+  "severity": "Sev2"
+}

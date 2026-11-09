@@ -1,20 +1,33 @@
-<div class="admin-diagnostic-step admin-diagnostic-@Step.Status.ToString().ToLowerInvariant()">
+@using System.Globalization
+@inject UiText Text
+
+<div class="admin-diagnostic-step admin-diagnostic-@StatusClass">
     <div>
-        <strong>@Step.Name</strong>
-        <span>@Step.Status</span>
+        <strong>@DiagnosticErrorPresentation.Name(Step, Text)</strong>
+        <span>@StatusLabel</span>
     </div>
-    <p>@Step.Message</p>
+    <p>@DiagnosticErrorPresentation.Message(Step, Text)</p>
     @if (Step.DurationMilliseconds > 0)
     {
-        <small>@Step.DurationMilliseconds ms</small>
+        <small>@Text.Format("Diagnostics.Duration", Step.DurationMilliseconds.ToString(CultureInfo.CurrentCulture))</small>
     }
     @if (!string.IsNullOrWhiteSpace(Step.CorrelationId))
     {
-        <small>Correlation: @Step.CorrelationId</small>
+        <small>@Text.Format("Diagnostics.Correlation", Step.CorrelationId)</small>
     }
 </div>
 
 @code {
     [Parameter, EditorRequired]
     public DiagnosticStep Step { get; set; } = default!;
+
+    private string StatusLabel => Step.Status switch
+    {
+        DiagnosticStatus.Succeeded => Text["Diagnostics.Status.Succeeded"],
+        DiagnosticStatus.Failed => Text["Diagnostics.Status.Failed"],
+        DiagnosticStatus.NotRun => Text["Diagnostics.Status.NotRun"],
+        DiagnosticStatus.Disabled => Text["Diagnostics.Status.Disabled"],
+        _ => Text["Diagnostics.Status.Unknown"]
+    };
+    private string StatusClass => Enum.IsDefined(Step.Status) ? Step.Status.ToString().ToLowerInvariant() : "unknown";
 }

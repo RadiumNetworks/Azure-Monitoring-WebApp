@@ -8,6 +8,125 @@ public sealed class IncidentAnalysisSnapshotBuilderTests
         new(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
 
     [Theory]
+    [InlineData(IncidentAnalysisSnapshotCode.SystemHistoryDaysInvalid, "SystemHistoryDays", 1, 365)]
+    [InlineData(IncidentAnalysisSnapshotCode.ContextHoursInvalid, "ContextHours", 1, 168)]
+    [InlineData(IncidentAnalysisSnapshotCode.AlertLimitInvalid, "MaxAlerts", 1, 10000)]
+    [InlineData(IncidentAnalysisSnapshotCode.CharacterLimitInvalid, "MaxCharacters", 1000, 10000000)]
+    public void RangeCodesPreserveMetadataAndExactBoundaries(IncidentAnalysisSnapshotCode code, string paramName, int minimum, int maximum)
+    {
+        foreach (var value in new[] { minimum - 1, maximum + 1 })
+        {
+            var exception = Assert.Throws<IncidentAnalysisSnapshotRangeException>(() => Options(value).Validate());
+            Assert.IsAssignableFrom<ArgumentOutOfRangeException>(exception);
+            Assert.Equal(code, exception.Code);
+            Assert.Equal(paramName, exception.ParamName);
+            Assert.Equal(new ArgumentOutOfRangeException(paramName).Message, exception.Message);
+            Assert.Null(exception.ActualValue);
+            Assert.Null(exception.InnerException);
+        }
+        Options(minimum).Validate();
+        Options(maximum).Validate();
+        IncidentAnalysisSnapshotOptions Options(int value) => code switch
+        {
+            IncidentAnalysisSnapshotCode.SystemHistoryDaysInvalid => new(SystemHistoryDays: value),
+            IncidentAnalysisSnapshotCode.ContextHoursInvalid => new(ContextHours: value),
+            IncidentAnalysisSnapshotCode.AlertLimitInvalid => new(MaxAlerts: value),
+            _ => new(MaxCharacters: value)
+        };
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void CorrelationCodePreservesArgumentContractAndOptions(int scenario)
+    {
+        AlertGraphLayer[] layers = scenario switch
+        {
+            0 => [],
+            1 => [AlertGraphLayer.Domain, AlertGraphLayer.Domain],
+            _ => [AlertGraphLayer.Subscription]
+        };
+        var options = new IncidentAnalysisSnapshotOptions(InventoryCorrelationLayers: layers);
+        var before = System.Text.Json.JsonSerializer.Serialize(options);
+        var message = string.Join(" ", new AgentAnalysisContextOptions { InventoryCorrelationLayers = layers }.Validate());
+        var exception = Assert.Throws<IncidentAnalysisSnapshotArgumentException>(options.Validate);
+        Assert.IsAssignableFrom<ArgumentException>(exception);
+        Assert.Equal(IncidentAnalysisSnapshotCode.CorrelationLayersInvalid, exception.Code);
+        Assert.Equal("InventoryCorrelationLayers", exception.ParamName);
+        Assert.Equal(new ArgumentException(message, "InventoryCorrelationLayers").Message, exception.Message);
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(options));
+    }
+
+    [Fact]
+    public void DefaultAndAllowedCorrelationOrderRemainUnchanged()
+    {
+        var defaults = new IncidentAnalysisSnapshotOptions();
+        defaults.Validate();
+        Assert.Equal(new[] { AlertGraphLayer.Domain, AlertGraphLayer.Role }, defaults.EffectiveInventoryCorrelationLayers);
+        var fields = new[] { AlertGraphLayer.Site, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Role, AlertGraphLayer.Domain };
+        var options = defaults with { InventoryCorrelationLayers = fields, CurrentHeartbeatAge = TimeSpan.FromMinutes(-1) };
+        options.Validate();
+        Assert.Equal(fields, options.EffectiveInventoryCorrelationLayers);
+        Assert.Equal(TimeSpan.FromMinutes(-1), options.EffectiveCurrentHeartbeatAge);
+    }
+
+    [Fact]
+    public void PrimaryAlertBudgetUsesDistinctEvidenceAndExactLimit()
+    {
+        var first = CreateAlert("first", "Alert", "sub", "Target", GeneratedAt);
+        var second = CreateAlert("second", "Alert", "sub", "Target", GeneratedAt);
+        var options = new IncidentAnalysisSnapshotOptions(MaxAlerts: 1);
+        IncidentAnalysisSnapshot Build(IEnumerable<AlertRecord> primary) => CreateBuilder().Build(
+            primary, [first, second], [], [], [], GeneratedAt, new(IncidentAnalysisScopeType.Incident),
+            AlertGraphLayer.Subscription, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Target, options);
+        Assert.Single(Build([first, first]).PrimaryEvidence);
+        var exception = Assert.Throws<IncidentAnalysisSnapshotException>(() => Build([first, second]));
+        Assert.IsAssignableFrom<InvalidOperationException>(exception);
+        Assert.Equal(IncidentAnalysisSnapshotCode.PrimaryAlertLimitExceeded, exception.Code);
+        Assert.Equal("Primary evidence exceeds the configured alert limit.", exception.Message);
+    }
+
+    [Fact]
+    public void PrimaryCharacterBudgetIsMeasuredExactlyWithoutDroppingPrimaryEvidence()
+    {
+        var primary = CreateAlert("primary", "Alert", "sub", "Target", GeneratedAt, description: new string('x', 2000));
+        IncidentAnalysisSnapshot Build(int maximum) => CreateBuilder().Build(
+            [primary], [primary], [], [], [], GeneratedAt, new(IncidentAnalysisScopeType.Incident),
+            AlertGraphLayer.Subscription, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Target,
+            new IncidentAnalysisSnapshotOptions(MaxCharacters: maximum));
+        var full = Build(120000);
+        var expected = full with { MaxCharacters = full.CharacterCount };
+        expected = expected with { MaxCharacters = expected.CharacterCount };
+        Assert.Equal(expected.MaxCharacters, expected.CharacterCount);
+        var exact = Build(expected.MaxCharacters);
+        Assert.Equal(exact.MaxCharacters, exact.CharacterCount);
+        Assert.Single(exact.PrimaryEvidence);
+        var exception = Assert.Throws<IncidentAnalysisSnapshotException>(() => Build(exact.MaxCharacters - 1));
+        Assert.Equal(IncidentAnalysisSnapshotCode.PrimaryCharacterLimitExceeded, exception.Code);
+        Assert.Equal("Primary evidence and structural context exceed the configured character limit.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(" demo-subscription-a ", " DC-ORION-07 ", true)]
+    [InlineData("demo-subscription-b", "DC-ORION-07", false)]
+    [InlineData("DEMO-SUBSCRIPTION-A", "dc-orion-07", false)]
+    public void HistoryKeyTrimsButPreservesTheExistingComparisonPolicy(
+        string subscription, string target, bool included)
+    {
+        var primary = CreateAlert("primary", "Directory outage", "demo-subscription-a", "DC-ORION-07", GeneratedAt);
+        var history = CreateAlert("history", "Historical port check", subscription, target, GeneratedAt.AddDays(-6));
+        var alerts = new[] { primary, history };
+
+        var snapshot = CreateBuilder().Build(
+            [primary], alerts, alerts.Select(ToGraphRecord), [], [CreateSystemOutageRule()], GeneratedAt,
+            new IncidentAnalysisScope(IncidentAnalysisScopeType.Incident, primary.AlertId),
+            AlertGraphLayer.Subscription, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Target);
+
+        Assert.Equal(included, snapshot.SystemHistory.Any(item => item.AlertId == history.AlertId));
+    }
+
+    [Theory]
     [InlineData(null, null, 5, 0, "Current")]
     [InlineData(null, null, 5, 1, "Stale")]
     [InlineData(10, null, 10, 0, "Current")]
@@ -374,12 +493,13 @@ public sealed class IncidentAnalysisSnapshotBuilderTests
     [Fact]
     public void RejectsEmptyPrimaryEvidence()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() => CreateBuilder().Build(
+        var exception = Assert.Throws<IncidentAnalysisSnapshotException>(() => CreateBuilder().Build(
             [], [], [], [], [], GeneratedAt,
             new IncidentAnalysisScope(IncidentAnalysisScopeType.Incident),
             AlertGraphLayer.Subscription, AlertGraphLayer.ResourceGroup, AlertGraphLayer.Target));
 
         Assert.Contains("primary alert", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(IncidentAnalysisSnapshotCode.PrimaryEvidenceRequired, exception.Code);
     }
 
     private static IncidentAnalysisSnapshotBuilder CreateBuilder() =>

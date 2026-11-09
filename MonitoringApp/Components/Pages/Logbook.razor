@@ -5,17 +5,19 @@
 @inject QueryResultPresenter QueryResultPresenter
 @inject ApplicationAuthenticationOptions ApplicationAuthentication
 @inject CurrentUserIdentity CurrentUserIdentity
+@inject UiText Text
+@inject ILogger<Logbook> Logger
 
-<PageTitle>Logbook</PageTitle>
+<PageTitle>@Text["Navigation.Logbook"]</PageTitle>
 
 <section class="admin-heading">
     <div>
-        <p class="eyebrow">Operations</p>
-        <h1>Logbook</h1>
-        <p class="subtitle">Record operational notes with an automatic UTC timestamp and your logged-on username.</p>
+        <p class="eyebrow">@Text["Common.Operations"]</p>
+        <h1>@Text["Navigation.Logbook"]</h1>
+        <p class="subtitle">@Text["Logbook.Description"]</p>
     </div>
     <button class="admin-secondary" type="button" disabled="@isLoading" @onclick="LoadEntriesAsync">
-        @(isLoading ? "Refreshing..." : "Refresh")
+        @Text[isLoading ? "Common.Refreshing" : "Common.Refresh"]
     </button>
 </section>
 
@@ -31,20 +33,20 @@
 <section class="logbook-compose" aria-labelledby="new-logbook-entry">
     <div class="admin-section-heading">
         <div>
-            <p class="eyebrow">New entry</p>
-            <h2 id="new-logbook-entry">Write a comment</h2>
-            <span>Writing as @(string.IsNullOrWhiteSpace(currentUser) ? "no logged-on user" : currentUser)</span>
+            <p class="eyebrow">@Text["Logbook.NewEntry"]</p>
+            <h2 id="new-logbook-entry">@Text["Logbook.WriteComment"]</h2>
+            <span>@(string.IsNullOrWhiteSpace(currentUser) ? Text["Logbook.NoUser"] : Text.Format("Logbook.WritingAs", currentUser))</span>
         </div>
     </div>
     <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
         <label class="admin-field admin-field-wide">
-            <span>Comment</span>
+            <span>@Text["Logbook.Comment"]</span>
             <textarea required maxlength="4000" rows="5" @bind="commentDraft"></textarea>
-            <small>@commentDraft.Length / 4000 characters. Date and user are added automatically.</small>
+            <small>@Text.Format("Logbook.CommentHelp", commentDraft.Length)</small>
         </label>
         <div class="admin-form-actions">
             <button class="admin-primary" type="submit" disabled="@(isSaving || string.IsNullOrWhiteSpace(currentUser))">
-                @(isSaving ? "Saving..." : "Add to logbook")
+                @Text[isSaving ? "Common.Saving" : "Logbook.Add"]
             </button>
         </div>
     </form>
@@ -53,18 +55,18 @@
 <section class="logbook-history" aria-labelledby="logbook-history-heading">
     <div class="admin-section-heading">
         <div>
-            <h2 id="logbook-history-heading">Entries</h2>
-            <span>@EntryCountLabel(entries.Count)</span>
+            <h2 id="logbook-history-heading">@Text["Logbook.Entries"]</h2>
+            <span>@Text.Plural("Logbook.EntryCount", entries.Count)</span>
         </div>
     </div>
 
     @if (isLoading && entries.Count == 0)
     {
-        <p class="admin-empty">Loading logbook entries...</p>
+        <p class="admin-empty">@Text["Logbook.Loading"]</p>
     }
     else if (entries.Count == 0)
     {
-        <p class="admin-empty">The logbook does not contain any entries yet.</p>
+        <p class="admin-empty">@Text["Logbook.Empty"]</p>
     }
     else
     {
@@ -72,9 +74,9 @@
             <table class="logbook-table">
                 <thead>
                     <tr>
-                        <th>Datetime (UTC)</th>
-                        <th>User</th>
-                        <th>Comment</th>
+                        <th>@Text["Logbook.DateUtc"]</th>
+                        <th>@Text["Logbook.User"]</th>
+                        <th>@Text["Logbook.Comment"]</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -87,11 +89,11 @@
                                 @if (entry.AlertRecordId is { } alertRecordId &&
                                     alertSnapshots.TryGetValue(alertRecordId, out var alert))
                                 {
-                                    var queryResult = QueryResultPresenter.Parse(alert.RawJson);
+                                    var queryResult = QueryResultPresenter.ParseForDisplay(alert.RawJson, Text);
                                     <div class="logbook-alert-entry">
                                         <strong>@FormatAlertIdentity(alert)</strong>
                                         <div class="logbook-search-results">
-                                            <b>Search Results</b>
+                                            <b>@Text["Logbook.SearchResults"]</b>
                                             @if (queryResult is null)
                                             {
                                                 <span class="search-result-empty">-</span>
@@ -146,8 +148,8 @@
         try
         {
             var entriesTask = LogbookStore.GetAllAsync();
-            var alertsTask = AlertStore.GetAllAsync();
-            var historyTask = AlertStore.GetFiredHistoryAsync();
+            var alertsTask = AlertStore.GetAllRequiredAsync();
+            var historyTask = AlertStore.GetFiredHistoryRequiredAsync();
             var inventoryTask = AlertStore.GetComputerInventoryAsync();
             await Task.WhenAll(entriesTask, alertsTask, historyTask, inventoryTask);
 
@@ -163,7 +165,8 @@
         }
         catch (Exception exception)
         {
-            errorMessage = $"Could not load the logbook: {exception.Message}";
+            Logger.LogError(exception, "Failed to load the logbook and its alert context.");
+            errorMessage = Text["Logbook.LoadError"];
         }
         finally
         {
@@ -185,12 +188,18 @@
         {
             await LogbookStore.AddAsync(currentUser, commentDraft);
             commentDraft = string.Empty;
-            statusMessage = "The comment was added to the logbook.";
+            statusMessage = Text["Logbook.Status.Added"];
             await LoadEntriesAsync();
+        }
+        catch (LogbookValidationException exception)
+        {
+            Logger.LogWarning(exception, "Logbook validation reported {ErrorCode}.", exception.Code);
+            errorMessage = Text["Logbook.Validation." + exception.Code];
         }
         catch (Exception exception)
         {
-            errorMessage = exception.Message;
+            Logger.LogError(exception, "The outcome of adding a logbook entry could not be confirmed.");
+            errorMessage = Text["Logbook.Errors.ChangeUnconfirmed"];
         }
         finally
         {
@@ -215,5 +224,4 @@
     private static string Display(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "(unknown)" : value.Trim();
 
-    private static string EntryCountLabel(int count) => count == 1 ? "1 entry" : $"{count} entries";
 }
