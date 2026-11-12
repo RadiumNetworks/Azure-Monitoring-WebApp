@@ -9,15 +9,18 @@ public sealed class AlertStore
     private readonly ComputerInventoryPersistence inventory;
     private readonly AlertRulePersistence rules;
     private readonly ILogger<AlertStore> logger;
+    private readonly IdentityDirectoryOptions identityDirectory;
 
     public AlertStore(
         IDbContextFactory<AlertDbContext> contextFactory,
         DatabaseConfigurationStatus databaseConfiguration,
         QueryResultPresenter queryResultPresenter,
         AlertRuleEvaluator alertRuleEvaluator,
-        ILogger<AlertStore> logger)
+        ILogger<AlertStore> logger,
+        IdentityDirectoryOptions? identityDirectory = null)
     {
         this.logger = logger;
+        this.identityDirectory = identityDirectory ?? new();
         inventory = new(contextFactory, databaseConfiguration, queryResultPresenter, alertRuleEvaluator, logger, NotifyChanged);
         alerts = new(contextFactory, databaseConfiguration, queryResultPresenter, alertRuleEvaluator, logger, inventory, NotifyChanged);
         rules = new(contextFactory, databaseConfiguration, logger, alertRuleEvaluator, NotifyChanged);
@@ -56,6 +59,12 @@ public sealed class AlertStore
 
     public Task<IReadOnlyList<ComputerInventoryEntry>> GetComputerInventoryAsync(CancellationToken cancellationToken = default) =>
         inventory.GetComputerInventoryAsync(cancellationToken);
+
+    public bool InventoryTeamFiltersEnabled => identityDirectory.Enabled;
+
+    public Task<IReadOnlyList<InventoryTeamOption>> GetInventoryTeamsAsync(CancellationToken cancellationToken = default) =>
+        InventoryTeamFiltersEnabled ? inventory.GetInventoryTeamsAsync(cancellationToken) :
+            Task.FromResult<IReadOnlyList<InventoryTeamOption>>([]);
 
     public Task<IReadOnlyList<string>> GetAlertSubscriptionIdsAsync(CancellationToken cancellationToken = default) =>
         inventory.GetAlertSubscriptionIdsAsync(cancellationToken);

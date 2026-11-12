@@ -38,6 +38,8 @@ public sealed class AnalysisQueryExportTests
         type.GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
         type.GetProperty("Logger", flags)!.SetValue(page,
             services.GetRequiredService<ILogger<Components.Pages.AdminAnalysisQueries>>());
+        type.GetProperty("CurrentUserIdentity", flags)!.SetValue(page,
+            new CurrentUserIdentity(new Microsoft.AspNetCore.Http.HttpContextAccessor()));
         type.GetProperty("Options", flags)!.SetValue(page,
             new CrossTenantLogAnalyticsOptions { Workspaces = [new() { Key = "test" }] });
         type.GetField("actor", flags)!.SetValue(page, "import-admin");

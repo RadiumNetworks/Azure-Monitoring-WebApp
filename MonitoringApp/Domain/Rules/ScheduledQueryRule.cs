@@ -5,6 +5,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace MonitoringApp;
 
+public static class ScheduledQueryScopes
+{
+    public const string UnknownInventoryTargets = "UnknownInventoryTargets";
+    public static IReadOnlyList<string> All { get; } = [.. AnalysisQueryScopes.All, UnknownInventoryTargets];
+}
+
 public sealed class ScheduledQueryRule
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -124,10 +130,16 @@ public sealed record ScheduledQueryTarget(
     string SubscriptionId, string Computer, string? Site = null,
     string? ResourceGroup = null, string? WorkspaceName = null, string WorkspaceKey = "")
 {
+    public bool IsUnknownInventoryTarget { get; init; }
     public string Series => WorkspaceName is null ? Computer : "Workspace";
     public string DisplayName => WorkspaceName ?? Computer;
     // Workspace states reuse the legacy key column, but never represent inventory computers.
     public string StateComputer => WorkspaceName is null ? Computer : WorkspaceKey;
+    public string StateSubscriptionId => IsUnknownInventoryTarget ? UnknownTargetNamespace(WorkspaceKey) : SubscriptionId;
+
+    internal static string UnknownTargetNamespace(string workspaceKey) =>
+        "query-target:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(workspaceKey.ToUpperInvariant())))[..32];
 }
 
 public sealed record ScheduledQueryWorkspaceStatus(string WorkspaceKey, int Targets, int Values, string? Error);
@@ -142,11 +154,17 @@ public static class ScheduledQueryAlert
         alert.AlertId.StartsWith("scheduled-query:", StringComparison.Ordinal) &&
         InventoryRoleRuleMatcher.ReadQueryResultType(alert.RawJson).Equals("ScheduledKqlWorkspace", StringComparison.Ordinal);
 
+    public static bool IsUnknownInventoryTarget(AlertRecord alert) =>
+        alert.AlertId.StartsWith("scheduled-query:", StringComparison.Ordinal) &&
+        InventoryRoleRuleMatcher.ReadQueryResultType(alert.RawJson).Equals("ScheduledKqlInventoryTarget", StringComparison.Ordinal);
+
     public static string Payload(ScheduledQueryRule rule, ScheduledQueryTarget target,
         ScheduledQueryTargetState state, DateTime now, bool fired, ScheduledQueryEventDetails? eventDetails = null)
     {
         var workspace = rule.Scope == AnalysisQueryScopes.Workspace;
-        var columns = new List<string> { workspace ? "Workspace" : "Computer", "Site", "Value", "Threshold", "Comparison", "WindowMinutes" };
+        var unknownTarget = rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets;
+        var columns = new List<string> { workspace ? "Workspace" : unknownTarget ? "Target" : "Computer",
+            "Site", unknownTarget ? "count_" : "Value", "Threshold", "Comparison", "WindowMinutes" };
         var row = new List<object?> { target.DisplayName, target.Site, state.Value, rule.Threshold, rule.Comparison, rule.WindowMinutes };
         if (eventDetails is not null)
         {
@@ -173,7 +191,7 @@ public static class ScheduledQueryAlert
             },
             queryResult = new
             {
-                type = workspace ? "ScheduledKqlWorkspace" : "ScheduledKql",
+                type = workspace ? "ScheduledKqlWorkspace" : unknownTarget ? "ScheduledKqlInventoryTarget" : "ScheduledKql",
                 columns = columns.Select(name => new { name }),
                 rows = new[] { row }
             }

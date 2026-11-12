@@ -136,6 +136,8 @@ public sealed class AnalysisQueryWorkspaceAssignmentTests
             presenter, new AlertRuleEvaluator(presenter), services.GetRequiredService<ILogger<AlertStore>>()));
         typeof(AdminAnalysisQueries).GetProperty("Registry", flags)!.SetValue(page, fixture.Registry);
         typeof(AdminAnalysisQueries).GetProperty("Categories", flags)!.SetValue(page, new AnalysisQueryCategoryService(fixture.Factory));
+        typeof(AdminAnalysisQueries).GetProperty("CurrentUserIdentity", flags)!.SetValue(page,
+            new CurrentUserIdentity(new Microsoft.AspNetCore.Http.HttpContextAccessor()));
         typeof(AdminAnalysisQueries).GetField("actor", flags)!.SetValue(page, "admin");
         var selection = Assert.IsType<HashSet<string>>(typeof(AdminAnalysisQueries).GetField("bulkWorkspaceKeys", flags)!.GetValue(page));
         selection.Add("tenant-b");

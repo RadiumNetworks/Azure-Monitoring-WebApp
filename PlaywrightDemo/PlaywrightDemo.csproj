@@ -22,6 +22,8 @@
     <Content Include="..\MonitoringApp\wwwroot\js\analysis-dashboard.js" Link="AnalysisAssets\analysis-dashboard.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\MonitoringApp\wwwroot\js\analysis-honeycomb.js" Link="AnalysisAssets\analysis-honeycomb.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\MonitoringApp\wwwroot\js\inbox-dashboard.js" Link="AnalysisAssets\inbox-dashboard.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\wwwroot\js\kql-completion.js" Link="KqlAssets\kql-completion.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\MonitoringApp\wwwroot\js\kql-completion.json" Link="KqlAssets\kql-completion.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\config\alertconsole.local.json"
           Link="alertconsole.local.json"
           CopyToOutputDirectory="PreserveNewest"

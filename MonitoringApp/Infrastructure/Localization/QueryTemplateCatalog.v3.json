@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "templateId": "kql/scheduled/replication-unknown-targets",
+      "revision": "19A3C34E6E5507F22261A96355E49581E95DF5C5DC182791EEA6462250CEDE86",
+      "name": "Unknown replication inventory targets",
+      "description": null,
+      "resourceVersion": 1
+    }
+  ]
+}

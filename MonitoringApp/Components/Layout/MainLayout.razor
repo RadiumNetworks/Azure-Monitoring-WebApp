@@ -16,7 +16,15 @@
                     <div class="navigation-submenu">
                         <NavLink href="/" Match="NavLinkMatch.All">@Text["Navigation.Inbox"]</NavLink>
                         <NavLink href="/graph">@Text["Navigation.Graph"]</NavLink>
-                        <NavLink href="/analysis">@Text["Navigation.Dashboards"]</NavLink>
+                        <details class="navigation-dashboard-group">
+                            <summary>@Text["Navigation.Dashboards"]</summary>
+                            <div class="navigation-dashboard-links">
+                                <NavLink href="/analysis" Match="NavLinkMatch.All">@Text["AnalysisPublications.MyDashboards"]</NavLink>
+                                <AuthorizeView Policy="OperatorAccess" Context="dashboardReader">
+                                    <PublishedDashboardNavigation />
+                                </AuthorizeView>
+                            </div>
+                        </details>
                     </div>
                 </div>
                 <div class="navigation-group">

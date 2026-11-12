@@ -195,7 +195,7 @@ public sealed class LocalizationPilotTests
         await fixture.Invoke("BeginEdit", rule);
         var editor = fixture.Html;
         Assert.Contains("value=\"Categorization\"", editor);
-        Assert.Contains("value=\"ReplicationInventoryWarning\"", editor);
+        Assert.Equal(type == AlertRuleTypes.ReplicationInventoryWarning, editor.Contains("value=\"ReplicationInventoryWarning\"", StringComparison.Ordinal));
         Assert.Contains("value=\"InventoryHeartbeatFreshness\"", editor);
         Assert.Contains(fixture.Text["Rules.Editor.Name"], WebUtility.HtmlDecode(editor));
         if (type == AlertRuleTypes.Categorization)
@@ -206,8 +206,7 @@ public sealed class LocalizationPilotTests
             Assert.Contains("value=\"RowCountEquals\"", editor);
         }
         if (type == AlertRuleTypes.ReplicationInventoryWarning)
-            foreach (var technical in new[] { "SourceDSA", "DestDSA", "Replication", "Sev2", "rowCount = 0" })
-                Assert.Contains(technical, WebUtility.HtmlDecode(editor));
+            Assert.Contains(fixture.Text["Rules.Editor.RetiredReplicationHelp"], WebUtility.HtmlDecode(editor));
 
         await fixture.Invoke("BeginDelete", rule);
         var html = fixture.Html;

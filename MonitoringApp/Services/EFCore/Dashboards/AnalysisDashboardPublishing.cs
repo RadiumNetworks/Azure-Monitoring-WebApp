@@ -9,7 +9,8 @@ public sealed class AnalysisDashboardPublishing(
     IDbContextFactory<AlertDbContext> contextFactory,
     IAuthorizationService authorization,
     CurrentUserIdentity identity,
-    ApplicationAuthenticationOptions authentication)
+    ApplicationAuthenticationOptions authentication,
+    IdentityDirectoryOptions? directoryOptions = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -21,11 +22,14 @@ public sealed class AnalysisDashboardPublishing(
     {
         await RequireAsync(user, "OperatorAccess");
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await context.AnalysisDashboardTemplates.AsNoTracking()
+        var publications = await context.AnalysisDashboardTemplates.AsNoTracking()
             .Where(item => item.Published)
             .OrderBy(item => item.Name).ThenBy(item => item.UpdatedBy)
             .Select(item => new PublishedAnalysisDashboard(item.Id, item.Name, item.Version, item.UpdatedBy, item.UpdatedAt))
             .ToArrayAsync(cancellationToken);
+        var labels = await UserReferenceQueries.LabelsAsync(context, publications.Select(item => item.Owner),
+            directoryOptions?.Enabled == true, cancellationToken, !authentication.IsOpen);
+        return publications.Select(item => item with { OwnerDisplayName = labels.GetValueOrDefault(item.Owner) }).ToArray();
     }
 
     public async Task<PublishedAnalysisDashboardSnapshot> LoadAsync(
@@ -42,7 +46,9 @@ public sealed class AnalysisDashboardPublishing(
                 ?? throw new InvalidOperationException("The published dashboard is invalid.");
             var state = new AnalysisDashboardState();
             state.Load(document);
-            return new(ToInfo(publication), state.Document);
+            var labels = await UserReferenceQueries.LabelsAsync(context, [publication.UpdatedBy],
+                directoryOptions?.Enabled == true, cancellationToken, !authentication.IsOpen);
+            return new(ToInfo(publication) with { OwnerDisplayName = labels.GetValueOrDefault(publication.UpdatedBy) }, state.Document);
         }
         catch (JsonException exception)
         {
@@ -51,11 +57,24 @@ public sealed class AnalysisDashboardPublishing(
     }
 
     public async Task<PublishedAnalysisDashboard> PublishAsync(
-        Guid dashboardId, int expectedRevision, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+        Guid dashboardId, int expectedRevision, ClaimsPrincipal user, CancellationToken cancellationToken = default,
+        string? sourceOwnerKey = null)
     {
         await RequireAsync(user, "AdminAccess");
-        var owner = identity.GetActor(user, authentication.IsOpen);
+        var actor = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
+        var owner = DashboardOwnerKeys.Normalize(sourceOwnerKey ?? actor, "dashboard");
+        if (directoryOptions?.Enabled == true)
+            return await DatabaseTransactions.ExecuteAsync(contextFactory,
+                context => PublishCoreAsync(context, dashboardId, expectedRevision, actor, owner, cancellationToken),
+                cancellationToken, System.Data.IsolationLevel.Serializable);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await PublishCoreAsync(context, dashboardId, expectedRevision, actor, owner, cancellationToken);
+    }
+
+    private async Task<PublishedAnalysisDashboard> PublishCoreAsync(AlertDbContext context, Guid dashboardId,
+        int expectedRevision, string actor, string owner, CancellationToken cancellationToken)
+    {
+        await AnalysisDashboardOwnership.RequireAsync(context, actor, owner, directoryOptions, cancellationToken);
         var stored = await context.AnalysisDashboards.SingleOrDefaultAsync(item => item.OwnerKey == owner, cancellationToken)
             ?? throw new InvalidOperationException("Save your own dashboard before publishing.");
         if (stored.Revision != expectedRevision)
@@ -90,12 +109,24 @@ public sealed class AnalysisDashboardPublishing(
     public async Task WithdrawAsync(Guid dashboardId, ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         await RequireAsync(user, "AdminAccess");
-        var owner = identity.GetActor(user, authentication.IsOpen);
+        var owner = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
+        if (directoryOptions?.Enabled == true)
+        {
+            await DatabaseTransactions.ExecuteAsync(contextFactory,
+                context => WithdrawCoreAsync(context, dashboardId, owner, cancellationToken),
+                cancellationToken, System.Data.IsolationLevel.Serializable);
+            return;
+        }
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await WithdrawCoreAsync(context, dashboardId, owner, cancellationToken);
+    }
+
+    private async Task WithdrawCoreAsync(AlertDbContext context, Guid dashboardId, string owner, CancellationToken cancellationToken)
+    {
+        await IdentityOwnerGuard.ValidateAsync(context, owner, directoryOptions, cancellationToken);
         var publication = await context.AnalysisDashboardTemplates.SingleOrDefaultAsync(item => item.Id == dashboardId, cancellationToken)
             ?? throw new KeyNotFoundException("The dashboard publication was not found.");
-        if (!IsOwner(publication.UpdatedBy, owner))
-            throw new UnauthorizedAccessException("Only the creator can withdraw this dashboard.");
+        await AnalysisDashboardOwnership.RequireAsync(context, owner, publication.UpdatedBy, directoryOptions, cancellationToken);
         publication.Published = false;
         publication.UpdatedAt = DateTimeOffset.UtcNow;
         await context.SaveChangesAsync(cancellationToken);

@@ -9,6 +9,25 @@ public sealed class AnalysisErrorPresentationTests
     [Theory]
     [InlineData("en-US")]
     [InlineData("de-DE")]
+    public void StaleEditorExplainsIdentityTransitionWithoutExposingDiagnostics(string culture)
+    {
+        var previous = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            using var services = new ServiceCollection().AddLogging().AddUiLocalization().BuildServiceProvider();
+            var text = services.GetRequiredService<UiText>();
+            Assert.Equal(text["IdentityMigration.Errors.ReloadEditor"], AnalysisErrorPresentation.Message(
+                new IdentityMigrationException("IdentityMigration.Errors.ReloadEditor"), text, "Analysis.Errors.SaveUnconfirmed"));
+            Assert.Equal(text["Analysis.Errors.SaveUnconfirmed"], AnalysisErrorPresentation.Message(
+                new InvalidOperationException("private diagnostic"), text, "Analysis.Errors.SaveUnconfirmed"));
+        }
+        finally { CultureInfo.CurrentUICulture = previous; }
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
     public void PublicationErrorsUseWholeMessagesWithoutExposingJsonOrMatchingEnglish(string culture)
     {
         var previous = CultureInfo.CurrentUICulture;

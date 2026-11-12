@@ -29,7 +29,7 @@ public sealed class DatabaseResetService(
             throw new MaintenanceValidationException(MaintenanceValidationCode.DatabaseUnavailable,
                 "The database is not configured. Check the application settings.");
 
-        var actor = identity.GetActor(user, authentication.IsOpen);
+        var actor = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
         logger.LogWarning(
             "Database reset requested by {Actor}. Server={Server}, Database={Database}. Users and settings will be preserved.",
             actor, configuration.Connection.DataSource, configuration.Connection.InitialCatalog);

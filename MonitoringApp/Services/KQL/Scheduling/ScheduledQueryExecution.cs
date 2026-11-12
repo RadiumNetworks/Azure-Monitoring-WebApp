@@ -30,9 +30,9 @@ internal sealed class ScheduledQueryExecution(
     {
         if (rule.Id == Guid.Empty || string.IsNullOrWhiteSpace(rule.Name) || rule.Name.Trim().Length > 256)
             throw new ScheduledQueryValidationException(ScheduledQueryValidationCode.IdentityInvalid, "A rule ID and a name of at most 256 characters are required.");
-        if (!AnalysisQueryScopes.All.Contains(rule.Scope))
-            throw new ScheduledQueryValidationException(ScheduledQueryValidationCode.ScopeInvalid, "Select a supported rule scope (SelectedSystems or Workspace).");
-        if (rule.Scope == AnalysisQueryScopes.Workspace &&
+        if (!ScheduledQueryScopes.All.Contains(rule.Scope))
+            throw new ScheduledQueryValidationException(ScheduledQueryValidationCode.ScopeInvalid, "Select a supported scheduled rule scope.");
+        if (rule.Scope != AnalysisQueryScopes.SelectedSystems &&
             new[] { rule.Domain, rule.Site, rule.Role, rule.Computers }.Any(value => !string.IsNullOrWhiteSpace(value)))
             throw new ScheduledQueryValidationException(ScheduledQueryValidationCode.WorkspaceFiltersInvalid, "Workspace-wide rules do not accept inventory filters. Clear Domain, Site, Role and Computers.");
     }
@@ -57,7 +57,8 @@ internal sealed class ScheduledQueryExecution(
         ScheduledQueryRule rule,
         Func<ScheduledQueryRule, CrossTenantLogAnalyticsWorkspaceOptions, CancellationToken, Task<ScheduledQueryTarget[]>> selectTargets,
         CancellationToken token,
-        Action<ScheduledQueryExecutionPreview>? onPrepared = null, Func<Task>? renewLease = null)
+        Action<ScheduledQueryExecutionPreview>? onPrepared = null, Func<Task>? renewLease = null,
+        Func<CrossTenantLogAnalyticsWorkspaceOptions, CancellationToken, Task<IReadOnlyList<string>>>? loadInventoryComputers = null)
     {
         rule = CopyDefinition(rule);
         Validate(rule, options, requireConfiguredWorkspaces: false);
@@ -86,7 +87,14 @@ internal sealed class ScheduledQueryExecution(
                 var lookback = Math.Max(5, rule.WindowMinutes + rule.IngestionDelayMinutes +
                     (QueryTimeoutSeconds + 59) / 60 + 1 + elapsedMinutes);
                 var systems = targets.Where(item => item.WorkspaceName is null).Select(item => item.Computer).ToArray();
-                var prepared = KqlQueryBuilder.PrepareScheduled(workspace, rule.Kql, systems, start, end, lookback);
+                IReadOnlyList<string>? inventoryComputers = null;
+                if (rule.Kql.Contains("_InventoryComputers", StringComparison.Ordinal))
+                {
+                    if (loadInventoryComputers is null)
+                        throw new InvalidOperationException("This execution cannot supply the workspace Inventory baseline.");
+                    inventoryComputers = await loadInventoryComputers(workspace, token);
+                }
+                var prepared = KqlQueryBuilder.PrepareScheduled(workspace, rule.Kql, systems, start, end, lookback, inventoryComputers);
                 onPrepared?.Invoke(new(prepared.CreatePreview(), workspace.WorkspaceId, start, end, lookback));
                 if (targets.Length > 0)
                 {
@@ -96,7 +104,11 @@ internal sealed class ScheduledQueryExecution(
                     if (result.Error is not null)
                         throw new InvalidOperationException(result.Error);
                     var table = result.Tables?.SingleOrDefault() ?? throw new InvalidOperationException("The query returned no result table.");
-                    (values, eventDetails) = ScheduledQueryResultNormalizer.Normalize(table, rule.Scope, targets);
+                    if (rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets)
+                        (targets, values) = ScheduledQueryResultNormalizer.NormalizeUnknownTargets(table, workspace.Key,
+                            inventoryComputers ?? throw new InvalidOperationException("The Inventory baseline is missing."));
+                    else
+                        (values, eventDetails) = ScheduledQueryResultNormalizer.Normalize(table, rule.Scope, targets);
                 }
             }
             catch (OperationCanceledException exception) when (!token.IsCancellationRequested)
@@ -111,6 +123,7 @@ internal sealed class ScheduledQueryExecution(
             }
             if (error is not null)
             {
+                if (rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets) targets = [];
                 values.Clear();
                 eventDetails.Clear();
                 logger.LogWarning(failure, "Scheduled KQL rule {RuleId}, workspace {WorkspaceKey} failed: {Error}", rule.Id, key, error);

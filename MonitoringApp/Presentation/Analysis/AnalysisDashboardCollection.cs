@@ -129,6 +129,8 @@ public sealed class AnalysisDashboardCollection
             Dashboards.DistinctBy(entry => entry.Id).Count() != Dashboards.Count ||
             !Dashboards.Any(entry => entry.Id == ActiveDashboardId) || HiddenQueryIds is null)
             throw new InvalidOperationException("The saved dashboard collection is invalid.");
+        foreach (var entry in Dashboards)
+            entry.Document.ValidateSelection();
     }
 
     private static string ValidateName(string name)

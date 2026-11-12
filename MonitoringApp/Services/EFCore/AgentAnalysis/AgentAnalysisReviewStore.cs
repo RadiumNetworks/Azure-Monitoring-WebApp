@@ -4,19 +4,24 @@ namespace MonitoringApp;
 
 public sealed class AgentAnalysisReviewStore(
     IDbContextFactory<AlertDbContext> dbContextFactory,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IdentityDirectoryOptions? directory = null, ApplicationAuthenticationOptions? authentication = null)
 {
     public async Task<IReadOnlyList<AgentAnalysisReviewEvent>> ListAsync(
         Guid jobId,
         CancellationToken cancellationToken = default)
     {
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await context.AgentAnalysisReviewEvents
+        var entries = await context.AgentAnalysisReviewEvents
             .AsNoTracking()
             .Where(entry => entry.AgentAnalysisJobId == jobId)
             .OrderByDescending(entry => entry.CreatedAt)
             .ThenByDescending(entry => entry.Id)
             .ToArrayAsync(cancellationToken);
+        var labels = await UserReferenceQueries.LabelsAsync(context, entries.Select(entry => entry.Actor),
+            directory?.Enabled == true, cancellationToken, authentication?.IsOpen != true);
+        foreach (var entry in entries) entry.ActorDisplayName = labels.GetValueOrDefault(entry.Actor);
+        return entries;
     }
 
     public async Task<AgentAnalysisReviewEvent> AddAsync(

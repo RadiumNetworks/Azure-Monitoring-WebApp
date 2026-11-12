@@ -4,6 +4,8 @@ internal static class AnalysisErrorPresentation
 {
     public static string Message(Exception exception, UiText text, string fallbackKey)
     {
+        if (exception is IdentityMigrationException migration)
+            return text[migration.ResourceKey];
         if (exception is AnalysisQueryPublicationException publication && Enum.IsDefined(publication.Code))
             return text[$"Analysis.Publication.{publication.Code}"];
         if (exception is AnalysisQuerySnapshotJsonException)

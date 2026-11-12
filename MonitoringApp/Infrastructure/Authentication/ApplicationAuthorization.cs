@@ -9,9 +9,12 @@ public static class ApplicationAuthorization
     public const string AdminPolicy = "AdminAccess";
     public const string SqlCookieScheme = "SqlAuthentication";
 
-    public static void Configure(AuthorizationOptions options, ApplicationAuthenticationOptions authentication)
+    public static void Configure(AuthorizationOptions options, ApplicationAuthenticationOptions authentication,
+        IdentityDirectoryOptions? directory = null)
     {
         var access = CreatePolicy(authentication);
+        if (directory?.Enabled == true && !authentication.IsOpen)
+            access.AddRequirements(new DirectoryAccessRequirement());
         if (authentication.IsEntra)
             access.RequireRole(SqlAuthenticationRoles.Reader, SqlAuthenticationRoles.Operator, SqlAuthenticationRoles.Admin);
 
@@ -21,6 +24,11 @@ public static class ApplicationAuthorization
 
         var operatorAccess = CreatePolicy(authentication);
         var adminAccess = CreatePolicy(authentication);
+        if (directory?.Enabled == true && !authentication.IsOpen)
+        {
+            operatorAccess.AddRequirements(new DirectoryAccessRequirement());
+            adminAccess.AddRequirements(new DirectoryAccessRequirement());
+        }
         if (!authentication.IsOpen)
         {
             operatorAccess.RequireRole(SqlAuthenticationRoles.Operator, SqlAuthenticationRoles.Admin);

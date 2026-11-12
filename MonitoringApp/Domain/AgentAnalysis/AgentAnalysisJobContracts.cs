@@ -9,7 +9,10 @@ public sealed record AgentAnalysisJobCreateRequest(
     IncidentAnalysisSnapshot Snapshot,
     AgentAnalysisExecutionState ExecutionState,
     string CreatedBy,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt)
+{
+    public IReadOnlyList<string> LegacyActors { get; init; } = [];
+}
 
 public sealed class AgentAnalysisJobConcurrencyException : InvalidOperationException
 {

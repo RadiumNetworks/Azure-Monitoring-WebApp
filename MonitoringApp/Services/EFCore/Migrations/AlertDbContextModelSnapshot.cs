@@ -827,6 +827,201 @@ namespace MonitoringApp.Services.EFCore.Migrations
                     b.ToTable("Settings", (string)null);
                 });
 
+            modelBuilder.Entity("MonitoringApp.DirectoryUser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("FamilyName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("GivenName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LocalDisplayName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("UsesStableIdentity")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DirectoryUsers", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DirectoryUsers_Id", "[Id] <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_DirectoryUsers_Origin", "[Origin] IN ('Sql', 'EntraLogin', 'Scim', 'Legacy')");
+
+                            t.HasCheckConstraint("CK_DirectoryUsers_Revision", "[Revision] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.EntraUserIdentity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ObjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("UserId");
+
+                    b.HasIndex("TenantId", "ObjectId")
+                        .IsUnique();
+
+                    b.ToTable("EntraUserIdentities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EntraUserIdentities_Object", "[ObjectId] <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_EntraUserIdentities_Tenant", "[TenantId] <> '00000000-0000-0000-0000-000000000000'");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.HistoricalUserAlias", b =>
+                {
+                    b.Property<Guid>("AliasUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MainUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("AliasUserId");
+
+                    b.HasIndex("MainUserId");
+
+                    b.ToTable("HistoricalUserAliases", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_HistoricalUserAliases_DistinctUsers", "[AliasUserId] <> [MainUserId]");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.IdentityAdministrationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AfterJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("BeforeJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsOpenAuthentication")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("TargetTeamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TargetUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("TargetTeamId", "OccurredAt");
+
+                    b.HasIndex("TargetUserId", "OccurredAt");
+
+                    b.ToTable("IdentityAdministrationRecords", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_IdentityAdministrationRecords_Actor", "([IsOpenAuthentication] = 1 AND [ActorUserId] IS NULL) OR ([IsOpenAuthentication] = 0 AND [ActorUserId] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_IdentityAdministrationRecords_Target", "([TargetUserId] IS NOT NULL AND [TargetTeamId] IS NULL) OR ([TargetUserId] IS NULL AND [TargetTeamId] IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.IdentityMigrationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("OriginalStateJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("VerificationNote")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("UserId", "Fingerprint")
+                        .IsUnique();
+
+                    b.ToTable("IdentityMigrationRecords", (string)null);
+                });
+
             modelBuilder.Entity("MonitoringApp.InboxLayout", b =>
                 {
                     b.Property<int>("Id")
@@ -867,6 +1062,67 @@ namespace MonitoringApp.Services.EFCore.Migrations
                         .IsUnique();
 
                     b.ToTable("InboxLayouts", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.LegacyUserLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<Guid?>("TargetUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("VerificationNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Alias")
+                        .IsUnique()
+                        .HasFilter("[TenantId] IS NULL");
+
+                    b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("TargetUserId");
+
+                    b.HasIndex("Alias", "TenantId")
+                        .IsUnique()
+                        .HasFilter("[TenantId] IS NOT NULL");
+
+                    b.ToTable("LegacyUserLinks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_LegacyUserLinks_Alias", "LTRIM(RTRIM([Alias])) <> ''");
+
+                            t.HasCheckConstraint("CK_LegacyUserLinks_Approval", "[Status] <> 'Confirmed' OR ([TargetUserId] IS NOT NULL AND [ApprovedByUserId] IS NOT NULL AND [ApprovedAt] IS NOT NULL AND [VerificationNote] IS NOT NULL AND LTRIM(RTRIM([VerificationNote])) <> '')");
+
+                            t.HasCheckConstraint("CK_LegacyUserLinks_Revision", "[Revision] > 0");
+
+                            t.HasCheckConstraint("CK_LegacyUserLinks_Status", "[Status] IN ('Pending', 'Confirmed', 'Conflict', 'Rejected')");
+                        });
                 });
 
             modelBuilder.Entity("MonitoringApp.LogbookEntry", b =>
@@ -1315,6 +1571,159 @@ namespace MonitoringApp.Services.EFCore.Migrations
                     b.ToTable("ScheduledQueryTargetStates", (string)null);
                 });
 
+            modelBuilder.Entity("MonitoringApp.ScimConnection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ScimConnections", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ScimConnections_Name", "LTRIM(RTRIM([Name])) <> ''");
+
+                            t.HasCheckConstraint("CK_ScimConnections_Revision", "[Revision] > 0");
+
+                            t.HasCheckConstraint("CK_ScimConnections_Tenant", "[TenantId] <> '00000000-0000-0000-0000-000000000000'");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId", "ExternalId")
+                        .IsUnique();
+
+                    b.ToTable("ScimGroups", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ScimGroups_ExternalId", "[ExternalId] <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_ScimGroups_Revision", "[Revision] > 0");
+
+                            t.HasCheckConstraint("CK_ScimGroups_Status", "[SyncStatus] IN ('Pending', 'Succeeded', 'Failed')");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimGroupMember", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.HasKey("GroupId", "UserId");
+
+                    b.HasIndex("GroupId", "ConnectionId");
+
+                    b.HasIndex("UserId", "ConnectionId");
+
+                    b.ToTable("ScimGroupMembers", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimUserState", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("UserId");
+
+                    b.HasIndex("ConnectionId", "ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("ConnectionId", "TenantId");
+
+                    b.HasIndex("UserId", "TenantId", "ExternalId");
+
+                    b.ToTable("ScimUserStates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ScimUserStates_Revision", "[Revision] > 0");
+
+                            t.HasCheckConstraint("CK_ScimUserStates_Status", "[SyncStatus] IN ('Pending', 'Succeeded', 'Failed')");
+                        });
+                });
+
             modelBuilder.Entity("MonitoringApp.SqlAuthenticationUser", b =>
                 {
                     b.Property<string>("Username")
@@ -1334,6 +1743,142 @@ namespace MonitoringApp.Services.EFCore.Migrations
                     b.HasKey("Username");
 
                     b.ToTable("AuthenticationUsers", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.SqlUserIdentity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("UserId");
+
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("SqlUserIdentities", (string)null);
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeam", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("UserTeams", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserTeams_Name", "LTRIM(RTRIM([Name])) <> ''");
+
+                            t.HasCheckConstraint("CK_UserTeams_Revision", "[Revision] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamGroupMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("TeamId", "GroupId")
+                        .IsUnique();
+
+                    b.ToTable("UserTeamGroupMappings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserTeamGroupMappings_Revision", "[Revision] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamInventoryRole", b =>
+                {
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RoleKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("TeamId", "RoleKey");
+
+                    b.ToTable("UserTeamInventoryRoles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserTeamInventoryRoles_RoleKey", "LTRIM(RTRIM([RoleKey])) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamMembership", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("GroupMappingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("SourceGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId");
+
+                    b.HasIndex("SourceGroupId", "UserId");
+
+                    b.HasIndex("UserId", "TeamId")
+                        .IsUnique()
+                        .HasFilter("[GroupMappingId] IS NULL");
+
+                    b.HasIndex("GroupMappingId", "TeamId", "SourceGroupId");
+
+                    b.HasIndex("UserId", "TeamId", "GroupMappingId")
+                        .IsUnique()
+                        .HasFilter("[GroupMappingId] IS NOT NULL");
+
+                    b.ToTable("UserTeamMemberships", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserTeamMemberships_Source", "([GroupMappingId] IS NULL AND [SourceGroupId] IS NULL) OR ([GroupMappingId] IS NOT NULL AND [SourceGroupId] IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("MonitoringApp.AgentAnalysisReviewEvent", b =>
@@ -1365,6 +1910,76 @@ namespace MonitoringApp.Services.EFCore.Migrations
                         .IsRequired();
 
                     b.Navigation("QueryDefinition");
+                });
+
+            modelBuilder.Entity("MonitoringApp.EntraUserIdentity", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.HistoricalUserAlias", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("AliasUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("MainUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.IdentityAdministrationRecord", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("MonitoringApp.UserTeam", null)
+                        .WithMany()
+                        .HasForeignKey("TargetTeamId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+                });
+
+            modelBuilder.Entity("MonitoringApp.IdentityMigrationRecord", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.LegacyUserLink", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
                 });
 
             modelBuilder.Entity("MonitoringApp.ParsedAlertRecord", b =>
@@ -1427,6 +2042,114 @@ namespace MonitoringApp.Services.EFCore.Migrations
                         .HasForeignKey("RuleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimGroup", b =>
+                {
+                    b.HasOne("MonitoringApp.ScimConnection", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimGroupMember", b =>
+                {
+                    b.HasOne("MonitoringApp.ScimGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId", "ConnectionId")
+                        .HasPrincipalKey("Id", "ConnectionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.ScimUserState", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "ConnectionId")
+                        .HasPrincipalKey("UserId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.ScimUserState", b =>
+                {
+                    b.HasOne("MonitoringApp.ScimConnection", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectionId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.EntraUserIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "TenantId", "ExternalId")
+                        .HasPrincipalKey("UserId", "TenantId", "ObjectId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.SqlUserIdentity", b =>
+                {
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.SqlAuthenticationUser", null)
+                        .WithMany()
+                        .HasForeignKey("Username")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamGroupMapping", b =>
+                {
+                    b.HasOne("MonitoringApp.ScimGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.UserTeam", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamInventoryRole", b =>
+                {
+                    b.HasOne("MonitoringApp.UserTeam", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MonitoringApp.UserTeamMembership", b =>
+                {
+                    b.HasOne("MonitoringApp.UserTeam", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.DirectoryUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("MonitoringApp.ScimGroupMember", null)
+                        .WithMany()
+                        .HasForeignKey("SourceGroupId", "UserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("MonitoringApp.UserTeamGroupMapping", null)
+                        .WithMany()
+                        .HasForeignKey("GroupMappingId", "TeamId", "SourceGroupId")
+                        .HasPrincipalKey("Id", "TeamId", "GroupId")
+                        .OnDelete(DeleteBehavior.NoAction);
                 });
 
             modelBuilder.Entity("MonitoringApp.AnalysisQueryDefinition", b =>

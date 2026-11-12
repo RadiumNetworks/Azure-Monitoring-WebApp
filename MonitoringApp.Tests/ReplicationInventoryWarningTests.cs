@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MonitoringApp.Tests;
@@ -10,7 +11,25 @@ namespace MonitoringApp.Tests;
 public sealed class ReplicationInventoryWarningTests
 {
     [Fact]
-    public async Task ChecksBothSystemsInEveryRowWithoutChangingInventoryAndDeduplicatesWarnings()
+    public void RetirementUpgradeAndInstallTemplateContainTheExactGeneratedMigrationWithoutDeletingAlerts()
+    {
+        using var context = new AlertDbContext(new DbContextOptionsBuilder<AlertDbContext>()
+            .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ModelOnly;Trusted_Connection=True;").Options);
+        var generated = context.GetService<IMigrator>().GenerateScript(
+            "20261111080329_AddOpenAdministrationAndTeamInventoryRoles",
+            "20261111120000_RetireReplicationInventoryWarning", MigrationsSqlGenerationOptions.Idempotent).Trim();
+        var upgrade = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Database", "UpgradeRetireReplicationInventoryWarning.sql")).Trim();
+        var template = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Database", "CreateMonitoringDatabase.template.sql"));
+        static string Normalize(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal).Trim();
+        Assert.Contains(Normalize(generated), Normalize(upgrade));
+        Assert.Contains(Normalize(upgrade), Normalize(template));
+        Assert.DoesNotContain("DELETE", generated, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP", generated, StringComparison.OrdinalIgnoreCase);
+        Assert.False(context.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
+    public async Task ReplicationIngestionKeepsSourceLifecycleWithoutCreatingWarningsOrChangingInventory()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedInventoryAsync();
@@ -31,26 +50,10 @@ public sealed class ReplicationInventoryWarningTests
         Assert.Equal("existing.test", known.Domain);
 
         var warnings = (await context.Alerts.ToArrayAsync()).Where(IsWarning).ToArray();
-        Assert.Equal(3, warnings.Length);
-        Assert.Equal(["NEW-DEST", "OTHER-SUB-DC", "UNKNOWN-SOURCE"],
-            warnings.Select(warning => warning.TargetName).Order(StringComparer.Ordinal).ToArray());
-        Assert.All(warnings, warning =>
-        {
-            Assert.Equal("Sev2", warning.Severity);
-            Assert.Equal("Fired", warning.MonitorCondition);
-            Assert.Equal("source-sub", warning.SubscriptionId);
-            Assert.Equal("https://example.test/results", warning.SearchResultsUrl);
-            Assert.Contains("replication-test", warning.Description, StringComparison.Ordinal);
-            Assert.Equal(warning.TargetName, fixture.Presenter.ResolveDisplayIdentity(warning).TargetName);
-        });
+        Assert.Empty(warnings);
         var parsed = await context.ParsedAlerts.ToArrayAsync();
-        Assert.Equal(5, parsed.Length);
-        Assert.All(parsed.Where(item => warnings.Any(warning => warning.Id == item.Id)), item =>
-        {
-            Assert.Null(item.InventorySubscriptionId);
-            Assert.Null(item.InventoryComputer);
-        });
-        Assert.Equal(4, await context.AlertHistory.CountAsync());
+        Assert.Equal(2, parsed.Length);
+        Assert.Equal(1, await context.AlertHistory.CountAsync());
         var graph = await fixture.Store.GetAlertGraphRecordsAsync(DateTimeOffset.UtcNow.AddDays(-1));
         Assert.DoesNotContain(graph, item => item.Target is "NEW-DEST" or "UNKNOWN-SOURCE");
     }
@@ -64,7 +67,7 @@ public sealed class ReplicationInventoryWarningTests
         await using var context = fixture.Factory.CreateDbContext();
         Assert.Empty(await context.ComputerInventory.ToArrayAsync());
         var warnings = (await context.Alerts.ToArrayAsync()).Where(IsWarning).ToArray();
-        Assert.Equal(4, warnings.Length);
+        Assert.Empty(warnings);
         foreach (var warning in warnings)
         {
             using var warningPayload = JsonDocument.Parse(warning.RawJson);
@@ -75,13 +78,12 @@ public sealed class ReplicationInventoryWarningTests
     }
 
     [Fact]
-    public async Task DisabledDeletedAndReenabledRuleControlsWarningsIncludingDuplicateDelivery()
+    public async Task LegacyEnabledRuleIsInertCannotBeReenabledAndIsNoLongerSeeded()
     {
         await using var fixture = await Fixture.CreateAsync();
+        Assert.DoesNotContain(DefaultAlertRules.Create(), rule => rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
         var rule = Assert.Single(await fixture.Store.GetAllAlertRulesAsync(),
-            candidate => candidate.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
-        rule.Enabled = false;
-        rule = await fixture.Store.SaveAlertRuleAsync(rule);
+            item => item.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
         using var payload = JsonDocument.Parse(Payload);
         await fixture.Store.AddAsync(payload.RootElement);
         await using (var context = fixture.Factory.CreateDbContext())
@@ -89,19 +91,19 @@ public sealed class ReplicationInventoryWarningTests
         Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
 
         rule.Enabled = true;
-        await fixture.Store.SaveAlertRuleAsync(rule);
+        Assert.False((await fixture.Store.SaveAlertRuleAsync(rule)).Enabled);
         var notifications = 0;
         fixture.Store.Changed += () => notifications++;
         Assert.False((await fixture.Store.AddAsync(payload.RootElement)).Created);
-        Assert.Equal(1, notifications);
+        Assert.Equal(0, notifications);
         Assert.False((await fixture.Store.AddAsync(payload.RootElement)).Created);
-        Assert.Equal(1, notifications);
+        Assert.Equal(0, notifications);
 
         Assert.True(await fixture.Store.DeleteAlertRuleAsync(rule.Id));
         using var next = JsonDocument.Parse(Payload.Replace("replication-test", "replication-next", StringComparison.Ordinal));
         await fixture.Store.AddAsync(next.RootElement);
         await using var check = fixture.Factory.CreateDbContext();
-        Assert.Equal(4, (await check.Alerts.ToArrayAsync()).Count(IsWarning));
+        Assert.DoesNotContain(await check.Alerts.ToArrayAsync(), IsWarning);
         Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
     }
 
@@ -148,7 +150,7 @@ public sealed class ReplicationInventoryWarningTests
     }
 
     [Fact]
-    public async Task SuppressedReplicationStillProducesInventoryWarningsButNeverLearns()
+    public async Task SuppressedReplicationDoesNotProduceInventoryWarningsOrLearnSystems()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.Store.SaveAlertRuleAsync(new()
@@ -160,8 +162,7 @@ public sealed class ReplicationInventoryWarningTests
         Assert.True((await fixture.Store.AddAsync(payload.RootElement)).Suppressed);
         Assert.True((await fixture.Store.AddAsync(payload.RootElement)).Suppressed);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal(4, await context.Alerts.CountAsync());
-        Assert.All(await context.Alerts.ToArrayAsync(), alert => Assert.True(IsWarning(alert)));
+        Assert.Empty(await context.Alerts.ToArrayAsync());
         Assert.Empty(await fixture.Store.GetComputerInventoryAsync());
     }
 
@@ -180,6 +181,7 @@ public sealed class ReplicationInventoryWarningTests
         Assert.Empty(saved.InventoryRole);
         Assert.Empty(saved.ConditionType);
         Assert.False(saved.IsCritical);
+        Assert.False(saved.Enabled);
         var duplicate = WarningRule();
         duplicate.Id = Guid.NewGuid();
         duplicate.Name = "Another warning rule";
@@ -189,7 +191,7 @@ public sealed class ReplicationInventoryWarningTests
     }
 
     [Fact]
-    public async Task WarningAlertsParticipateInCriticalCategorizationAndLogbookWithoutDuplicateEntries()
+    public async Task HistoricalWarningAlertsStillParticipateInCriticalCategorizationAndLogbookWithoutDuplicateEntries()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.Store.SaveAlertRuleAsync(new()
@@ -199,15 +201,17 @@ public sealed class ReplicationInventoryWarningTests
             CategoryName = "Inventory registration required", IsCritical = true
         });
         using var payload = JsonDocument.Parse(Payload);
-        await fixture.Store.AddAsync(payload.RootElement);
-        await fixture.Store.AddAsync(payload.RootElement);
+        var warning = ReplicationInventoryWarning.Create(AlertPayloadForTest(payload.RootElement), WarningRule(), "NEW-DEST");
+        using var historical = JsonDocument.Parse(warning.RawJson);
+        await fixture.Store.AddAsync(historical.RootElement);
+        await fixture.Store.AddAsync(historical.RootElement);
         await using var context = fixture.Factory.CreateDbContext();
         var warnings = (await context.ParsedAlerts.ToArrayAsync())
             .Where(item => item.AlertName == ReplicationInventoryWarning.AlertName).ToArray();
-        Assert.Equal(4, warnings.Length);
+        Assert.Single(warnings);
         Assert.All(warnings, warning => Assert.True(warning.IsCritical));
         var logbook = await context.LogbookEntries.ToArrayAsync();
-        Assert.Equal(4, logbook.Length);
+        Assert.Single(logbook);
         Assert.All(logbook, entry => Assert.Contains("Unknown replication inventory target", entry.Comment, StringComparison.Ordinal));
     }
 
@@ -226,8 +230,14 @@ public sealed class ReplicationInventoryWarningTests
     private static bool IsWarning(AlertRecord alert) =>
         alert.AlertId.StartsWith("inventory-unknown:", StringComparison.Ordinal);
 
-    private static AlertRule WarningRule() => DefaultAlertRules.Create()
-        .Single(rule => rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
+    private static AlertRule WarningRule() => new()
+    {
+        Id = ReplicationInventoryWarning.DefaultRuleId,
+        Name = "Warn about unknown replication inventory targets",
+        RuleType = AlertRuleTypes.ReplicationInventoryWarning,
+        QueryResultType = "Replication",
+        Enabled = true
+    };
 
     private static AlertRecord AlertPayloadForTest(JsonElement payload) => new(
         Guid.NewGuid(), DateTimeOffset.UtcNow, "replication-test", "Replication",

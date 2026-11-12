@@ -7,10 +7,10 @@ public sealed class ScheduledQueryTemplatesTests : IDisposable
     private readonly string directory = Directory.CreateTempSubdirectory("scheduled-query-templates-").FullName;
 
     [Fact]
-    public void RuntimeContainsAllNineJsonTemplatesWithoutASourcePathCopy()
+    public void RuntimeContainsAllTenJsonTemplatesWithoutASourcePathCopy()
     {
         var files = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "AnalysisQueries", "Scheduled"), "*.json");
-        Assert.Equal(9, files.Length);
+        Assert.Equal(10, files.Length);
         Assert.False(Directory.Exists(Path.Combine(AppContext.BaseDirectory, "Services", "KQL", "Templates", "Scheduled")));
         foreach (var file in files)
             AssertDisabledDefaults(ScheduledQueryTemplates.Load(file));

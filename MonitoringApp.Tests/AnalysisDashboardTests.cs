@@ -4,6 +4,81 @@ namespace MonitoringApp.Tests;
 
 public sealed class AnalysisDashboardTests
 {
+    [Fact]
+    public void LegacyJsonDefaultsToFixedSelectionAndModeChangesAreUndoableWithoutFlatteningRoles()
+    {
+        var collection = AnalysisDashboardCollection.Deserialize(
+            """{"systems":[{"subscriptionId":"sub","computer":"FIXED"}]}""");
+        var state = new AnalysisDashboardState();
+        state.Load(collection.OpenActive());
+        Assert.Equal(AnalysisDashboardSelectionMode.FixedSystems, state.Document.SelectionMode);
+        Assert.Empty(state.Document.InventoryRoles);
+
+        state.SetSystemSelection(AnalysisDashboardSelectionMode.InventoryRoles,
+            [" domaincontrollers ", "DOMAIN CONTROLLER", " File Server "]);
+        Assert.Equal(["Domain Controller", "File Server"], state.Document.InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(state.Document.Systems).Computer);
+        state.Undo();
+        Assert.Equal(AnalysisDashboardSelectionMode.FixedSystems, state.Document.SelectionMode);
+        Assert.Empty(state.Document.InventoryRoles);
+        state.Redo();
+        Assert.Equal(AnalysisDashboardSelectionMode.InventoryRoles, state.Document.SelectionMode);
+        state.SetSystemSelection(AnalysisDashboardSelectionMode.FixedSystems, state.Document.InventoryRoles);
+        Assert.Equal(["Domain Controller", "File Server"], state.Document.InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(state.Document.Systems).Computer);
+    }
+
+    [Theory]
+    [InlineData("""{"selectionMode":"Unknown"}""")]
+    [InlineData("""{"selectionMode":99}""")]
+    [InlineData("""{"selectionMode":null}""")]
+    [InlineData("""{"selectionMode":"InventoryRoles","inventoryRoles":[]}""")]
+    [InlineData("""{"selectionMode":"InventoryRoles","inventoryRoles":[" "]}""")]
+    [InlineData("""{"inventoryRoles":null}""")]
+    [InlineData("""{"inventoryRoles":[null]}""")]
+    [InlineData("""{"systems":null}""")]
+    [InlineData("""{"systems":[null]}""")]
+    public void InvalidSavedSelectionsAreExplicitErrors(string json)
+    {
+        var exception = Record.Exception(() => AnalysisDashboardCollection.Deserialize(json));
+        Assert.True(exception is System.Text.Json.JsonException or AnalysisValidationException, exception?.ToString());
+    }
+
+    [Fact]
+    public void InvalidSelectionChangesAndLoadsPreserveCurrentStateAndUndoHistory()
+    {
+        var state = new AnalysisDashboardState();
+        Assert.Equal(AnalysisValidationCode.DashboardRolesRequired,
+            Assert.Throws<AnalysisValidationException>(() =>
+                state.SetSystemSelection(AnalysisDashboardSelectionMode.InventoryRoles, [])).Code);
+        Assert.False(state.CanUndo);
+        state.SetSystemSelection(AnalysisDashboardSelectionMode.InventoryRoles, ["Domain Controller"]);
+        state.Undo();
+        var original = state.Document;
+        Assert.True(state.CanRedo);
+        Assert.Throws<AnalysisValidationException>(() => state.SetSystemSelection((AnalysisDashboardSelectionMode)99, ["Other"]));
+        Assert.Throws<AnalysisValidationException>(() => state.Load(new() { SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles }));
+        Assert.Same(original, state.Document);
+        Assert.True(state.CanRedo);
+        Assert.False(state.CanUndo);
+        state.Redo();
+        Assert.Equal(["Domain Controller"], state.Document.InventoryRoles);
+    }
+
+    [Fact]
+    public void ExistingViewsMustNotUseInactiveFixedSystemsBeforeRoleUiIsImplemented()
+    {
+        var document = new AnalysisDashboardDocument
+        {
+            SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles,
+            InventoryRoles = ["Domain Controller"],
+            Systems = [new() { SubscriptionId = "sub", Computer = "INACTIVE-FIXED" }]
+        };
+        Assert.Equal(AnalysisValidationCode.DashboardSelectionNotAvailable,
+            Assert.Throws<AnalysisValidationException>(() => document.ValidateSelection(allowInventoryRoles: false)).Code);
+        document.ValidateSelection();
+    }
+
     [Theory]
     [InlineData(11, 11)]
     [InlineData(100, 100)]

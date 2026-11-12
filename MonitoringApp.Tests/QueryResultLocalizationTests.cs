@@ -24,6 +24,7 @@ public sealed class QueryResultLocalizationTests
         ["Replication"] = "Replikationsabfrageübersicht",
         ["InventoryUnknownTarget"] = "Unbekanntes Inventarziel",
         ["ScheduledKql"] = "Schwellenwert der geplanten KQL-Abfrage",
+        ["ScheduledKqlInventoryTarget"] = "Unbekanntes Inventarziel",
         ["ScheduledKqlWorkspace"] = "Workspace-KQL-Schwellenwert"
     };
 
@@ -156,10 +157,10 @@ public sealed class QueryResultLocalizationTests
     }
 
     [Fact]
-    public void AllEightDefinitionsHaveCompleteExplicitDisplayKeysAndArguments()
+    public void AllNineDefinitionsHaveCompleteExplicitDisplayKeysAndArguments()
     {
         var files = Directory.GetFiles(DefinitionsPath, "*.json");
-        Assert.Equal(8, files.Length);
+        Assert.Equal(9, files.Length);
         foreach (var file in files)
         {
             var definition = JsonSerializer.Deserialize<QueryResultDefinition>(File.ReadAllText(file), DefinitionOptions)!;
@@ -219,7 +220,7 @@ public sealed class QueryResultLocalizationTests
                 "LocalSystem", "Port", "Protocol", "SourceDSA", "DestDSA", "NumberOfFailures", "LastErrorStatus",
                 "LastFailureTime", "LastSuccessTime", "SourceDSASite", "DestDSASite", "NC", "DelayMinutes",
                 "SourceAlertName", "SourceAlertId", "Value", "Comparison", "Threshold", "WindowMinutes",
-                "Workspace", "EventID", "Users", "AccountWarnings" }.Select(name => new { name, type = "string" }),
+                "Workspace", "EventID", "Users", "AccountWarnings", "Target", "count_" }.Select(name => new { name, type = "string" }),
             rows = Enumerable.Range(0, count).Select(index => new[]
             {
                 $"Observed <computer {index}> & {{0}}", "Site <original>", "2026-11-06T14:05:09Z",
@@ -228,7 +229,7 @@ public sealed class QueryResultLocalizationTests
                 "Source <system> & {0}", "Destination <system> & {1}", "1", "5",
                 "2026-11-06T13:05:09Z", "2026-11-06T12:05:09Z", "Source <site>", "Destination <site>", "DC=original",
                 "15", "Unknown inventory target <original>", "Source alert ID <original>", "1,234.50", ">",
-                "1234,50", "15", "Workspace <original>", "4625", "Accounts / changes <original>", "Account warning <original>"
+                "1234,50", "15", "Workspace <original>", "4625", "Accounts / changes <original>", "Account warning <original>", "Unknown <target>", "42"
             }).ToArray()
         }
     });
@@ -247,7 +248,7 @@ public sealed class QueryResultLocalizationTests
             "Replication" => [german ? $"{count} Fehler" : $"{count} " + (count == 1 ? "failure" : "failures"),
                 german ? $"{count} " + (count == 1 ? "Verbindung" : "Verbindungen")
                     : $"{count} " + (count == 1 ? "link" : "links")],
-            "ScheduledKql" => [german ? $"{count} " + (count == 1 ? "System" : "Systeme")
+            "ScheduledKql" or "ScheduledKqlInventoryTarget" => [german ? $"{count} " + (count == 1 ? "System" : "Systeme")
                 : $"{count} " + (count == 1 ? "system" : "systems")],
             "ScheduledKqlWorkspace" => [german ? $"{count} " + (count == 1 ? "Workspace" : "Workspaces")
                 : $"{count} " + (count == 1 ? "workspace" : "workspaces")],

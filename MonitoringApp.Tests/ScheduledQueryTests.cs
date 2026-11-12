@@ -21,21 +21,307 @@ namespace MonitoringApp.Tests;
 
 public sealed class ScheduledQueryTests
 {
+    [Fact]
+    public async Task ReplicationBaselineUsesFullRoutedInventoryIncludingMaintenanceWithoutOtherWorkspacesOrUnroutedSystems()
+    {
+        await using var fixture = await Fixture.CreateAsync(workspaceCount: 2);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.ComputerInventory.SingleAsync(item => item.Computer == "DC02")).Maintenance = true;
+            context.ComputerInventory.Add(new() { SubscriptionId = "not-routed", Computer = "OUTSIDE" });
+            await context.SaveChangesAsync();
+        }
+        var rule = ReplicationRule();
+        rule.WorkspaceKeys = ["production", "workspace-1"];
+        fixture.Query.Response = TargetResult(("UNKNOWN", 7));
+        var prepared = new List<ScheduledQueryExecutionPreview>();
+        var evaluation = await fixture.Service.PreviewAsync(rule, onPrepared: prepared.Add);
+        Assert.All(evaluation.Workspaces, workspace => Assert.Null(workspace.Error));
+        Assert.Equal(2, prepared.Count);
+        var inventories = prepared.Select(preview => JsonSerializer.Deserialize<string[]>(
+            Regex.Match(preview.Query.EffectiveKql, @"let _InventoryComputers = dynamic\((.*?)\);").Groups[1].Value)!).ToArray();
+        Assert.Equal(["DC01", "DC01.example.com", "DC02", "DC02.example.com"], inventories[0]);
+        Assert.Equal(["DC01", "DC01.workspace-1.example.com"], inventories[1]);
+        Assert.DoesNotContain("OUTSIDE", fixture.Query.Kql);
+        Assert.All(prepared, preview =>
+        {
+            Assert.DoesNotContain("column_ifexists", preview.Query.EffectiveKql);
+            Assert.DoesNotContain("UsersTruncated", preview.Query.EffectiveKql);
+            Assert.DoesNotContain("_SelectedSystems", preview.Query.EffectiveKql);
+            Assert.DoesNotContain("_BinSize", preview.Query.EffectiveKql);
+            Assert.DoesNotContain("_TimePeriod", preview.Query.EffectiveKql);
+            Assert.DoesNotContain("_GroupBy", preview.Query.EffectiveKql);
+        });
+        Assert.All(evaluation.Workspaces, workspace => Assert.Equal(7, workspace.Values["UNKNOWN"]));
+        Assert.All(prepared, preview => Assert.Equal(TimeSpan.FromMinutes(5), preview.WindowEndUtc - preview.WindowStartUtc));
+        Assert.Contains("DestDSA", rule.Kql);
+        Assert.DoesNotContain("SourceDSA", rule.Kql);
+        Assert.Empty(await fixture.AlertRecordsAsync());
+    }
+
+    [Fact]
+    public async Task MissingReplicationInventoryBaselineFailsExplicitlyWithoutQueryingOrGeneratingAlerts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var context = fixture.Factory.CreateDbContext())
+            await context.ComputerInventory.ExecuteDeleteAsync();
+        var evaluation = await fixture.Service.PreviewAsync(ReplicationRule());
+        Assert.Contains("Inventory baseline", Assert.Single(evaluation.Workspaces).Error);
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Empty(await fixture.AlertRecordsAsync());
+    }
+
+    [Fact]
+    public async Task ScheduledReplicationAlertRunsEveryFiveMinutesWithIndependentTargetEpisodesAndExactCounts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rule = ReplicationRule();
+        Assert.False(rule.Enabled);
+        Assert.Equal(5, rule.IntervalMinutes);
+        Assert.Equal(0, rule.Threshold);
+        rule.Enabled = true;
+        await fixture.Service.SaveAsync(rule);
+        fixture.Query.Response = TargetResult(("UNKNOWN-A", 7), ("UNKNOWN-B", 23));
+        await fixture.Service.RunOnceAsync(default);
+        var first = await fixture.AlertRecordsAsync();
+        Assert.Equal(2, first.Length);
+        Assert.All(first, alert =>
+        {
+            Assert.Equal("Fired", alert.MonitorCondition);
+            Assert.Empty(alert.SubscriptionId);
+            var parsed = ParsedAlertFactory.Create(alert);
+            Assert.Null(parsed.InventorySubscriptionId);
+            Assert.Null(parsed.InventoryComputer);
+            var presentation = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions")).Parse(alert.RawJson)!;
+            Assert.Contains(presentation.Rows, row => row.Title == alert.TargetName);
+        });
+        Assert.Equal(7, (await fixture.Service.StatesAsync(rule.Id)).Single(state => state.Computer == "UNKNOWN-A").Value);
+        Assert.Equal(23, (await fixture.Service.StatesAsync(rule.Id)).Single(state => state.Computer == "UNKNOWN-B").Value);
+        Assert.Equal(fixture.Clock.Now.UtcDateTime.AddMinutes(5), Assert.Single(await fixture.Service.ListAsync()).NextRunUtc);
+        fixture.Clock.Advance();
+        await fixture.Service.RunOnceAsync(default);
+        Assert.Equal(2, (await fixture.AlertRecordsAsync()).Length);
+        fixture.Clock.Advance();
+        fixture.Query.Response = TargetResult(("UNKNOWN-B", 11));
+        await fixture.Service.RunOnceAsync(default);
+        var resolved = Assert.Single(await fixture.AlertRecordsAsync(), item => item.MonitorCondition == "Resolved");
+        Assert.Equal(first.Single(alert => alert.TargetName == "UNKNOWN-A").AlertId, resolved.AlertId);
+        Assert.Equal(11, (await fixture.Service.StatesAsync(rule.Id)).Single(state => state.Computer == "UNKNOWN-B").Value);
+        fixture.Clock.Advance();
+        fixture.Query.Response = TargetResult();
+        await fixture.Service.RunOnceAsync(default);
+        Assert.Equal(4, (await fixture.AlertRecordsAsync()).Length);
+        Assert.All(await fixture.Service.StatesAsync(rule.Id), state => Assert.Null(state.ActiveAlertId));
+        await using var check = fixture.Factory.CreateDbContext();
+        Assert.Equal(2, await check.ComputerInventory.CountAsync());
+    }
+
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task ExternalKqlNeverKeepsDatabaseContextsOpen(bool scheduled, bool workspaceScope)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReplicationQueryFailureNeverResolvesExistingTargetsOrConvertsValuesToZero(bool malformed)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rule = ReplicationRule();
+        rule.Enabled = true;
+        await fixture.Service.SaveAsync(rule);
+        fixture.Query.Response = TargetResult(("UNKNOWN", 42));
+        await fixture.Service.RunOnceAsync(default);
+        fixture.Clock.Advance();
+        if (malformed) fixture.Query.Response = Result(("Workspace", 0));
+        else fixture.Query.Failure = new InvalidOperationException("Query failed");
+        await fixture.Service.RunOnceAsync(default);
+        var state = Assert.Single(await fixture.Service.StatesAsync(rule.Id));
+        Assert.Equal("Error", state.Status);
+        Assert.Null(state.Value);
+        Assert.NotNull(state.ActiveAlertId);
+        Assert.Single(await fixture.AlertRecordsAsync());
+    }
+
+    [Fact]
+    public async Task ReplicationUsesSeparateWorkspaceTargetKeysAndRechecksNewInventoryEntriesBeforeCommit()
+    {
+        await using var fixture = await Fixture.CreateAsync(workspaceCount: 2);
+        var rule = ReplicationRule();
+        rule.WorkspaceKeys = ["production", "workspace-1"];
+        rule.Enabled = true;
+        await fixture.Service.SaveAsync(rule);
+        fixture.Query.Response = TargetResult(("UNKNOWN", 19));
+        await fixture.Service.RunOnceAsync(default);
+        var first = await fixture.Service.StatesAsync(rule.Id);
+        Assert.Equal(2, first.Count);
+        Assert.Equal(2, first.Select(state => state.SubscriptionId).Distinct().Count());
+        Assert.All(first, state => Assert.Equal(19, state.Value));
+        fixture.Clock.Advance();
+        fixture.Query.BeforeResult = async () =>
+        {
+            await using var context = fixture.Factory.CreateDbContext();
+            if (!await context.ComputerInventory.AnyAsync(entry => entry.Computer == "UNKNOWN"))
+            {
+                context.ComputerInventory.Add(new() { SubscriptionId = Fixture.Subscription, Computer = "UNKNOWN" });
+                await context.SaveChangesAsync();
+            }
+        };
+        await fixture.Service.RunOnceAsync(default);
+        var final = await fixture.Service.StatesAsync(rule.Id);
+        Assert.Null(final.Single(state => state.WorkspaceKey == "production").ActiveAlertId);
+        Assert.NotNull(final.Single(state => state.WorkspaceKey == "workspace-1").ActiveAlertId);
+        Assert.Single(await fixture.AlertRecordsAsync(), alert => alert.MonitorCondition == "Resolved");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1000)]
+    [InlineData(1001)]
+    public async Task ReplicationResultLimitsNeverAcceptPartialTargetSets(int count)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Query.Response = TargetResult(Enumerable.Range(0, count).Select(index => ($"UNKNOWN-{index}", 3L)).ToArray());
+        var result = Assert.Single((await fixture.Service.PreviewAsync(ReplicationRule())).Workspaces);
+        if (count > 1000)
+        {
+            Assert.NotNull(result.Error);
+            Assert.Empty(result.Targets);
+            Assert.Empty(result.Values);
+        }
+        else
+        {
+            Assert.Null(result.Error);
+            Assert.Equal(count, result.Targets.Count);
+            Assert.All(result.Values.Values, value => Assert.Equal(3, value));
+        }
+    }
+
+    [Theory]
+    [InlineData("<", 5)]
+    [InlineData("<=", 5)]
+    [InlineData(">=", 0)]
+    public async Task MissingUnknownTargetsRecoverEvenWhenTheThresholdWouldMatchZero(string comparison, double threshold)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rule = ReplicationRule();
+        rule.Enabled = true;
+        rule.Comparison = comparison;
+        rule.Threshold = threshold;
+        await fixture.Service.SaveAsync(rule);
+        fixture.Query.Response = TargetResult(("UNKNOWN", 3));
+        await fixture.Service.RunOnceAsync(default);
+        var fired = Assert.Single(await fixture.AlertRecordsAsync());
+        fixture.Clock.Advance();
+        fixture.Query.Response = TargetResult();
+        await fixture.Service.RunOnceAsync(default);
+        var state = Assert.Single(await fixture.Service.StatesAsync(rule.Id));
+        Assert.Equal("Normal", state.Status);
+        Assert.Equal(0, state.Value);
+        Assert.Null(state.ActiveAlertId);
+        var recovery = Assert.Single(await fixture.AlertRecordsAsync(), alert => alert.MonitorCondition == "Resolved");
+        Assert.Equal(fired.AlertId, recovery.AlertId);
+        fixture.Clock.Advance();
+        await fixture.Service.RunOnceAsync(default);
+        Assert.Equal(2, (await fixture.AlertRecordsAsync()).Length);
+    }
+
+    [Theory]
+    [InlineData(null, "42")]
+    [InlineData("", "42")]
+    [InlineData("<EMPTY_VALUE>", "42")]
+    [InlineData("INVALID\nTARGET", "42")]
+    [InlineData("UNKNOWN-DC", null)]
+    [InlineData("UNKNOWN-DC", "0")]
+    [InlineData("UNKNOWN-DC", "-1")]
+    [InlineData("UNKNOWN-DC", "1.5")]
+    [InlineData("UNKNOWN-DC", "not a count")]
+    [InlineData("UNKNOWN-DC", "9007199254740992")]
+    [InlineData("DC01.", "42")]
+    public void UnknownTargetResultRejectsInvalidNamesCountsAndKnownTargets(string? target, string? count)
+    {
+        var table = new AnalysisQueryTable("production",
+            [new("Target", "string"), new("count_", "long")], [[target, count]]);
+        Assert.Throws<InvalidOperationException>(() =>
+            ScheduledQueryResultNormalizer.NormalizeUnknownTargets(table, "production", ["DC01"]));
+    }
+
+    [Fact]
+    public void UnknownTargetResultRejectsDuplicateAndOversizedTargetsWithoutLosingCountPrecision()
+    {
+        var columns = new AnalysisQueryColumn[] { new("Target", "string"), new("count_", "long") };
+        foreach (var rows in new IReadOnlyList<string?>[][]
+        {
+            [["UNKNOWN-DC", "42"], ["unknown-dc.", "7"]],
+            [[new string('A', 257), "42"]]
+        })
+            Assert.Throws<InvalidOperationException>(() => ScheduledQueryResultNormalizer.NormalizeUnknownTargets(
+                new("production", columns, rows), "production", ["DC01"]));
+        var normalized = ScheduledQueryResultNormalizer.NormalizeUnknownTargets(
+            new("production", columns, [["UNKNOWN-DC", "9007199254740991"]]), "production", ["DC01"]);
+        Assert.Equal(9_007_199_254_740_991d, normalized.Values["UNKNOWN-DC"]);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task UnknownTargetPageShowsNativeCountInPreviewAndStateWithoutSyntheticSubscription(string culture)
+    {
+        using var selection = new UiSelection(culture);
+        await using var fixture = await Fixture.CreateAsync();
+        await using var page = new ScheduledPage(fixture);
+        await page.StartAsync();
+        await page.InvokeAsync("BeginTemplate", "replication-unknown-targets.json");
+        var rule = Assert.IsType<ScheduledQueryRule>(page.Field("editing"));
+        Assert.Equal(ScheduledQueryScopes.UnknownInventoryTargets, rule.Scope);
+        fixture.Query.Response = TargetResult(("UNKNOWN-DC", 42));
+        await page.InvokeAsync("PreviewAsync");
+        var preview = await page.HtmlAsync();
+        Assert.Contains(page.Text["AdminScheduledQueries.UnknownInventoryTargets"], preview);
+        Assert.Contains("<th>count_</th>", preview);
+        Assert.Contains("<td>42</td>", preview);
+        Assert.DoesNotContain("column_ifexists", preview);
+        rule.Enabled = true;
+        await page.InvokeAsync("SaveAsync");
+        await fixture.Service.RunOnceAsync(default);
+        await page.InvokeAsync("EditAsync", Assert.Single(await fixture.Service.ListAsync()));
+        var saved = await page.HtmlAsync();
+        Assert.Contains("UNKNOWN-DC", saved);
+        Assert.Contains("<th>count_</th>", saved);
+        Assert.Contains("<td>42</td>", saved);
+        Assert.DoesNotContain("query-target:", saved);
+        using var payload = JsonDocument.Parse(Assert.Single(await fixture.AlertRecordsAsync()).RawJson);
+        var result = payload.RootElement.GetProperty("queryResult");
+        Assert.Equal("ScheduledKqlInventoryTarget", result.GetProperty("type").GetString());
+        Assert.Contains(result.GetProperty("columns").EnumerateArray(), column => column.GetProperty("name").GetString() == "count_");
+    }
+
+    private static ScheduledQueryRule ReplicationRule()
+    {
+        var rule = ScheduledQueryTemplates.Load(Path.Combine(AppContext.BaseDirectory, "AnalysisQueries", "Scheduled", "replication-unknown-targets.json"));
+        rule.WorkspaceKeys = ["production"];
+        return rule;
+    }
+
+    [Theory]
+    [InlineData(false, AnalysisQueryScopes.SelectedSystems)]
+    [InlineData(false, AnalysisQueryScopes.Workspace)]
+    [InlineData(false, ScheduledQueryScopes.UnknownInventoryTargets)]
+    [InlineData(true, AnalysisQueryScopes.SelectedSystems)]
+    [InlineData(true, AnalysisQueryScopes.Workspace)]
+    [InlineData(true, ScheduledQueryScopes.UnknownInventoryTargets)]
+    public async Task ExternalKqlNeverKeepsDatabaseContextsOpen(bool scheduled, string scope)
     {
         await using var fixture = await Fixture.CreateAsync(workspaceCount: 2);
         fixture.Rule.WorkspaceKeys = ["production", "workspace-1"];
+        fixture.Rule.Scope = scope;
+        var workspaceScope = scope == AnalysisQueryScopes.Workspace;
         if (workspaceScope)
         {
             fixture.Rule.Scope = AnalysisQueryScopes.Workspace;
             fixture.Rule.Kql = ScheduledQueryRule.EventExample(4624).Kql;
         }
-        fixture.Query.Response = Result((workspaceScope ? "Workspace" : "DC01", 99));
+        if (scope == ScheduledQueryScopes.UnknownInventoryTargets)
+        {
+            fixture.Rule.Kql = ReplicationRule().Kql;
+            fixture.Query.Response = TargetResult(("UNKNOWN-DC", 99));
+        }
+        else fixture.Query.Response = Result((workspaceScope ? "Workspace" : "DC01", 99));
         var contexts = new List<AlertDbContext>();
         fixture.Factory.OnCreated = contexts.Add;
         void AssertDisposedContexts()
@@ -225,7 +511,7 @@ public sealed class ScheduledQueryTests
         Assert.Equal(users, details.Users);
         Assert.Equal(4724, details.EventId);
         Assert.Equal(2, details.UnparsedEvents);
-        Assert.Contains("column_ifexists(\"Users\"", fixture.Query.Kql);
+        Assert.DoesNotContain("column_ifexists(\"Users\"", fixture.Query.Kql);
         Assert.Empty(await fixture.AlertRecordsAsync());
 
         await fixture.Service.RunOnceAsync(default);
@@ -595,22 +881,14 @@ public sealed class ScheduledQueryTests
         fixture.Rule.IngestionDelayMinutes = delayMinutes;
         ScheduledQueryExecutionPreview? prepared = null;
         var expected = string.Join("\n",
-            "let _SelectedSystems = dynamic([\"DC01\",\"DC02\"]);",
-            "let _BinSize = 1m;",
-            $"let _TimePeriod = {lookback}m;",
-            "let _GroupBy = \"SourceDSA\";",
             "set truncationmaxsize=1048576;",
+            "let _SelectedSystems = dynamic([\"DC01\",\"DC02\"]);",
             $"let _WindowStart = datetime({start});",
             $"let _WindowEnd = datetime({end});",
             "let _ScheduledQueryResult = () {",
             fixture.Rule.Kql.ReplaceLineEndings("\n"),
             "};",
             "_ScheduledQueryResult()",
-            "| project Series, Value,",
-            "          EventId = column_ifexists(\"EventId\", int(null)),",
-            "          Users = column_ifexists(\"Users\", \"\"),",
-            "          UnparsedEvents = column_ifexists(\"UnparsedEvents\", long(null)),",
-            "          UsersTruncated = column_ifexists(\"UsersTruncated\", false)",
             "| take 1001");
 
         var result = await fixture.Service.PreviewAsync(fixture.Rule, onPrepared: value => prepared = value);
@@ -1334,7 +1612,7 @@ public sealed class ScheduledQueryTests
         var german = culture == "de-DE";
         await using var fixture = await Fixture.CreateAsync(workspaceCount: 2);
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -1444,7 +1722,7 @@ public sealed class ScheduledQueryTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -1481,7 +1759,7 @@ public sealed class ScheduledQueryTests
         var formatCulture = CultureInfo.CurrentCulture.Name;
         await using var fixture = await Fixture.CreateAsync(workspaceCount: 2);
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -1575,7 +1853,7 @@ public sealed class ScheduledQueryTests
         async Task<string> Snapshot() => JsonSerializer.Serialize((await fixture.Service.ListAsync()).OrderBy(rule => rule.Name));
         var original = await Snapshot();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -1626,7 +1904,7 @@ public sealed class ScheduledQueryTests
                 Assert.Equal(count == 0, html.Contains(culture == "de-DE"
                     ? "Keine geplanten KQL-Regeln konfiguriert. Beispiele sind anfangs deaktiviert; vor dem Aktivieren testen."
                     : "No scheduled KQL rules configured. Examples start disabled; test them before enabling."));
-                var toolbar = Regex.Match(html, "<div class=\"admin-card-actions\">.*?</div>", RegexOptions.Singleline).Value;
+                var toolbar = Regex.Match(html, "<div class=\"admin-card-actions[^\"]*kql-query-actions[^\"]*\">.*?</div>", RegexOptions.Singleline).Value;
                 Assert.Contains(culture == "de-DE" ? ">Eigene KQL-Regel erstellen</button>" : ">Create custom KQL rule</button>", toolbar);
                 Assert.Contains(culture == "de-DE" ? ">CPU-Beispiel</button>" : ">CPU example</button>", toolbar);
                 Assert.Contains(culture == "de-DE" ? ">Kerberos-Beispiel</button>" : ">Kerberos example</button>", toolbar);
@@ -1634,7 +1912,8 @@ public sealed class ScheduledQueryTests
                 foreach (var eventId in ScheduledQueryRule.EventIds)
                     Assert.Contains($">{services.GetRequiredService<UiText>()[QueryTemplateCatalog.GetActive($"kql/scheduled/event-{eventId}").NameResourceKey]}</button>", toolbar);
                 var buttons = Regex.Matches(toolbar, "<button\\b[^>]*>");
-                Assert.Equal(ScheduledQueryRule.EventIds.Count() + 4, buttons.Count);
+                Assert.Equal(ScheduledQueryRule.EventIds.Count() + 5, buttons.Count);
+                Assert.Contains(services.GetRequiredService<UiText>()[QueryTemplateCatalog.GetActive("kql/scheduled/replication-unknown-targets").NameResourceKey], toolbar);
                 Assert.All(buttons.Cast<Match>(), button => Assert.Equal(busy, button.Value.Contains("disabled")));
                 var delivery = Regex.Match(raw, "<div class=\"admin-message admin-message-warning\" role=\"status\">.*?</div>", RegexOptions.Singleline).Value;
                 Assert.Equal(pending > 0, delivery.Length > 0);
@@ -1719,7 +1998,7 @@ public sealed class ScheduledQueryTests
         async Task<string> Snapshot() => JsonSerializer.Serialize(await fixture.Service.ListAsync());
         var original = await Snapshot();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -1872,7 +2151,7 @@ public sealed class ScheduledQueryTests
                         option => Regex.IsMatch(option.Groups[1].Value, "\\bselected(?:\\s|=|$)"))));
                     if (index > 0) Assert.All(options.Cast<Match>(), option => Assert.Equal(Value(option), WebUtility.HtmlDecode(option.Groups[2].Value)));
                 }
-                AssertSelect(0, ["SelectedSystems", "Workspace"], scope);
+                AssertSelect(0, ["SelectedSystems", "Workspace", ScheduledQueryScopes.UnknownInventoryTargets], scope);
                 AssertSelect(1, ["=", "<", "<=", ">", ">="], "<=");
                 AssertSelect(2, ["Sev0", "Sev1", "Sev2", "Sev3", "Sev4"], "Sev4");
                 Assert.Contains(german ? ">Ausgewählte Systeme</option>" : ">Selected systems</option>", formText);
@@ -1886,7 +2165,8 @@ public sealed class ScheduledQueryTests
                 Assert.Contains(german ? ">Regel speichern</button>" : ">Save rule</button>", formText);
                 Assert.Contains(german ? ">Abfrage testen (keine Alarme)</button>" : ">Test query (no alerts)</button>", formText);
                 Assert.Contains(german ? ">Abbrechen</button>" : ">Cancel</button>", formText);
-                var formButtons = Regex.Matches(form, "<button\\b[^>]*>");
+                Assert.Single(Regex.Matches(form, "<button\\b[^>]*data-kql-keyword-toggle[^>]*>").Cast<Match>());
+                var formButtons = Regex.Matches(form, "<button\\b(?![^>]*\\bdata-kql-keyword-toggle\\b)[^>]*>");
                 Assert.Equal(3, formButtons.Count);
                 Assert.All(formButtons.Cast<Match>(), button => Assert.Equal(busy, button.Value.Contains("disabled")));
                 Assert.Equal(before, JsonSerializer.Serialize(rule));
@@ -1925,7 +2205,7 @@ public sealed class ScheduledQueryTests
         await fixture.Service.SaveAsync(rule);
         var storedRule = JsonSerializer.Serialize(await fixture.Service.ListAsync());
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator).AddSingleton(fixture.Service).AddSingleton(fixture.Options)
             .BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -2019,7 +2299,7 @@ public sealed class ScheduledQueryTests
         async Task<string> Snapshot() => JsonSerializer.Serialize(await fixture.Service.ListAsync());
         var original = await Snapshot();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -2257,7 +2537,7 @@ public sealed class ScheduledQueryTests
         var stored = Assert.Single(await fixture.Service.ListAsync());
         var originalStates = JsonSerializer.Serialize(await fixture.Service.StatesAsync(stored.Id));
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator)
             .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -3075,7 +3355,7 @@ public sealed class ScheduledQueryTests
         private Func<string>? html;
         public ScheduledPage(Fixture fixture)
         {
-            services = new ServiceCollection().AddLogging().AddUiLocalization()
+            services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
                 .AddSingleton<IComponentActivator>(activator)
                 .AddSingleton<ILogger<Components.Pages.AdminScheduledQueries>>(Log)
                 .AddSingleton(fixture.Service).AddSingleton(fixture.Options).BuildServiceProvider();
@@ -3241,6 +3521,14 @@ public sealed class ScheduledQueryTests
                     new { name = "UnparsedEvents", type = "long" }, new { name = "UsersTruncated", type = "bool" }
                 },
                 rows = new[] { new object?[] { "Workspace", value, eventId, users, unparsed, truncated } } } }
+        })))!;
+
+    private static LogsQueryResult TargetResult(params (string Target, long Count)[] rows) =>
+        ModelReaderWriter.Read<LogsQueryResult>(BinaryData.FromString(JsonSerializer.Serialize(new
+        {
+            tables = new[] { new { name = "PrimaryResult",
+                columns = new[] { new { name = "Target", type = "string" }, new { name = "count_", type = "long" } },
+                rows = rows.Select(row => new object[] { row.Target, row.Count }) } }
         })))!;
 
     private static LogsQueryResult Result(params (string Computer, double? Value)[] rows) =>

@@ -7,7 +7,8 @@ namespace MonitoringApp;
 
 public sealed class InboxLayoutRepository(
     IDbContextFactory<AlertDbContext> contextFactory,
-    ILogger<InboxLayoutRepository>? logger = null)
+    ILogger<InboxLayoutRepository>? logger = null,
+    IdentityDirectoryOptions? directoryOptions = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     private readonly ILogger<InboxLayoutRepository> logger = logger ?? NullLogger<InboxLayoutRepository>.Instance;
@@ -32,6 +33,7 @@ public sealed class InboxLayoutRepository(
     {
         ownerKey = DashboardOwnerKeys.Normalize(ownerKey, "layout");
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await IdentityOwnerGuard.ValidateAsync(db, ownerKey, directoryOptions, cancellationToken);
         var json = await db.InboxLayouts.AsNoTracking()
             .Where(item => item.OwnerKey == ownerKey)
             .Select(item => item.DocumentJson)
@@ -72,8 +74,19 @@ public sealed class InboxLayoutRepository(
         CancellationToken cancellationToken = default)
     {
         ownerKey = DashboardOwnerKeys.Normalize(ownerKey, "layout");
-        var now = DateTimeOffset.UtcNow;
+        if (directoryOptions?.Enabled == true)
+            return await DatabaseTransactions.ExecuteAsync(contextFactory,
+                context => SaveCoreAsync(context, ownerKey, document, cancellationToken),
+                cancellationToken, System.Data.IsolationLevel.Serializable);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await SaveCoreAsync(db, ownerKey, document, cancellationToken);
+    }
+
+    private async Task<InboxLayoutSaveResult> SaveCoreAsync(AlertDbContext db, string ownerKey,
+        InboxDashboardDocument document, CancellationToken cancellationToken)
+    {
+        await IdentityOwnerGuard.ValidateAsync(db, ownerKey, directoryOptions, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
         var entity = await db.InboxLayouts.SingleOrDefaultAsync(
             item => item.OwnerKey == ownerKey,
             cancellationToken);

@@ -1,0 +1,334 @@
+[
+  { "word": "as", "contexts": ["operator"] },
+  { "word": "between" },
+  { "word": "by", "info": {
+    "en": "Names grouping or sorting columns, depending on the operator.\nExamples: Perf | summarize count() by Computer\nPerf | order by TimeGenerated desc",
+    "de": "Benennt je nach Operator die Gruppierungs- oder Sortierspalten.\nBeispiele: Perf | summarize count() by Computer\nPerf | order by TimeGenerated desc"
+  } },
+  { "word": "consume", "contexts": ["operator"] },
+  { "word": "contains" },
+  { "word": "contains_cs" },
+  { "word": "count", "contexts": ["operator", "expression"], "info": {
+    "en": "Counts rows. Use count() inside summarize, or count as a pipeline operator.\nExample: Perf | summarize count() by Computer",
+    "de": "Zählt Zeilen. In summarize als count(), in der Pipeline als Operator count verwenden.\nBeispiel: Perf | summarize count() by Computer"
+  } },
+  { "word": "datatable", "contexts": ["source"] },
+  { "word": "distinct", "contexts": ["operator"] },
+  { "word": "evaluate", "contexts": ["operator"], "info": {
+    "en": "Runs a query plugin. Available plugins and permissions depend on the service.\nExample: DCDiagData_CL | extend Tests = todynamic(Status) | evaluate bag_unpack(Tests)",
+    "de": "Führt ein Abfrage-Plugin aus. Verfügbare Plugins und Berechtigungen hängen vom Dienst ab.\nBeispiel: DCDiagData_CL | extend Tests = todynamic(Status) | evaluate bag_unpack(Tests)"
+  } },
+  { "word": "extend", "contexts": ["operator"], "info": {
+    "en": "Adds or replaces calculated columns.\nExample: Perf | extend Value = todouble(CounterValue)",
+    "de": "Ergänzt oder ersetzt berechnete Spalten.\nBeispiel: Perf | extend Value = todouble(CounterValue)"
+  } },
+  { "word": "externaldata", "contexts": ["source"] },
+  { "word": "facet", "contexts": ["operator"] },
+  { "word": "find", "contexts": ["source"] },
+  { "word": "fork", "contexts": ["operator"] },
+  { "word": "has" },
+  { "word": "has_all" },
+  { "word": "has_any" },
+  { "word": "has_cs" },
+  { "word": "hasprefix" },
+  { "word": "hasprefix_cs" },
+  { "word": "hassuffix" },
+  { "word": "hassuffix_cs" },
+  { "word": "in" },
+  { "word": "invoke", "contexts": ["operator"] },
+  { "word": "join", "contexts": ["operator"], "info": {
+    "en": "Matches two tabular inputs on common column names or $left.Column == $right.Column. The default kind is innerunique. Inner/outer joins retain both sides, including renamed duplicate columns; leftsemi/leftanti retain only left columns, rightsemi/rightanti only right columns.\nExample: Perf | join kind=leftouter (Heartbeat | project Computer, OSType) on Computer",
+    "de": "Verknüpft zwei tabellarische Quellen über gemeinsame Spaltennamen oder $left.Spalte == $right.Spalte. Standard ist kind=innerunique. Inner-/Outer-Joins behalten beide Seiten einschließlich umbenannter doppelter Spalten; leftsemi/leftanti nur linke, rightsemi/rightanti nur rechte Spalten.\nBeispiel: Perf | join kind=leftouter (Heartbeat | project Computer, OSType) on Computer"
+  } },
+  { "word": "let", "contexts": ["statement"], "info": {
+    "en": "Binds a name to an expression. End the statement with a semicolon.\nExample: let Recent = Perf | where TimeGenerated > ago(1h); Recent | take 10",
+    "de": "Bindet einen Namen an einen Ausdruck. Die Anweisung endet mit einem Semikolon.\nBeispiel: let Recent = Perf | where TimeGenerated > ago(1h); Recent | take 10"
+  } },
+  { "word": "limit", "contexts": ["operator"] },
+  { "word": "lookup", "contexts": ["operator"] },
+  { "word": "make-series", "contexts": ["operator"] },
+  { "word": "materialize", "contexts": ["source", "expression"], "info": {
+    "en": "Caches a tabular expression for reuse within the same query. Filter and project early to reduce memory use.\nExample: let Cached = materialize(Perf | where TimeGenerated > ago(1h) | project Computer, CounterValue); Cached | summarize avg(CounterValue) by Computer",
+    "de": "Speichert einen tabellarischen Ausdruck zur Wiederverwendung innerhalb derselben Abfrage zwischen. Früh filtern und Spalten auswählen, um Speicher zu sparen.\nBeispiel: let Cached = materialize(Perf | where TimeGenerated > ago(1h) | project Computer, CounterValue); Cached | summarize avg(CounterValue) by Computer"
+  } },
+  { "word": "mv-apply", "contexts": ["operator"], "info": {
+    "en": "Expands an array and runs a subquery on the expanded values for each input row. Use on (...) for per-row filtering or aggregation.\nExample: print Values = dynamic([1, 3, 2]) | mv-apply Value = Values to typeof(long) on (summarize Maximum = max(Value))",
+    "de": "Erweitert ein Array und führt für jede Eingabezeile eine Unterabfrage auf den erweiterten Werten aus. Mit on (...) lassen sich diese pro Eingabezeile filtern oder aggregieren.\nBeispiel: print Values = dynamic([1, 3, 2]) | mv-apply Value = Values to typeof(long) on (summarize Maximum = max(Value))"
+  } },
+  { "word": "mv-expand", "contexts": ["operator"], "info": {
+    "en": "Turns array elements or bag entries into rows, not columns; other columns are repeated. Empty collections produce no rows. to typeof(...) only casts: it does not parse strings. Multiple expanded columns are aligned in parallel.\nExample: print Values = dynamic([10, 20]) | mv-expand with_itemindex=Index Values to typeof(long)",
+    "de": "Macht aus Arrayelementen oder Bag-Einträgen Zeilen, keine Spalten; andere Spalten werden wiederholt. Leere Sammlungen liefern keine Zeilen. to typeof(...) prüft nur den Typ und parst keine Strings. Mehrere Spalten werden parallel erweitert.\nBeispiel: print Values = dynamic([10, 20]) | mv-expand with_itemindex=Index Values to typeof(long)"
+  } },
+  { "word": "on" },
+  { "word": "order", "contexts": ["operator"], "next": ["by"], "info": {
+    "en": "Sorts rows by one or more expressions. Follow with by; asc or desc selects the direction.\nExample: Perf | order by TimeGenerated desc",
+    "de": "Sortiert Zeilen nach einem oder mehreren Ausdrücken. Danach folgt by; asc oder desc legt die Richtung fest.\nBeispiel: Perf | order by TimeGenerated desc"
+  } },
+  { "word": "parse", "contexts": ["operator"], "info": {
+    "en": "Extracts typed columns from text using a pattern after with. Nonmatching rows remain in the result; use parse-where to discard them.\nExample: print Message = 'user=alice; count=3' | parse Message with 'user=' User:string '; count=' Count:long",
+    "de": "Liest mit einem Muster hinter with typisierte Spalten aus Text. Nicht passende Zeilen bleiben im Ergebnis; parse-where entfernt sie stattdessen.\nBeispiel: print Message = 'user=alice; count=3' | parse Message with 'user=' User:string '; count=' Count:long"
+  } },
+  { "word": "parse-kv", "contexts": ["operator"], "info": {
+    "en": "Extracts named, typed keys from key/value text. Declare the keys after as (...) and separators after with (...). Only declared keys and the first occurrence of each key are extracted.\nExample: print Message = 'user=alice count=3' | parse-kv Message as (user:string, count:long) with (pair_delimiter=' ', kv_delimiter='=')",
+    "de": "Liest benannte, typisierte Schlüssel aus Schlüssel/Wert-Text. Schlüssel stehen hinter as (...), Trennzeichen hinter with (...). Nur deklarierte Schlüssel und jeweils ihr erstes Vorkommen werden gelesen.\nBeispiel: print Message = 'user=alice count=3' | parse-kv Message as (user:string, count:long) with (pair_delimiter=' ', kv_delimiter='=')"
+  } },
+  { "word": "parse-where", "contexts": ["operator"], "info": {
+    "en": "Parses text like parse, but keeps only rows whose pattern and type conversions succeed. This can remove rows from the result.\nExample: datatable(Message:string)['user=alice; count=3', 'invalid'] | parse-where Message with 'user=' User:string '; count=' Count:long",
+    "de": "Parst Text wie parse, behält aber nur Zeilen mit passendem Muster und erfolgreichen Typumwandlungen. Dadurch können Eingabezeilen entfallen.\nBeispiel: datatable(Message:string)['user=alice; count=3', 'invalid'] | parse-where Message with 'user=' User:string '; count=' Count:long"
+  } },
+  { "word": "partition", "contexts": ["operator"] },
+  { "word": "print", "contexts": ["source"] },
+  { "word": "project", "contexts": ["operator"], "info": {
+    "en": "Selects, renames or calculates output columns; other columns are dropped.\nExample: Perf | project TimeGenerated, Computer, Value = CounterValue",
+    "de": "Wählt Ausgabespalten aus, benennt sie um oder berechnet sie; andere Spalten entfallen.\nBeispiel: Perf | project TimeGenerated, Computer, Value = CounterValue"
+  } },
+  { "word": "project-away", "contexts": ["operator"] },
+  { "word": "project-keep", "contexts": ["operator"] },
+  { "word": "project-rename", "contexts": ["operator"] },
+  { "word": "project-reorder", "contexts": ["operator"] },
+  { "word": "range", "contexts": ["source"] },
+  { "word": "reduce", "contexts": ["operator"] },
+  { "word": "render", "contexts": ["operator"] },
+  { "word": "sample", "contexts": ["operator"] },
+  { "word": "sample-distinct", "contexts": ["operator"] },
+  { "word": "scan", "contexts": ["operator"] },
+  { "word": "search", "contexts": ["source", "operator"] },
+  { "word": "serialize", "contexts": ["operator"] },
+  { "word": "set", "contexts": ["statement"] },
+  { "word": "sort", "contexts": ["operator"], "next": ["by"], "info": {
+    "en": "Synonym for order. Follow with by and the sorting expressions.\nExample: Perf | sort by Computer asc, TimeGenerated desc",
+    "de": "Synonym für order. Danach folgen by und die Sortierausdrücke.\nBeispiel: Perf | sort by Computer asc, TimeGenerated desc"
+  } },
+  { "word": "startswith" },
+  { "word": "startswith_cs" },
+  { "word": "endswith" },
+  { "word": "endswith_cs" },
+  { "word": "summarize", "contexts": ["operator"], "info": {
+    "en": "Aggregates rows, optionally grouped by expressions after by.\nExample: Perf | summarize Average = avg(CounterValue) by Computer",
+    "de": "Aggregiert Zeilen, optional gruppiert nach den Ausdrücken hinter by.\nBeispiel: Perf | summarize Average = avg(CounterValue) by Computer"
+  } },
+  { "word": "take", "contexts": ["operator"] },
+  { "word": "top", "contexts": ["operator"] },
+  { "word": "top-hitters", "contexts": ["operator"] },
+  { "word": "top-nested", "contexts": ["operator"] },
+  { "word": "union", "contexts": ["source", "operator"], "info": {
+    "en": "Combines rows from tabular inputs. kind=outer (default) includes all columns; conflicting types produce separate columns with type suffixes, for example Value_long and Value_int. kind=inner keeps columns common to all inputs. withsource adds a string column identifying the input.\nExample: union withsource=SourceTable kind=outer Perf, Heartbeat",
+    "de": "Kombiniert Zeilen tabellarischer Quellen. kind=outer (Standard) enthält alle Spalten; unterschiedliche Typen erzeugen getrennte Spalten mit Typsuffix, etwa Value_long und Value_int. kind=inner behält gemeinsame Spalten aller Quellen. withsource ergänzt eine Stringspalte für die Herkunft.\nBeispiel: union withsource=SourceTable kind=outer Perf, Heartbeat"
+  } },
+  { "word": "where", "contexts": ["operator"], "info": {
+    "en": "Keeps only rows matching a condition.\nExample: Perf | where TimeGenerated > ago(1h)",
+    "de": "Behält nur Zeilen, die eine Bedingung erfüllen.\nBeispiel: Perf | where TimeGenerated > ago(1h)"
+  } },
+  { "word": "and" },
+  { "word": "or" },
+  { "word": "not" },
+  { "word": "asc" },
+  { "word": "desc" },
+  { "word": "true" },
+  { "word": "false" },
+  { "word": "abs", "info": "abs(number)" },
+  { "word": "ago", "info": {
+    "en": "Subtracts a timespan from the current UTC time.\nExample: Perf | where TimeGenerated > ago(1h)",
+    "de": "Zieht eine Zeitspanne von der aktuellen UTC-Zeit ab.\nBeispiel: Perf | where TimeGenerated > ago(1h)"
+  } },
+  { "word": "arg_max", "resultColumns": "multiple", "info": "arg_max(exprToMaximize, exprToReturn [, ...])" },
+  { "word": "arg_min", "resultColumns": "multiple", "info": "arg_min(exprToMinimize, exprToReturn [, ...])" },
+  { "word": "array_length", "info": {
+    "en": "Returns the number of array elements; returns null if the argument is not an array.\nExample: print Length = array_length(dynamic([10, 20, 30]))",
+    "de": "Liefert die Anzahl der Arrayelemente; bei einem Wert, der kein Array ist, wird null geliefert.\nBeispiel: print Length = array_length(dynamic([10, 20, 30]))"
+  } },
+  { "word": "array_concat", "info": {
+    "en": "Combines dynamic arrays into one array. Duplicates are retained.\nExample: print Values = array_concat(dynamic([1, 2]), dynamic([2, 3]))",
+    "de": "Verbindet dynamische Arrays zu einem Array. Doppelte Werte bleiben erhalten.\nBeispiel: print Values = array_concat(dynamic([1, 2]), dynamic([2, 3]))"
+  } },
+  { "word": "array_index_of", "info": {
+    "en": "Finds a value in an array and returns its zero-based position, or -1 if it is absent.\nExample: print Position = array_index_of(dynamic(['a', 'b', 'c']), 'b')",
+    "de": "Sucht einen Wert im Array und liefert seine Position ab 0; bei fehlendem Wert wird -1 geliefert.\nBeispiel: print Position = array_index_of(dynamic(['a', 'b', 'c']), 'b')"
+  } },
+  { "word": "array_sort_asc", "info": {
+    "en": "Sorts array elements in ascending order. Additional arrays can be reordered alongside the first array.\nExample: print Sorted = array_sort_asc(dynamic([3, 1, 2]))",
+    "de": "Sortiert Arrayelemente aufsteigend. Weitere Arrays können entsprechend der Sortierung des ersten Arrays mitgeordnet werden.\nBeispiel: print Sorted = array_sort_asc(dynamic([3, 1, 2]))"
+  } },
+  { "word": "array_sort_desc", "info": {
+    "en": "Sorts array elements in descending order; this sorts within an array, not table rows.\nExample: print Sorted = array_sort_desc(dynamic([3, 1, 2]))",
+    "de": "Sortiert Arrayelemente absteigend; sortiert innerhalb eines Arrays, nicht die Tabellenzeilen.\nBeispiel: print Sorted = array_sort_desc(dynamic([3, 1, 2]))"
+  } },
+  { "word": "avg", "info": "avg(expr)" },
+  { "word": "avgif", "info": "avgif(expr, predicate)" },
+  { "word": "bag_keys", "info": {
+    "en": "Returns the top-level property names of a dynamic bag as an array; key order is not guaranteed. Combine with mv-expand to inspect each key.\nExample: print Bag = dynamic({\"Name\":\"DC01\", \"Status\":\"OK\"}) | mv-expand Key = bag_keys(Bag) | extend Value = Bag[tostring(Key)]",
+    "de": "Liefert die Eigenschaftsnamen der obersten Bag-Ebene als Array; ihre Reihenfolge ist nicht garantiert. Mit mv-expand lässt sich jeder Schlüssel untersuchen.\nBeispiel: print Bag = dynamic({\"Name\":\"DC01\", \"Status\":\"OK\"}) | mv-expand Key = bag_keys(Bag) | extend Value = Bag[tostring(Key)]"
+  } },
+  { "word": "bag_merge", "info": {
+    "en": "Merges dynamic bags into one bag. For duplicate keys, the value from the leftmost bag wins.\nExample: print Bag = bag_merge(dynamic({\"a\":1}), dynamic({\"a\":2, \"b\":3}))",
+    "de": "Verbindet dynamische Bags zu einem Bag. Bei gleichen Schlüsseln gewinnt der Wert aus dem am weitesten links stehenden Bag.\nBeispiel: print Bag = bag_merge(dynamic({\"a\":1}), dynamic({\"a\":2, \"b\":3}))"
+  } },
+  { "word": "bag_pack", "info": {
+    "en": "Builds a dynamic property bag from alternating key/value arguments. Each key must have a value.\nExample: print Bag = bag_pack('Computer', 'DC01', 'Failures', 3)",
+    "de": "Erstellt einen dynamischen Property-Bag aus abwechselnden Schlüssel/Wert-Argumenten. Jeder Schlüssel benötigt einen Wert.\nBeispiel: print Bag = bag_pack('Computer', 'DC01', 'Failures', 3)"
+  } },
+  { "word": "bag_unpack", "resultColumns": "multiple", "info": {
+    "en": "Use evaluate bag_unpack(Bag) to turn top-level bag properties into columns, not rows. The bag column is removed. An explicit output schema improves performance and stabilizes columns; use a prefix to avoid name conflicts. Plugin availability depends on the service.\nExample: print Bag = dynamic({\"Name\":\"DC01\", \"Count\":3}) | evaluate bag_unpack(Bag) : (Name:string, Count:long)",
+    "de": "Mit evaluate bag_unpack(Bag) werden Eigenschaften der obersten Bag-Ebene zu Spalten, nicht zu Zeilen. Die Bag-Spalte entfällt. Ein explizites Ausgabeschema verbessert die Leistung und hält die Spalten stabil; ein Präfix vermeidet Namenskonflikte. Die Plugin-Verfügbarkeit hängt vom Dienst ab.\nBeispiel: print Bag = dynamic({\"Name\":\"DC01\", \"Count\":3}) | evaluate bag_unpack(Bag) : (Name:string, Count:long)"
+  } },
+  { "word": "bin", "info": "bin(value, roundTo)" },
+  { "word": "bin_at", "info": "bin_at(value, bin_size, fixed_point)" },
+  { "word": "case", "info": "case(predicate_1, then_1 [, predicate_2, then_2, ...], else)" },
+  { "word": "ceiling", "info": "ceiling(number)" },
+  { "word": "coalesce", "info": "coalesce(arg1, arg2 [, ...])" },
+  { "word": "count_distinct", "info": "count_distinct(expr)" },
+  { "word": "count_distinctif", "info": "count_distinctif(expr, predicate)" },
+  { "word": "countif", "info": "countif(predicate)" },
+  { "word": "datetime" },
+  { "word": "datetime_add", "info": "datetime_add(period, amount, datetime)" },
+  { "word": "datetime_diff", "info": "datetime_diff(period, datetime1, datetime2)" },
+  { "word": "datetime_part", "info": "datetime_part(part, datetime)" },
+  { "word": "dcount", "info": "dcount(expr [, accuracy])" },
+  { "word": "dcountif", "info": "dcountif(expr, predicate [, accuracy])" },
+  { "word": "dynamic", "info": {
+    "en": "Creates a dynamic literal such as an array or property bag. For JSON text stored in a column, use parse_json instead.\nExample: print Data = dynamic({\"Computer\":\"DC01\", \"Tests\":[\"DNS\", \"LDAP\"]})",
+    "de": "Erstellt ein dynamisches Literal, etwa ein Array oder einen Property-Bag. Für JSON-Text aus einer Spalte stattdessen parse_json verwenden.\nBeispiel: print Data = dynamic({\"Computer\":\"DC01\", \"Tests\":[\"DNS\", \"LDAP\"]})"
+  } },
+  { "word": "endofday", "info": "endofday(date [, offset])" },
+  { "word": "endofmonth", "info": "endofmonth(date [, offset])" },
+  { "word": "endofweek", "info": "endofweek(date [, offset])" },
+  { "word": "endofyear", "info": "endofyear(date [, offset])" },
+  { "word": "extract", "info": {
+    "en": "Extracts a regex capture group; group 0 means the whole match. An optional type literal converts the result. No match or a failed conversion returns null.\nExample: print Count = extract(@'count=(\\d+)', 1, 'user=alice count=3', typeof(long))",
+    "de": "Liest eine Regex-Capture-Gruppe; Gruppe 0 bezeichnet den gesamten Treffer. Ein optionales Typliteral wandelt das Ergebnis um. Ohne Treffer oder bei fehlgeschlagener Umwandlung wird null geliefert.\nBeispiel: print Count = extract(@'count=(\\d+)', 1, 'user=alice count=3', typeof(long))"
+  } },
+  { "word": "extract_all", "info": {
+    "en": "Returns all regex matches as a dynamic array. One selected capture group produces a flat array; multiple groups produce nested arrays. No match returns null.\nExample: print Numbers = extract_all(@'(\\d+)', 'a12 b34')",
+    "de": "Liefert alle Regex-Treffer als dynamisches Array. Eine ausgewählte Capture-Gruppe ergibt ein flaches Array, mehrere Gruppen ergeben verschachtelte Arrays. Ohne Treffer wird null geliefert.\nBeispiel: print Numbers = extract_all(@'(\\d+)', 'a12 b34')"
+  } },
+  { "word": "extract_json", "info": {
+    "en": "Extracts a value from JSON text using a JSONPath, with optional type conversion. For several fields, parse_json once and access its properties instead.\nExample: print Count = extract_json('$.count', '{\"count\":3}', typeof(long))",
+    "de": "Liest einen Wert per JSONPath aus JSON-Text, optional mit Typumwandlung. Für mehrere Felder besser einmal parse_json aufrufen und auf dessen Eigenschaften zugreifen.\nBeispiel: print Count = extract_json('$.count', '{\"count\":3}', typeof(long))"
+  } },
+  { "word": "floor" },
+  { "word": "format_datetime", "info": "format_datetime(date, format)" },
+  { "word": "format_timespan", "info": "format_timespan(timespan, format)" },
+  { "word": "gettype", "info": {
+    "en": "Returns the runtime type of a value. Useful for distinguishing a dynamic array or bag from a JSON string that still needs parsing.\nExample: print Type = gettype(parse_json('{\"count\":3}'))",
+    "de": "Liefert den Laufzeittyp eines Werts. Hilft, ein dynamisches Array oder Bag von einem noch zu parsenden JSON-String zu unterscheiden.\nBeispiel: print Type = gettype(parse_json('{\"count\":3}'))"
+  } },
+  { "word": "getschema", "contexts": ["operator"], "info": {
+    "en": "Returns the column names and types of the preceding tabular expression rather than its data rows. Useful after parsing or expansion.\nExample: print Data = dynamic({\"count\":3}) | getschema",
+    "de": "Liefert Spaltennamen und Typen des vorhergehenden Tabellenausdrucks statt seiner Datenzeilen. Hilfreich nach dem Parsen oder Erweitern.\nBeispiel: print Data = dynamic({\"count\":3}) | getschema"
+  } },
+  { "word": "hash", "info": "hash(source [, mod])" },
+  { "word": "iff", "info": "iff(condition, then, else)" },
+  { "word": "iif", "info": "iif(condition, then, else)" },
+  { "word": "indexof", "info": "indexof(string, match [, start [, length [, occurrence]]])" },
+  { "word": "isempty", "info": "isempty(value)" },
+  { "word": "isfinite", "info": "isfinite(number)" },
+  { "word": "isnan", "info": "isnan(number)" },
+  { "word": "isnotempty", "info": "isnotempty(value)" },
+  { "word": "isnotnull", "info": "isnotnull(value)" },
+  { "word": "isnull", "info": "isnull(value)" },
+  { "word": "make_bag", "info": {
+    "en": "Aggregates bags into one bag inside summarize. If a key occurs in multiple rows, the chosen value is not guaranteed; select the desired row first if this matters.\nExample: datatable(Key:string, Value:long)['DNS', 0, 'LDAP', 1] | summarize Tests = make_bag(bag_pack(Key, Value))",
+    "de": "Fasst Bags in summarize zu einem Bag zusammen. Kommt ein Schlüssel in mehreren Zeilen vor, ist der gewählte Wert nicht garantiert; bei Bedarf vorher die gewünschte Zeile auswählen.\nBeispiel: datatable(Key:string, Value:long)['DNS', 0, 'LDAP', 1] | summarize Tests = make_bag(bag_pack(Key, Value))"
+  } },
+  { "word": "make_list", "info": {
+    "en": "Collects values into a dynamic array inside summarize, retaining duplicates and ignoring nulls. Order is undefined unless the input is sorted.\nExample: datatable(Value:long)[3, 1, 2] | sort by Value asc | summarize Values = make_list(Value)",
+    "de": "Sammelt Werte in summarize als dynamisches Array, behält Duplikate und ignoriert null. Die Reihenfolge ist ohne sortierte Eingabe nicht definiert.\nBeispiel: datatable(Value:long)[3, 1, 2] | sort by Value asc | summarize Values = make_list(Value)"
+  } },
+  { "word": "make_list_if", "info": {
+    "en": "Collects only values whose predicate is true into a dynamic array. Duplicates are retained; nulls are ignored.\nExample: datatable(Value:long)[0, 2, 2] | summarize Values = make_list_if(Value, Value > 0)",
+    "de": "Sammelt nur Werte mit wahrer Bedingung als dynamisches Array. Duplikate bleiben erhalten; null wird ignoriert.\nBeispiel: datatable(Value:long)[0, 2, 2] | summarize Values = make_list_if(Value, Value > 0)"
+  } },
+  { "word": "make_set", "info": {
+    "en": "Collects distinct values into a dynamic array inside summarize. Nulls are ignored and order is not guaranteed.\nExample: datatable(Value:string)['DNS', 'LDAP', 'DNS'] | summarize Values = make_set(Value)",
+    "de": "Sammelt unterschiedliche Werte in summarize als dynamisches Array. Null wird ignoriert und die Reihenfolge ist nicht garantiert.\nBeispiel: datatable(Value:string)['DNS', 'LDAP', 'DNS'] | summarize Values = make_set(Value)"
+  } },
+  { "word": "make_set_if", "info": {
+    "en": "Collects distinct values only when the predicate is true. Nulls are ignored and order is not guaranteed.\nExample: datatable(Value:long)[0, 2, 2] | summarize Values = make_set_if(Value, Value > 0)",
+    "de": "Sammelt unterschiedliche Werte nur bei wahrer Bedingung. Null wird ignoriert und die Reihenfolge ist nicht garantiert.\nBeispiel: datatable(Value:long)[0, 2, 2] | summarize Values = make_set_if(Value, Value > 0)"
+  } },
+  { "word": "max", "info": "max(expr)" },
+  { "word": "maxif", "info": "maxif(expr, predicate)" },
+  { "word": "min", "info": "min(expr)" },
+  { "word": "minif", "info": "minif(expr, predicate)" },
+  { "word": "now", "info": "now([offset])" },
+  { "word": "pack_all", "info": {
+    "en": "Packs all columns of the current row into a dynamic bag. Pass true to omit null or empty column values.\nExample: print Computer = 'DC01', Failures = 3 | project Bag = pack_all()",
+    "de": "Packt alle Spalten der aktuellen Zeile in einen dynamischen Bag. Mit true werden null oder leere Spaltenwerte ausgelassen.\nBeispiel: print Computer = 'DC01', Failures = 3 | project Bag = pack_all()"
+  } },
+  { "word": "parse_csv", "info": {
+    "en": "Parses one comma-separated CSV record into a dynamic string array, respecting quoted fields. Array indices start at 0; convert numeric fields explicitly.\nExample: print Fields = parse_csv('alice,3,\"DNS,LDAP\"') | project User = tostring(Fields[0]), Count = tolong(Fields[1])",
+    "de": "Parst einen kommagetrennten CSV-Datensatz als dynamisches String-Array und beachtet Anführungszeichen. Arrayindizes beginnen bei 0; Zahlenfelder explizit umwandeln.\nBeispiel: print Fields = parse_csv('alice,3,\"DNS,LDAP\"') | project User = tostring(Fields[0]), Count = tolong(Fields[1])"
+  } },
+  { "word": "parse_json", "info": {
+    "en": "Parses JSON text into dynamic data. Invalid JSON is retained as a dynamic string; a dynamic input is returned unchanged. For JSON text nested inside a property, use parse_json(tostring(Data.Nested)).\nExample: print Data = parse_json('{\"Computer\":\"DC01\",\"count\":3}') | project Computer = tostring(Data.Computer), Count = tolong(Data.count)",
+    "de": "Parst JSON-Text als dynamische Daten. Ungültiges JSON bleibt ein dynamischer String; dynamische Eingaben werden unverändert zurückgegeben. Für JSON-Text innerhalb einer Eigenschaft parse_json(tostring(Data.Nested)) verwenden.\nBeispiel: print Data = parse_json('{\"Computer\":\"DC01\",\"count\":3}') | project Computer = tostring(Data.Computer), Count = tolong(Data.count)"
+  } },
+  { "word": "parse_url", "info": {
+    "en": "Splits an absolute URL into a dynamic bag of components such as Scheme, Host, Path and Query Parameters.\nExample: print Url = parse_url('https://example.org/path?x=1') | project Host = tostring(Url.Host), Path = tostring(Url.Path)",
+    "de": "Zerlegt eine absolute URL in einen dynamischen Bag mit Komponenten wie Scheme, Host, Path und Query Parameters.\nBeispiel: print Url = parse_url('https://example.org/path?x=1') | project Host = tostring(Url.Host), Path = tostring(Url.Path)"
+  } },
+  { "word": "parse_xml", "info": {
+    "en": "Parses XML into dynamic data. Attributes use @name and text can use #text; repeated elements become arrays. Invalid XML returns null.\nExample: print Data = parse_xml('<root id=\"7\"><value>42</value></root>') | project Value = tolong(Data.root.value)",
+    "de": "Parst XML als dynamische Daten. Attribute heißen @name, Text kann unter #text stehen; wiederholte Elemente werden Arrays. Ungültiges XML liefert null.\nBeispiel: print Data = parse_xml('<root id=\"7\"><value>42</value></root>') | project Value = tolong(Data.root.value)"
+  } },
+  { "word": "percentile", "info": "percentile(expr, percentile)" },
+  { "word": "percentiles", "resultColumns": "multiple", "info": "percentiles(expr, percentile1 [, percentile2, ...])" },
+  { "word": "prev", "info": "prev(column [, offset [, default_value]])" },
+  { "word": "next", "info": "next(column [, offset [, default_value]])" },
+  { "word": "replace_regex", "info": "replace_regex(source, lookup_regex, rewrite_pattern)" },
+  { "word": "replace_string", "info": "replace_string(text, lookup, rewrite)" },
+  { "word": "round", "info": "round(number [, precision])" },
+  { "word": "row_number", "info": "row_number([startingIndex [, restart]])" },
+  { "word": "split", "info": {
+    "en": "Splits text at a literal delimiter and returns a dynamic array. Indices start at 0. For quoted CSV fields, use parse_csv instead.\nExample: print Parts = split('DC01;DNS;OK', ';') | project Computer = tostring(Parts[0]), Test = tostring(Parts[1])",
+    "de": "Teilt Text an einem festen Trennzeichen und liefert ein dynamisches Array. Indizes beginnen bei 0. Für CSV-Felder mit Anführungszeichen stattdessen parse_csv verwenden.\nBeispiel: print Parts = split('DC01;DNS;OK', ';') | project Computer = tostring(Parts[0]), Test = tostring(Parts[1])"
+  } },
+  { "word": "startofday", "info": "startofday(date [, offset])" },
+  { "word": "startofmonth", "info": "startofmonth(date [, offset])" },
+  { "word": "startofweek", "info": "startofweek(date [, offset])" },
+  { "word": "startofyear", "info": "startofyear(date [, offset])" },
+  { "word": "stdev", "info": "stdev(expr)" },
+  { "word": "stdevif", "info": "stdevif(expr, predicate)" },
+  { "word": "strcat", "info": "strcat(arg1 [, arg2, ...])" },
+  { "word": "strcat_array", "info": {
+    "en": "Joins array elements into one string using a delimiter. This is the reverse direction of split.\nExample: print Text = strcat_array(dynamic(['DNS', 'LDAP']), ', ')",
+    "de": "Verbindet Arrayelemente mit einem Trennzeichen zu einem String. Dies ist die Gegenrichtung zu split.\nBeispiel: print Text = strcat_array(dynamic(['DNS', 'LDAP']), ', ')"
+  } },
+  { "word": "strlen", "info": "strlen(source)" },
+  { "word": "substring", "info": "substring(source, startingIndex [, length])" },
+  { "word": "sum", "info": "sum(expr)" },
+  { "word": "sumif", "info": "sumif(expr, predicate)" },
+  { "word": "take_any", "resultColumns": "multiple", "info": "take_any(expr1 [, expr2, ...])" },
+  { "word": "take_anyif", "info": "take_anyif(expr, predicate)" },
+  { "word": "timespan" },
+  { "word": "tobool", "info": "tobool(value)" },
+  { "word": "todatetime", "info": "todatetime(value)" },
+  { "word": "todecimal", "info": "todecimal(value)" },
+  { "word": "todouble", "info": {
+    "en": "Converts a value, including parsed dynamic data, to a real number. Failed conversions return null.\nExample: print Data = parse_json('{\"value\":\"3.5\"}') | project Value = todouble(Data.value)",
+    "de": "Wandelt einen Wert, auch aus geparsten dynamischen Daten, in eine Gleitkommazahl um. Fehlgeschlagene Umwandlungen liefern null.\nBeispiel: print Data = parse_json('{\"value\":\"3.5\"}') | project Value = todouble(Data.value)"
+  } },
+  { "word": "todynamic", "info": {
+    "en": "Deprecated alias of parse_json. Prefer parse_json for new queries; existing todynamic calls interpret JSON text the same way.\nExample: print Data = parse_json('{\"count\":3}')",
+    "de": "Veralteter Alias von parse_json. Für neue Abfragen parse_json bevorzugen; vorhandene todynamic-Aufrufe interpretieren JSON-Text auf dieselbe Weise.\nBeispiel: print Data = parse_json('{\"count\":3}')"
+  } },
+  { "word": "toguid", "info": "toguid(value)" },
+  { "word": "toint", "info": "toint(value)" },
+  { "word": "tolong", "info": {
+    "en": "Converts a value to a 64-bit integer; failed conversions return null. Useful for numeric properties read from JSON or CSV.\nExample: print Data = parse_json('{\"count\":\"3\"}') | project Count = tolong(Data.count)",
+    "de": "Wandelt einen Wert in eine 64-Bit-Ganzzahl um; fehlgeschlagene Umwandlungen liefern null. Hilfreich für Zahlenfelder aus JSON oder CSV.\nBeispiel: print Data = parse_json('{\"count\":\"3\"}') | project Count = tolong(Data.count)"
+  } },
+  { "word": "tolower", "info": "tolower(value)" },
+  { "word": "toreal", "info": "toreal(value)" },
+  { "word": "tostring", "info": {
+    "en": "Converts a value to text; null becomes an empty string. Use it before reparsing JSON text stored inside a dynamic property.\nExample: print Data = dynamic({\"Computer\":\"DC01\"}) | project Computer = tostring(Data.Computer)",
+    "de": "Wandelt einen Wert in Text um; null wird zum leeren String. Vor erneutem JSON-Parsen von Text in einer dynamischen Eigenschaft verwenden.\nBeispiel: print Data = dynamic({\"Computer\":\"DC01\"}) | project Computer = tostring(Data.Computer)"
+  } },
+  { "word": "totimespan", "info": "totimespan(value)" },
+  { "word": "toupper", "info": "toupper(value)" },
+  { "word": "trim", "info": "trim(regex, source)" },
+  { "word": "trim_end", "info": "trim_end(regex, source)" },
+  { "word": "trim_start", "info": "trim_start(regex, source)" },
+  { "word": "unixtime_milliseconds_todatetime", "info": "unixtime_milliseconds_todatetime(milliseconds)" },
+  { "word": "unixtime_seconds_todatetime", "info": "unixtime_seconds_todatetime(seconds)" }
+]

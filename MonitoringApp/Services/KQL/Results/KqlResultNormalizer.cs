@@ -64,6 +64,16 @@ internal static class KqlResultNormalizer
             : normalized;
     }
 
+    internal static AnalysisQueryRunResult NormalizeScheduled(LogsTable table, string workspace)
+    {
+        if (table.Rows.Count > KqlQueryLimits.MaxScheduledTargets)
+            return new([], $"Scheduled queries may return at most {KqlQueryLimits.MaxScheduledTargets} rows. Partial results were not used.");
+        return Normalize(new AnalysisQueryTable(workspace,
+            table.Columns.Select(column => new AnalysisQueryColumn(column.Name, column.Type.ToString())).ToArray(),
+            table.Rows.Select(row => (IReadOnlyList<string?>)Enumerable.Range(0, row.Count)
+                .Select(index => FormatCell(row[index])).ToArray()).ToArray()), AnalysisQueryVisualizationTypes.Table);
+    }
+
     internal static AnalysisQueryRunResult Normalize(AnalysisQueryTable table, string visualizationType)
     {
         if (!AnalysisQueryVisualizationTypes.All.Contains(visualizationType))

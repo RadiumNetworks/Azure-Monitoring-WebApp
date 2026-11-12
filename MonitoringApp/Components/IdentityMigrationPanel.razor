@@ -1,0 +1,146 @@
+@inject IdentityDirectoryService Directory
+@inject IdentityMigrationService Migration
+@inject UiText Text
+@inject ILogger<IdentityMigrationPanel> Logger
+
+<section class="admin-editor" aria-labelledby="identity-migration-heading">
+    <h2 id="identity-migration-heading">@Text["IdentityMigration.Title"]</h2>
+    <p>@Text["IdentityMigration.Intro"]</p>
+    <p class="admin-message admin-message-warning">@Text["IdentityMigration.Warning"]</p>
+    @if (error is not null)
+    {
+        <p class="admin-message admin-message-error" role="alert">@error</p>
+    }
+    @if (success)
+    {
+        <p class="admin-message admin-message-success" role="status">@Text["IdentityMigration.Success"]</p>
+    }
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="LoadAsync">@Text["Common.Refresh"]</button>
+    @if (loaded)
+    {
+        <fieldset disabled="@busy">
+            <label>
+                <span>@Text["IdentityMigration.Target"]</span>
+                <select @bind="targetId" @bind:after="Invalidate">
+                    <option value="@Guid.Empty">@Text["IdentityMigration.Select"]</option>
+                    @foreach (var account in accounts)
+                    {
+                        <option value="@account.Id">@account.UserName - @account.Provider - @account.Id</option>
+                    }
+                </select>
+            </label>
+            @if (accounts.SingleOrDefault(account => account.Id == targetId) is { } target)
+            {
+                <dl>
+                    <dt>@Text["IdentityMigration.DisplayName"]</dt><dd>@target.DisplayName</dd>
+                    <dt>@Text["Identity.TenantId"]</dt><dd>@target.TenantId</dd>
+                    <dt>@Text["Identity.ObjectId"]</dt><dd>@target.ObjectId</dd>
+                    <dt>@Text["IdentityMigration.Mode"]</dt>
+                    <dd>@Text[target.UsesStableIdentity ? "IdentityMigration.Stable" : "IdentityMigration.Legacy"]</dd>
+                </dl>
+            }
+            <details>
+                <summary>@Text["IdentityMigration.Candidates"]</summary>
+                @foreach (var candidate in candidates)
+                {
+                    <div><code>@candidate</code></div>
+                }
+            </details>
+            <label>
+                <span>@Text["IdentityMigration.Aliases"]</span>
+                <textarea rows="5" maxlength="25700" @bind="aliasText" @bind:event="oninput" @bind:after="Invalidate"></textarea>
+            </label>
+            <p>@Text["IdentityMigration.AliasHelp"]</p>
+            <button class="admin-secondary" type="button" disabled="@(targetId == Guid.Empty)" @onclick="PreviewAsync">@Text["IdentityMigration.Preview"]</button>
+            @if (preview is not null)
+            {
+                <p>@Text.Format("IdentityMigration.Counts", preview.DashboardCollections, preview.Dashboards, preview.InboxLayouts, preview.Publications, preview.Jobs)</p>
+                <ul>
+                    @foreach (var alias in preview.Aliases)
+                    {
+                        <li><code>@alias</code></li>
+                    }
+                    @foreach (var conflict in preview.Conflicts)
+                    {
+                        <li class="admin-message-error">@Text[conflict]</li>
+                    }
+                </ul>
+                <label>
+                    <span>@Text["IdentityMigration.Evidence"]</span>
+                    <textarea rows="3" maxlength="2000" @bind="evidence" @bind:event="oninput"></textarea>
+                </label>
+                <label><input type="checkbox" @bind="confirmed" /> @Text["IdentityMigration.Confirm"]</label>
+                <button class="admin-primary" type="button"
+                        disabled="@(preview.Conflicts.Count > 0 || !confirmed || string.IsNullOrWhiteSpace(evidence))"
+                        @onclick="CommitAsync">@Text["IdentityMigration.Commit"]</button>
+            }
+        </fieldset>
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private IReadOnlyList<DirectoryAccount> accounts = [];
+    private IReadOnlyList<string> candidates = [];
+    private Guid targetId;
+    private string aliasText = "";
+    private string evidence = "";
+    private bool confirmed, busy, loaded, success;
+    private string? error;
+    private IdentityMigrationPreview? preview;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private void Invalidate()
+    {
+        preview = null;
+        confirmed = false;
+        success = false;
+    }
+
+    private string[] Aliases() => aliasText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+
+    private Task LoadAsync() => ExecuteAsync(async user =>
+    {
+        loaded = false;
+        Invalidate();
+        accounts = await Directory.ListAsync(user);
+        candidates = await Migration.CandidatesAsync(user);
+        loaded = true;
+    });
+
+    private Task PreviewAsync() => ExecuteAsync(async user =>
+    {
+        Invalidate();
+        preview = await Migration.PreviewAsync(user, targetId, Aliases());
+    });
+
+    private Task CommitAsync() => ExecuteAsync(async user =>
+    {
+        if (preview is null || !confirmed)
+            throw new IdentityMigrationException("IdentityMigration.Errors.Stale");
+        await Migration.CommitAsync(user, targetId, preview.Aliases, preview.Fingerprint, evidence);
+        accounts = accounts.Select(account => account.Id == targetId
+            ? account with { UsesStableIdentity = true } : account).ToArray();
+        preview = null;
+        confirmed = false;
+        success = true;
+    });
+
+    private async Task ExecuteAsync(Func<System.Security.Claims.ClaimsPrincipal, Task> operation)
+    {
+        if (busy) return;
+        busy = true;
+        error = null;
+        try { await operation((await AuthenticationStateTask).User); }
+        catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException
+            or Microsoft.Data.SqlClient.SqlException or Microsoft.EntityFrameworkCore.DbUpdateException)
+        {
+            Logger.LogError(exception, "Identity migration operation failed. Reload the preview before retrying.");
+            error = exception is IdentityMigrationException known ? Text[known.ResourceKey] : Text["IdentityMigration.Errors.Operation"];
+            preview = null;
+            confirmed = false;
+        }
+        finally { busy = false; }
+    }
+}

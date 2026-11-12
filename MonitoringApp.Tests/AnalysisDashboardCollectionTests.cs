@@ -17,6 +17,42 @@ namespace MonitoringApp.Tests;
 public sealed class AnalysisDashboardCollectionTests
 {
     [Fact]
+    public void RoleRulesSurviveCaptureCopyAndCollectionRoundTripsWithoutMaterializingMembers()
+    {
+        var collection = AnalysisDashboardCollection.Create();
+        var originalId = collection.ActiveDashboardId;
+        var state = new AnalysisDashboardState();
+        state.Load(collection.OpenActive());
+        state.SetSystemSelection(AnalysisDashboardSelectionMode.InventoryRoles, ["Domain Controller", "File Server"]);
+        collection.CaptureActive(state.Document);
+        collection.AddCopy(state.Document);
+        var copyId = collection.ActiveDashboardId;
+        collection.Active.Document.InventoryRoles.Add("Future Role");
+        var restored = AnalysisDashboardCollection.Deserialize(collection.Serialize());
+
+        Assert.Equal(copyId, restored.ActiveDashboardId);
+        Assert.Equal(2, restored.Version);
+        Assert.Equal(AnalysisDashboardSelectionMode.InventoryRoles, restored.Active.Document.SelectionMode);
+        Assert.Equal(["Domain Controller", "File Server", "Future Role"], restored.Active.Document.InventoryRoles);
+        Assert.Empty(restored.Active.Document.Systems);
+        restored.Select(originalId);
+        Assert.Equal(["Domain Controller", "File Server"], restored.OpenActive().InventoryRoles);
+        Assert.Empty(restored.OpenActive().Systems);
+        Assert.Contains("\"selectionMode\":\"InventoryRoles\"", restored.Serialize());
+    }
+
+    [Fact]
+    public void InvalidInactiveDashboardRulesCannotBeSilentlySaved()
+    {
+        var collection = AnalysisDashboardCollection.Create();
+        collection.Add("Invalid");
+        collection.Active.Document.SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles;
+        collection.Select(collection.Dashboards[0].Id);
+        Assert.Equal(AnalysisValidationCode.DashboardRolesRequired,
+            Assert.Throws<AnalysisValidationException>(() => collection.Serialize()).Code);
+    }
+
+    [Fact]
     public void MigratesExistingDashboardWithoutLosingLayoutSystemsOrPreferences()
     {
         var query = Guid.NewGuid();

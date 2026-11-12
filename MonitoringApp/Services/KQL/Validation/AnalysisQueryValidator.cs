@@ -86,10 +86,13 @@ public static partial class AnalysisQueryValidator
 
     internal static IReadOnlyList<string> ValidateScheduledKql(string kql, string scope)
     {
+        var unknownTargets = scope == ScheduledQueryScopes.UnknownInventoryTargets;
         var errors = ValidateKql(kql, AnalysisQueryVisualizationTypes.Stat,
-            scope, workspaceTimeParameter: "_WindowStart").ToList();
-        if (scope == AnalysisQueryScopes.Workspace && kql.Contains("_SelectedSystems", StringComparison.Ordinal))
+            unknownTargets ? AnalysisQueryScopes.Workspace : scope, workspaceTimeParameter: "_WindowStart").ToList();
+        if ((scope == AnalysisQueryScopes.Workspace || unknownTargets) && kql.Contains("_SelectedSystems", StringComparison.Ordinal))
             errors.Add("Workspace-wide KQL must not depend on _SelectedSystems.");
+        if (unknownTargets && !kql.Contains("_InventoryComputers", StringComparison.Ordinal))
+            errors.Add("Unknown inventory target KQL must use _InventoryComputers.");
         if (!kql.Contains("_WindowStart", StringComparison.Ordinal) || !kql.Contains("_WindowEnd", StringComparison.Ordinal))
             errors.Add("KQL must use _WindowStart and _WindowEnd to restrict the evaluation window.");
         if (kql.Length > 65536)

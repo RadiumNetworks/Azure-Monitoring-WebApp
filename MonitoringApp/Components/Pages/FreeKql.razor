@@ -10,52 +10,27 @@
 <PageTitle>@Text["FreeKql.Title"]</PageTitle>
 <h1>@Text["FreeKql.Title"]</h1>
 <p>@Text["FreeKql.Help"]</p>
-<section class="free-kql-examples" aria-labelledby="free-kql-examples">
-    <h2 id="free-kql-examples">@Text["FreeKql.Examples.Title"]</h2>
+<details class="free-kql-examples">
+    <summary>@Text["FreeKql.Examples.Title"]</summary>
     <h3>@Text["FreeKql.Examples.Tables"]</h3>
-    <pre><code>search *
-| summarize count() by $table
-| sort by $table</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.Tables"]</code></pre>
     <h3>@Text["FreeKql.Examples.Schema"]</h3>
-    <pre><code>Perf | getschema</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.Schema"]</code></pre>
     <h3>@Text["FreeKql.Examples.Values"]</h3>
-    <pre><code>Perf | take 10</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.Values"]</code></pre>
     <h3>@Text["FreeKql.Examples.Distinct"]</h3>
-    <pre><code>Event | distinct EventID</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.Distinct"]</code></pre>
     <h3>@Text["FreeKql.Examples.ExpandRows"]</h3>
-    <pre><code>DCDiagData_CL
-| summarize arg_max(TimeGenerated, Status) by Computer
-| extend Tests = todynamic(Status)
-| mv-expand Test = bag_keys(Tests)
-| extend TestName = tostring(Test)
-| project Timestamp = TimeGenerated, Computer, TestName,Result = tostring(Tests[TestName])
-| order by Result asc, Computer, TestName asc</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.ExpandRows"]</code></pre>
     <h3>@Text["FreeKql.Examples.ExpandColumns"]</h3>
-    <pre><code>DCDiagData_CL
-| summarize arg_max(TimeGenerated, Status) by Computer
-| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)
-| evaluate bag_unpack(Tests, "")
-| order by Computer asc</code></pre>
+    <pre><code>@Text["FreeKql.Examples.Query.ExpandColumns"]</code></pre>
     <h3>@Text["FreeKql.Examples.Join"]</h3>
-    <pre><code>let ReplData = DCReplicationData_CL
-| summarize arg_max(TimeGenerated, *) by Computer = SourceDSA, DestDSA, NC
-| where Source == "showrepl_INFO"
-| summarize
-    NumberOfFailures = sum(tolong(NumberOfFailures)),
-    LastObservation = max(TimeGenerated)
-    by Computer
-| order by NumberOfFailures desc, Computer asc;
-DCDiagData_CL
-| summarize arg_max(TimeGenerated, Status) by Computer
-| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)
-| evaluate bag_unpack(Tests, "")
-| order by Computer asc
-| join ReplData on Computer</code></pre>
-</section>
+    <pre><code>@Text["FreeKql.Examples.Query.Join"]</code></pre>
+</details>
 <form class="admin-form" @onsubmit="ExecuteAsync" @onsubmit:preventDefault>
     <label>
         @Text["FreeKql.Workspace"]
-        <select @bind="workspaceKey" disabled="@busy">
+        <select @bind="workspaceKey" @bind:after="WorkspaceChanged" disabled="@busy">
             <option value="">@Text["FreeKql.SelectWorkspace"]</option>
             @foreach (var workspace in Options.Workspaces)
             {
@@ -63,15 +38,46 @@ DCDiagData_CL
             }
         </select>
     </label>
-    <label>
-        KQL
-        <textarea @bind="kql" rows="12" spellcheck="false" disabled="@busy"></textarea>
-    </label>
-    <button type="submit" disabled="@(busy || !Options.Enabled)">@Text[busy ? "FreeKql.Running" : "FreeKql.Execute"]</button>
-    @if (busy)
+    @if (Options.Enabled && !string.IsNullOrEmpty(workspaceKey))
     {
-        <button type="button" @onclick="Cancel">@Text["Common.Cancel"]</button>
+        <section class="free-kql-workspace-tables admin-field-wide" aria-label="@Text["FreeKql.Tables.Title"]">
+            <strong>@Text["FreeKql.Tables.Title"]</strong>
+            @if (tableCatalog is null || tableCatalog.IsLoading)
+            {
+                <small role="status">@Text["KqlEditor.TablesLoading"]</small>
+            }
+            else if (tableCatalog.HasError)
+            {
+                <small role="alert">@Text["KqlEditor.TablesFailed"]</small>
+            }
+            else if (tableCatalog.TableNames.Count == 0)
+            {
+                <small role="status">@Text["FreeKql.Tables.Empty"]</small>
+            }
+            else
+            {
+                <ul>
+                    @foreach (var table in tableCatalog.TableNames)
+                    {
+                        <li><code>@table</code></li>
+                    }
+                </ul>
+            }
+        </section>
     }
+    <label class="admin-field-wide">
+        KQL
+        <KqlEditor @bind-Value="kql" Rows="12" Disabled="@busy"
+                   WorkspaceKeys="@(string.IsNullOrEmpty(workspaceKey) ? Array.Empty<string>() : new[] { workspaceKey })"
+                   TableCatalogChanged="TablesChanged" />
+    </label>
+    <div class="admin-form-actions free-kql-actions">
+        <button type="submit" disabled="@(busy || !Options.Enabled)">@Text[busy ? "FreeKql.Running" : "FreeKql.Execute"]</button>
+        @if (busy)
+        {
+            <button type="button" @onclick="Cancel">@Text["Common.Cancel"]</button>
+        }
+    </div>
 </form>
 @if (!Options.Enabled)
 {
@@ -98,8 +104,18 @@ DCDiagData_CL
     private string workspaceKey = "", kql = "";
     private string? error;
     private FreeKqlResult? result;
+    private KqlTableCatalog? tableCatalog;
     private bool busy, disposed;
     private CancellationTokenSource? cancellation;
+
+    private void WorkspaceChanged() => tableCatalog = null;
+
+    private void TablesChanged(KqlTableCatalog catalog)
+    {
+        if (disposed || catalog.WorkspaceKeys.Count != 1 ||
+            !catalog.WorkspaceKeys[0].Equals(workspaceKey, StringComparison.OrdinalIgnoreCase)) return;
+        tableCatalog = catalog;
+    }
 
     private async Task ExecuteAsync()
     {

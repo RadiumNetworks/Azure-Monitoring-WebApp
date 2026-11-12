@@ -173,6 +173,8 @@ public sealed class AnalysisQueryFailureTests
         type.GetProperty("Text", flags)!.SetValue(page, services.GetRequiredService<UiText>());
         type.GetProperty("Logger", flags)!.SetValue(page, services.GetRequiredService<ILogger<AdminAnalysisQueries>>());
         type.GetProperty("QueryRunner", flags)!.SetValue(page, runner);
+        type.GetProperty("CurrentUserIdentity", flags)!.SetValue(page,
+            new CurrentUserIdentity(new Microsoft.AspNetCore.Http.HttpContextAccessor()));
         type.GetField("editing", flags)!.SetValue(page,
             ActiveDirectoryAnalysisQueries.Create().Single(query => query.Key == "ad-netlogon-errors"));
         await (Task)type.GetMethod("TestAsync", flags)!.Invoke(page, [])!;

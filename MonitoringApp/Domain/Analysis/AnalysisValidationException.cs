@@ -37,12 +37,28 @@ public enum AnalysisValidationCode
     CategoryCollision,
     CategoryNotEmpty,
     CategoryQueryMissing,
-    RegistryQueryMissing
+    RegistryQueryMissing,
+    DashboardSelectionInvalid,
+    DashboardRolesRequired,
+    DashboardSystemsLimitExceeded,
+    DashboardSelectionNotAvailable,
+    DashboardInventoryRoutingInvalid
 }
 
-public sealed class AnalysisValidationException(
-    AnalysisValidationCode code, string message, params object[] arguments) : InvalidOperationException(message)
+public sealed class AnalysisValidationException : InvalidOperationException
 {
-    public AnalysisValidationCode Code { get; } = code;
-    public IReadOnlyList<object> Arguments { get; } = Array.AsReadOnly(arguments.ToArray());
+    public AnalysisValidationException(AnalysisValidationCode code, string message, params object[] arguments) : base(message)
+    {
+        Code = code;
+        Arguments = Array.AsReadOnly(arguments.ToArray());
+    }
+
+    public AnalysisValidationException(AnalysisValidationCode code, string message, object[] arguments, Exception innerException) : base(message, innerException)
+    {
+        Code = code;
+        Arguments = Array.AsReadOnly(arguments.ToArray());
+    }
+
+    public AnalysisValidationCode Code { get; }
+    public IReadOnlyList<object> Arguments { get; }
 }

@@ -8,6 +8,20 @@ namespace MonitoringApp.Tests;
 
 public sealed class AgentAnalysisPersistenceTests
 {
+    [Fact]
+    public async Task VerifiedLegacyActorsPreserveJobIdempotencyAfterIdentityActivation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var old = await fixture.Jobs.CreateAsync(fixture.Request);
+        var stable = DirectoryIdentity.OwnerKey(Guid.NewGuid());
+        var reused = await fixture.Jobs.CreateAsync(fixture.Request with { CreatedBy = stable, LegacyActors = ["operator"] });
+        Assert.Equal(old.Id, reused.Id);
+        Assert.Equal(old.IdempotencyKey, reused.IdempotencyKey);
+        Assert.Equal("operator", reused.CreatedBy);
+        Assert.Single(await fixture.Jobs.ListForActorsAsync([stable, "operator"], false));
+        Assert.Empty(await fixture.Jobs.ListForActorsAsync(["other"], false));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

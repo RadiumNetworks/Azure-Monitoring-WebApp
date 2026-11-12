@@ -129,14 +129,9 @@ public sealed class ScheduledQueryService(
     private async Task<ScheduledQueryTarget[]> SelectTargetsAsync(
         ScheduledQueryRule rule, CrossTenantLogAnalyticsWorkspaceOptions workspace, AlertDbContext context, CancellationToken token)
     {
-        if (rule.Scope == AnalysisQueryScopes.Workspace)
+        if (rule.Scope != AnalysisQueryScopes.SelectedSystems)
             return [new("", "", WorkspaceName: workspace.DisplayName, WorkspaceKey: workspace.Key)];
-        var subscriptions = workspace.SubscriptionIds.Select(CrossTenantLogAnalyticsOptions.NormalizeSubscriptionId)
-            .Where(value => value is not null).Select(value => value!.ToUpperInvariant()).ToArray();
-        var domains = workspace.Domains.Select(CrossTenantLogAnalyticsOptions.NormalizeDomain)
-            .SelectMany(value => new[] { value.ToUpperInvariant(), value.ToUpperInvariant() + "." }).ToArray();
-        var candidates = context.ComputerInventory.AsNoTracking().Where(item => !item.Maintenance &&
-            (subscriptions.Contains(item.SubscriptionId.ToUpper()) || item.Domain != null && domains.Contains(item.Domain.Trim().ToUpper())));
+        var candidates = WorkspaceInventory(context, workspace).Where(item => !item.Maintenance);
         if (!string.IsNullOrWhiteSpace(rule.Domain))
             candidates = candidates.Where(item => item.Domain != null && item.Domain.Trim().ToUpper() == rule.Domain.Trim().ToUpper());
         if (!string.IsNullOrWhiteSpace(rule.Site))
@@ -159,9 +154,49 @@ public sealed class ScheduledQueryService(
             target.SubscriptionId, target.Computer, target.Site, target.ResourceGroup)).ToArray();
     }
 
+    private static IQueryable<ComputerInventoryEntry> WorkspaceInventory(
+        AlertDbContext context, CrossTenantLogAnalyticsWorkspaceOptions workspace)
+    {
+        var subscriptions = workspace.SubscriptionIds.Select(CrossTenantLogAnalyticsOptions.NormalizeSubscriptionId)
+            .Where(value => value is not null).Select(value => value!.ToUpperInvariant()).ToArray();
+        var domains = workspace.Domains.Select(CrossTenantLogAnalyticsOptions.NormalizeDomain)
+            .SelectMany(value => new[] { value.ToUpperInvariant(), value.ToUpperInvariant() + "." }).ToArray();
+        return context.ComputerInventory.AsNoTracking().Where(item =>
+            (subscriptions.Contains(item.SubscriptionId.ToUpper()) || item.Domain != null && domains.Contains(item.Domain.Trim().ToUpper())));
+    }
+
     public Task<ScheduledQueryEvaluation> PreviewAsync(ScheduledQueryRule rule, CancellationToken token = default,
         Action<ScheduledQueryExecutionPreview>? onPrepared = null) =>
-        execution.EvaluateAsync(rule, SelectTargetsAsync, token, onPrepared);
+        execution.EvaluateAsync(rule, SelectTargetsAsync, token, onPrepared, loadInventoryComputers: LoadInventoryComputersAsync);
+
+    private async Task<IReadOnlyList<string>> LoadInventoryComputersAsync(
+        CrossTenantLogAnalyticsWorkspaceOptions workspace, CancellationToken token)
+    {
+        await using var context = await factory.CreateDbContextAsync(token);
+        return await LoadInventoryComputersAsync(workspace, context, token);
+    }
+
+    private async Task<IReadOnlyList<string>> LoadInventoryComputersAsync(
+        CrossTenantLogAnalyticsWorkspaceOptions workspace, AlertDbContext context, CancellationToken token)
+    {
+        var inventory = await WorkspaceInventory(context, workspace).ToArrayAsync(token);
+        var computers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in inventory)
+        {
+            // Use the effective route, not a rule's selected targets or its maintenance filters.
+            if (!resolver.Resolve(entry.SubscriptionId, entry.Domain).Workspace.Key.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var computer = entry.Computer.Trim().TrimEnd('.');
+            computers.Add(computer);
+            if (!computer.Contains('.') && !string.IsNullOrWhiteSpace(entry.Domain))
+                computers.Add($"{computer}.{entry.Domain.Trim().TrimEnd('.')}");
+            if (computers.Count > MaxTargets * 2)
+                throw new InvalidOperationException($"The workspace Inventory baseline exceeds {MaxTargets * 2} names.");
+        }
+        if (computers.Count == 0)
+            throw new InvalidOperationException("The workspace has no Inventory baseline for _InventoryComputers.");
+        return computers.Order(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
 
     public async Task RunOnceAsync(CancellationToken token)
     {
@@ -212,7 +247,8 @@ public sealed class ScheduledQueryService(
             try
             {
                 evaluation = await execution.EvaluateAsync(rule, SelectTargetsAsync, token,
-                    renewLease: () => RenewLeaseAsync(rule, lease, token));
+                    renewLease: () => RenewLeaseAsync(rule, lease, token),
+                    loadInventoryComputers: LoadInventoryComputersAsync);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
@@ -269,14 +305,29 @@ public sealed class ScheduledQueryService(
             {
                 var workspaceError = workspaceResult.Error;
                 var currentTargets = new Dictionary<string, ScheduledQueryTarget>();
+                var unknownTargets = rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets;
+                var knownComputers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (workspaceError is null)
                 {
                     try
                     {
                         var workspace = options.Workspaces.Single(item =>
                             item.Key.Equals(workspaceResult.WorkspaceKey, StringComparison.OrdinalIgnoreCase));
-                        currentTargets = (await SelectTargetsAsync(rule, workspace, context, token))
-                            .ToDictionary(target => Key(target.SubscriptionId, target.StateComputer));
+                        if (unknownTargets)
+                        {
+                            knownComputers = (await LoadInventoryComputersAsync(workspace, context, token)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            var stateNamespace = ScheduledQueryTarget.UnknownTargetNamespace(workspace.Key);
+                            var previousTargets = states.Where(state => state.WorkspaceKey.Equals(workspace.Key, StringComparison.OrdinalIgnoreCase) &&
+                                state.SubscriptionId == stateNamespace && state.ActiveAlertId is not null)
+                                .Select(state => new ScheduledQueryTarget("", state.Computer, WorkspaceKey: workspace.Key)
+                                    { IsUnknownInventoryTarget = true });
+                            currentTargets = workspaceResult.Targets.Concat(previousTargets)
+                                .DistinctBy(target => Key(target.StateSubscriptionId, target.StateComputer))
+                                .ToDictionary(target => Key(target.StateSubscriptionId, target.StateComputer));
+                        }
+                        else
+                            currentTargets = (await SelectTargetsAsync(rule, workspace, context, token))
+                                .ToDictionary(target => Key(target.StateSubscriptionId, target.StateComputer));
                     }
                     catch (InvalidOperationException exception)
                     {
@@ -288,15 +339,16 @@ public sealed class ScheduledQueryService(
                 if (workspaceError is not null)
                     foreach (var state in states.Where(state => state.WorkspaceKey.Equals(workspaceResult.WorkspaceKey, StringComparison.OrdinalIgnoreCase)))
                         state.Status = "Error";
-                foreach (var target in workspaceResult.Targets)
+                foreach (var target in unknownTargets && workspaceError is null ? currentTargets.Values.AsEnumerable() : workspaceResult.Targets)
                 {
-                    var key = Key(target.SubscriptionId, target.StateComputer);
+                    var key = Key(target.StateSubscriptionId, target.StateComputer);
                     if (workspaceError is null && !currentTargets.ContainsKey(key))
                         continue;
                     if (!byTarget.TryGetValue(key, out var state))
                     {
+                        if (unknownTargets && knownComputers.Contains(target.Computer)) continue;
                         state = new() { RuleId = rule.Id, WorkspaceKey = workspaceResult.WorkspaceKey,
-                            SubscriptionId = target.SubscriptionId, Computer = target.StateComputer };
+                            SubscriptionId = target.StateSubscriptionId, Computer = target.StateComputer };
                         context.ScheduledQueryTargetStates.Add(state);
                         states.Add(state);
                         byTarget.Add(key, state);
@@ -309,8 +361,11 @@ public sealed class ScheduledQueryService(
                         state.Value = null;
                         continue;
                     }
-                    state.Value = workspaceResult.Values.GetValueOrDefault(target.Series);
-                    state.Status = state.Value is null ? "No data" : rule.Matches(state.Value.Value) ? "Alerting" : "Normal";
+                    var targetAbsent = unknownTargets && (knownComputers.Contains(target.Computer) || !workspaceResult.Values.ContainsKey(target.Series));
+                    state.Value = unknownTargets
+                        ? targetAbsent ? 0 : workspaceResult.Values.GetValueOrDefault(target.Series)
+                        : workspaceResult.Values.GetValueOrDefault(target.Series);
+                    state.Status = state.Value is null ? "No data" : !targetAbsent && rule.Matches(state.Value.Value) ? "Alerting" : "Normal";
                     if (state.Value is null)
                         continue;
                     var fired = state.Status == "Alerting";
@@ -347,7 +402,8 @@ public sealed class ScheduledQueryService(
             rule.LastStatus = error is not null ? "Error" :
                 failed == workspaceStatuses.Count && failed > 0 ? "Error" :
                 failed > 0 ? $"Partial error: {failed}/{workspaceStatuses.Count} workspaces; {active} active; {missing} no data" :
-                states.Count == 0 ? "No data: no matching targets" : $"{active} active; {missing} no data";
+                states.Count == 0 && rule.Scope != ScheduledQueryScopes.UnknownInventoryTargets
+                    ? "No data: no matching targets" : $"{active} active; {missing} no data";
             rule.LastError = error ?? Bounded(string.Join("; ", workspaceStatuses.Where(workspace => workspace.Error is not null)
                 .Select(workspace => $"{workspace.WorkspaceKey}: {workspace.Error}")));
             rule.LastRunUtc = now;

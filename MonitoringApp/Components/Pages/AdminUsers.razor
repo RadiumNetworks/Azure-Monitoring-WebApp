@@ -5,9 +5,16 @@
 @inject SqlAuthenticationService AuthenticationService
 @inject UiText Text
 @inject ILogger<AdminUsers> Logger
+@inject IServiceProvider Services
 
-<PageTitle>@Text["AdminUsers.PageTitle"]</PageTitle>
+<PageTitle>@Text[UseDirectory ? "UserDirectory.Title" : "AdminUsers.PageTitle"]</PageTitle>
 
+@if (UseDirectory)
+{
+    <UserDirectoryPanel />
+}
+else
+{
 <section class="admin-heading">
     <div>
         <p class="eyebrow">@Text["Common.Administration"]</p>
@@ -52,6 +59,11 @@ else if (AuthenticationOptions.IsOpen)
 @if (reloadRequired)
 {
     <div class="admin-message admin-message-warning" role="status">@Text["AdminUsers.Errors.ReloadRequired"]</div>
+}
+
+@if (Services.GetService<IdentityDirectoryOptions>()?.Enabled == true && !AuthenticationOptions.IsOpen)
+{
+    <IdentityMigrationPanel />
 }
 
 <div class="admin-workspace">
@@ -175,6 +187,8 @@ else if (AuthenticationOptions.IsOpen)
     </div>
 }
 
+}
+
 @code {
     private IReadOnlyList<SqlAuthenticationUserSummary> users = [];
     private string? editingUsername;
@@ -191,7 +205,8 @@ else if (AuthenticationOptions.IsOpen)
     private string? statusMessage;
     private string? errorMessage;
 
-    protected override Task OnInitializedAsync() => LoadUsersAsync();
+    private bool UseDirectory => Services.GetService<IdentityDirectoryOptions>()?.Enabled == true;
+    protected override Task OnInitializedAsync() => UseDirectory ? Task.CompletedTask : LoadUsersAsync();
 
     private bool PasswordRequired => isCreating || password.Length > 0 || passwordConfirmation.Length > 0;
     private bool IsBusy => isLoading || isSaving || isDeleting;

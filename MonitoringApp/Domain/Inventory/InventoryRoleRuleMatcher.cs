@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics.CodeAnalysis;
 
 namespace MonitoringApp;
 
@@ -22,6 +23,7 @@ public static class InventoryRoleRuleMatcher
         return NormalizeRole(role);
     }
 
+    [return: NotNullIfNotNull(nameof(role))]
     public static string? NormalizeRole(string? role) =>
         role?.Trim().Equals("domaincontrollers", StringComparison.OrdinalIgnoreCase) == true ||
         role?.Trim().Equals("Domain Controller", StringComparison.OrdinalIgnoreCase) == true

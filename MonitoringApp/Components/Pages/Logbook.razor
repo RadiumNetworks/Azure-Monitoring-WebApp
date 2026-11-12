@@ -84,7 +84,7 @@
                     {
                         <tr>
                             <td><time class="timestamp" datetime="@entry.CreatedAt.ToString("O")">@entry.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</time></td>
-                            <td class="logbook-user">@entry.User</td>
+                            <td class="logbook-user" title="@entry.User">@(entry.UserDisplayName ?? entry.User)</td>
                             <td class="logbook-comment">
                                 @if (entry.AlertRecordId is { } alertRecordId &&
                                     alertSnapshots.TryGetValue(alertRecordId, out var alert))
@@ -135,7 +135,7 @@
     protected override async Task OnInitializedAsync()
     {
         var authenticationState = await AuthenticationStateTask;
-        currentUser = CurrentUserIdentity.GetActor(
+        currentUser = await CurrentUserIdentity.GetActorAsync(
             authenticationState.User,
             ApplicationAuthentication.IsOpen);
         await LoadEntriesAsync();
@@ -186,6 +186,9 @@
         errorMessage = null;
         try
         {
+            if (CurrentUserIdentity.DirectoryEnabled)
+                currentUser = await CurrentUserIdentity.GetActorAsync(
+                    (await AuthenticationStateTask).User, ApplicationAuthentication.IsOpen);
             await LogbookStore.AddAsync(currentUser, commentDraft);
             commentDraft = string.Empty;
             statusMessage = Text["Logbook.Status.Added"];

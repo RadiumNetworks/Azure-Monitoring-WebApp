@@ -566,6 +566,227 @@ public sealed class AdminInventoryLocalizationTests
             .Invoke(activator.Page, null);
     }
 
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task TeamFiltersUseNormalizedRoleUnionAndIntersectExistingFiltersWithoutWritingData(string culture)
+    {
+        using var selection = new AnalysisResultLocalizationTests.DisplayCulture(culture);
+        await using var fixture = await TeamFixture.CreateAsync();
+        var before = JsonSerializer.Serialize(await fixture.Store.GetComputerInventoryAsync());
+        await fixture.StartAsync();
+        Assert.Equal(5, fixture.Filtered.Count);
+        var html = await fixture.HtmlAsync();
+        Assert.Contains(fixture.Text["AdminInventory.Teams.Title"], WebUtility.HtmlDecode(html));
+        Assert.Contains("Team &lt;DC&gt;", html);
+        Assert.DoesNotContain("Disabled team", html);
+        var teams = await fixture.Store.GetInventoryTeamsAsync();
+        Assert.Equal(6, teams.Count);
+        Assert.Empty(teams.Single(team => team.Id == fixture.EmptyTeam).RoleKeys);
+        await fixture.InvokeAsync("ToggleTeam", fixture.DcTeam, new ChangeEventArgs { Value = true });
+        Assert.Equal("DC", Assert.Single(fixture.Filtered).Computer);
+        await fixture.InvokeAsync("ToggleTeam", fixture.SharedTeam, new ChangeEventArgs { Value = true });
+        Assert.Single(fixture.Filtered);
+        await fixture.InvokeAsync("ToggleTeam", fixture.AppTeam, new ChangeEventArgs { Value = true });
+        Assert.Equal(["APP", "DC"], fixture.Filtered.Select(entry => entry.Computer).Order().ToArray());
+        await fixture.SetAsync("siteFilter", "North");
+        Assert.Equal("DC", Assert.Single(fixture.Filtered).Computer);
+        await fixture.InvokeAsync("ClearInventoryFilters");
+        Assert.Equal(5, fixture.Filtered.Count);
+        await fixture.InvokeAsync("ToggleTeam", fixture.EmptyTeam, new ChangeEventArgs { Value = true });
+        Assert.Empty(fixture.Filtered);
+        await fixture.InvokeAsync("ClearInventoryFilters");
+        await fixture.InvokeAsync("ToggleTeam", fixture.FutureTeam, new ChangeEventArgs { Value = true });
+        Assert.Empty(fixture.Filtered);
+        await fixture.InvokeAsync("ClearInventoryFilters");
+        await fixture.InvokeAsync("ToggleTeam", fixture.AccentTeam, new ChangeEventArgs { Value = true });
+        Assert.Equal("ACCENT", Assert.Single(fixture.Filtered).Computer);
+        Assert.Equal(before, JsonSerializer.Serialize(await fixture.Store.GetComputerInventoryAsync()));
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.Empty(await context.IdentityAdministrationRecords.ToArrayAsync());
+        Assert.Equal(7, await context.UserTeams.CountAsync());
+        Assert.Equal("OperatorAccess", Assert.Single(typeof(AdminInventory).GetCustomAttributes<AuthorizeAttribute>()).Policy);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task DisabledOrDeletedSelectedTeamsNeverBroadenResultsAndRefreshUsesCurrentRoles(string culture)
+    {
+        using var selection = new AnalysisResultLocalizationTests.DisplayCulture(culture);
+        await using var fixture = await TeamFixture.CreateAsync();
+        await fixture.StartAsync();
+        await fixture.InvokeAsync("ToggleTeam", fixture.DcTeam, new ChangeEventArgs { Value = true });
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserTeams.SingleAsync(team => team.Id == fixture.DcTeam)).IsEnabled = false;
+            await context.SaveChangesAsync();
+        }
+        await fixture.InvokeAsync("LoadInventoryAsync");
+        Assert.Empty(fixture.Filtered);
+        Assert.Contains(fixture.Text.Format("AdminInventory.Teams.Unavailable", "Team <DC>"),
+            WebUtility.HtmlDecode(await fixture.HtmlAsync()));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserTeams.SingleAsync(team => team.Id == fixture.DcTeam)).IsEnabled = true;
+            context.UserTeamInventoryRoles.RemoveRange(await context.UserTeamInventoryRoles
+                .Where(role => role.TeamId == fixture.DcTeam).ToArrayAsync());
+            context.UserTeamInventoryRoles.Add(new() { TeamId = fixture.DcTeam, RoleKey = "APPLICATION" });
+            await context.SaveChangesAsync();
+        }
+        await fixture.InvokeAsync("LoadInventoryAsync");
+        Assert.Equal("APP", Assert.Single(fixture.Filtered).Computer);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.ComputerInventory.SingleAsync(entry => entry.Computer == "APP")).Role = "New role";
+            await context.SaveChangesAsync();
+        }
+        await fixture.InvokeAsync("LoadInventoryAsync");
+        Assert.Empty(fixture.Filtered);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            await context.UserTeamInventoryRoles.Where(role => role.TeamId == fixture.DcTeam).ExecuteDeleteAsync();
+            await context.UserTeams.Where(team => team.Id == fixture.DcTeam).ExecuteDeleteAsync();
+        }
+        await fixture.InvokeAsync("LoadInventoryAsync");
+        Assert.Empty(fixture.Filtered);
+        await fixture.InvokeAsync("ToggleTeam", fixture.DcTeam, new ChangeEventArgs { Value = false });
+        Assert.Equal(5, fixture.Filtered.Count);
+    }
+
+    [Fact]
+    public async Task DisabledDirectoryDoesNotReadTeamTablesOrChangeInventoryBehavior()
+    {
+        await using var fixture = await TeamFixture.CreateAsync(enabled: false);
+        await fixture.StartAsync();
+        Assert.Equal(5, fixture.Filtered.Count);
+        Assert.DoesNotContain("inventory-team-filter", await fixture.HtmlAsync());
+        fixture.Factory.OnCreate = () => throw new InvalidOperationException("Team database must not be accessed");
+        Assert.Empty(await fixture.Store.GetInventoryTeamsAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TeamReadFailureIsVisibleAndDoesNotPartiallyReplaceInventoryOrTreatFailureAsEmpty(bool loaded)
+    {
+        await using var fixture = await TeamFixture.CreateAsync();
+        if (loaded)
+        {
+            await fixture.StartAsync();
+            await fixture.InvokeAsync("ToggleTeam", fixture.DcTeam, new ChangeEventArgs { Value = true });
+            await using var context = fixture.Factory.CreateDbContext();
+            (await context.ComputerInventory.SingleAsync(entry => entry.Computer == "DC")).Role = "Changed";
+            await context.SaveChangesAsync();
+        }
+        var count = 0;
+        var failure = new InvalidOperationException("private team read failure");
+        fixture.Factory.OnCreate = () => { if (++count == 3) throw failure; };
+        if (loaded) await fixture.InvokeAsync("LoadInventoryAsync");
+        else await fixture.StartAsync();
+        var html = WebUtility.HtmlDecode(await fixture.HtmlAsync());
+        Assert.Contains(fixture.Text["AdminInventory.Errors.LoadFailed"], html);
+        Assert.DoesNotContain("private team read failure", html);
+        Assert.DoesNotContain(fixture.Text["AdminInventory.Teams.Empty"], html);
+        Assert.Contains(failure, fixture.Log.Exceptions);
+        if (loaded) Assert.Equal("DC", Assert.Single(fixture.Filtered).Computer);
+        else Assert.Empty(fixture.Filtered);
+    }
+
+    private sealed class TeamFixture(SqliteConnection connection, Factory factory, ServiceProvider services,
+        InventoryActivator activator, InventoryLogProvider log) : IAsyncDisposable
+    {
+        private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        private readonly StaticPageRenderer renderer = new(services, services.GetRequiredService<ILoggerFactory>());
+        private Func<string>? html;
+        public Factory Factory => factory;
+        public InventoryLogProvider Log => log;
+        public AlertStore Store => services.GetRequiredService<AlertStore>();
+        public UiText Text => services.GetRequiredService<UiText>();
+        public Guid DcTeam { get; private set; }
+        public Guid AppTeam { get; private set; }
+        public Guid EmptyTeam { get; private set; }
+        public Guid SharedTeam { get; private set; }
+        public Guid AccentTeam { get; private set; }
+        public Guid FutureTeam { get; private set; }
+        public IReadOnlyList<ComputerInventoryEntry> Filtered => Assert.IsAssignableFrom<IReadOnlyList<ComputerInventoryEntry>>(
+            typeof(AdminInventory).GetProperty("FilteredEntries", Flags)!.GetValue(activator.Page));
+        public static async Task<TeamFixture> CreateAsync(bool enabled = true)
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            var factory = new Factory(new DbContextOptionsBuilder<AlertDbContext>().UseSqlite(connection).Options);
+            var activator = new InventoryActivator();
+            var log = new InventoryLogProvider();
+            var services = new ServiceCollection().AddLogging(builder => builder.AddProvider(log)).AddUiLocalization()
+                .AddSingleton<IComponentActivator>(activator).AddSingleton<IDbContextFactory<AlertDbContext>>(factory)
+                .AddSingleton(new IdentityDirectoryOptions { Enabled = enabled })
+                .AddSingleton(new ApplicationAuthenticationOptions { Type = "open" })
+                .AddSingleton(new DatabaseConfigurationStatus(true, null, new SqlConnectionStringBuilder()))
+                .AddSingleton(new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions")))
+                .AddSingleton<AlertRuleEvaluator>().AddSingleton<AlertStore>().BuildServiceProvider();
+            var fixture = new TeamFixture(connection, factory, services, activator, log);
+            await using var context = factory.CreateDbContext();
+            foreach (var statement in context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries))
+                await context.Database.ExecuteSqlRawAsync(statement.Replace("{}", "{{}}", StringComparison.Ordinal)
+                    .Replace("nvarchar(max)", "TEXT", StringComparison.Ordinal)
+                    .Replace("\"RowVersion\" BLOB NOT NULL", "\"RowVersion\" BLOB NOT NULL DEFAULT X''", StringComparison.Ordinal)
+                    .Replace("N'", "'", StringComparison.Ordinal));
+            var dc = new UserTeam { Name = "Team <DC>" };
+            var app = new UserTeam { Name = "Applications" };
+            var empty = new UserTeam { Name = "No roles" };
+            var shared = new UserTeam { Name = "Shared DC role" };
+            var accent = new UserTeam { Name = "Accent role" };
+            var future = new UserTeam { Name = "Retained unobserved role" };
+            var disabled = new UserTeam { Name = "Disabled team", IsEnabled = false };
+            context.UserTeams.AddRange(dc, app, empty, shared, accent, future, disabled);
+            context.UserTeamInventoryRoles.AddRange(
+                new() { TeamId = dc.Id, RoleKey = "DOMAIN CONTROLLER" },
+                new() { TeamId = app.Id, RoleKey = "APPLICATION" },
+                new() { TeamId = shared.Id, RoleKey = "DOMAIN CONTROLLER" },
+                new() { TeamId = accent.Id, RoleKey = "RÔLE" },
+                new() { TeamId = future.Id, RoleKey = "NOT OBSERVED" },
+                new() { TeamId = disabled.Id, RoleKey = "ROLE" });
+            context.ComputerInventory.AddRange(
+                new() { SubscriptionId = "sub", Computer = "DC", Role = " domain Controller ", Site = "North" },
+                new() { SubscriptionId = "sub", Computer = "APP", Role = "Application", Site = "South" },
+                new() { SubscriptionId = "sub", Computer = "NONE" },
+                new() { SubscriptionId = "sub", Computer = "ACCENT", Role = "Rôle" },
+                new() { SubscriptionId = "sub", Computer = "NOACCENT", Role = "Role" });
+            await context.SaveChangesAsync();
+            fixture.DcTeam = dc.Id;
+            fixture.AppTeam = app.Id;
+            fixture.EmptyTeam = empty.Id;
+            fixture.SharedTeam = shared.Id;
+            fixture.AccentTeam = accent.Id;
+            fixture.FutureTeam = future.Id;
+            return fixture;
+        }
+        public Task StartAsync() => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var root = renderer.BeginRenderingComponent(typeof(AdminInventory), ParameterView.Empty);
+            await root.QuiescenceTask;
+            html = root.ToHtmlString;
+        });
+        public Task SetAsync(string name, object value) => renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(AdminInventory).GetField(name, Flags)!.SetValue(activator.Page, value);
+            typeof(ComponentBase).GetMethod("StateHasChanged", Flags)!.Invoke(activator.Page, []);
+        });
+        public Task InvokeAsync(string name, params object[] arguments) => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            if (typeof(AdminInventory).GetMethod(name, Flags)!.Invoke(activator.Page, arguments) is Task task) await task;
+            typeof(ComponentBase).GetMethod("StateHasChanged", Flags)!.Invoke(activator.Page, []);
+        });
+        public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(() => html!());
+        public async ValueTask DisposeAsync()
+        {
+            await ((IAsyncDisposable)renderer).DisposeAsync();
+            await services.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
+
     private static ComputerInventoryEntry Entry(int index) => new()
     {
         SubscriptionId = $"sub-{index}", Computer = $"Computer <{index}>",

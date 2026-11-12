@@ -8,6 +8,8 @@ public sealed class LogbookEntry
     public Guid Id { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public string User { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? UserDisplayName { get; set; }
     public string Comment { get; set; } = string.Empty;
     public Guid? AlertRecordId { get; set; }
 }

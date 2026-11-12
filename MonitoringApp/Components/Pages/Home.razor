@@ -966,7 +966,7 @@
     protected override async Task OnInitializedAsync()
     {
         var authenticationState = await AuthenticationStateTask;
-        currentUser = CurrentUserIdentity.GetActor(
+        currentUser = await CurrentUserIdentity.GetActorAsync(
             authenticationState.User,
             ApplicationAuthentication.IsOpen);
         dashboardOwnerKey = string.IsNullOrWhiteSpace(currentUser) ? "open-access" : currentUser;
@@ -1003,7 +1003,8 @@
             Logger.LogError(exception, "Could not load the saved inbox workspace.");
             dashboardLoadFailed = true;
             isDashboardEditEnabled = false;
-            dashboardStatus = Text["Inbox.WorkspaceLoadFailed"];
+            dashboardStatus = exception is IdentityMigrationException migration
+                ? Text[migration.ResourceKey] : Text["Inbox.WorkspaceLoadFailed"];
         }
         finally
         {
@@ -1065,7 +1066,7 @@
 
     private string RcaNoticeDetails(OpenRcaNotice notice) => Text.Format("Inbox.RcaNoticeDetails",
         RcaStatusLabel(notice.Status),
-        string.IsNullOrWhiteSpace(notice.AssignedTo) ? Text["Inbox.RcaUnassigned"] : notice.AssignedTo);
+        string.IsNullOrWhiteSpace(notice.AssignedTo) ? Text["Inbox.RcaUnassigned"] : notice.AssigneeDisplayName ?? notice.AssignedTo);
 
     private string RcaStatusLabel(string status) => status switch
     {
@@ -1198,6 +1199,9 @@
         bool updated;
         try
         {
+            if (CurrentUserIdentity.DirectoryEnabled)
+                currentUser = await CurrentUserIdentity.GetActorAsync(
+                    (await AuthenticationStateTask).User, ApplicationAuthentication.IsOpen);
             updated = await AlertStore.UpdateCommentsAsync(id, commentDraft, currentUser);
         }
         catch (Exception exception)
@@ -1618,7 +1622,8 @@
         {
             Logger.LogError(exception, "Inbox workspace save could not be confirmed.");
             dashboardSaveFailed = true;
-            dashboardStatus = Text["Inbox.WorkspaceSaveUnconfirmed"];
+            dashboardStatus = exception is IdentityMigrationException migration
+                ? Text[migration.ResourceKey] : Text["Inbox.WorkspaceSaveUnconfirmed"];
             return;
         }
         dashboardSaveFailed = false;

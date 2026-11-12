@@ -15,15 +15,15 @@ public sealed class QueryTemplateCatalogTests
             .Select(entry => new object[] { entry.TemplateId, entry.Revision });
 
     [Fact]
-    public void CatalogCoversExactlyThe48PackagedTemplatesAndThreeSeparateSeeds()
+    public void CatalogCoversExactlyThe49PackagedTemplatesAndThreeSeparateSeeds()
     {
         var entries = QueryTemplateCatalog.Entries;
-        Assert.Equal(52, entries.Count);
+        Assert.Equal(54, entries.Count);
         Assert.Equal(40, entries.Count(entry => entry.Library == "ActiveDirectory"));
-        Assert.Equal(9, entries.Count(entry => entry.Library == "Scheduled"));
+        Assert.Equal(11, entries.Count(entry => entry.Library == "Scheduled"));
         Assert.Equal(3, entries.Count(entry => entry.Library is null));
-        Assert.Equal(51, entries.Select(entry => entry.TemplateId).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(93, entries.SelectMany(entry => entry.DescriptionResourceKey is { } key
+        Assert.Equal(52, entries.Select(entry => entry.TemplateId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(94, entries.SelectMany(entry => entry.DescriptionResourceKey is { } key
             ? new[] { entry.NameResourceKey, key } : new[] { entry.NameResourceKey }).Distinct().Count());
         Assert.All(entries.Where(entry => entry.Library == "Scheduled"), entry => Assert.Null(entry.Description));
         foreach (var library in new[] { "ActiveDirectory", "Scheduled" })
@@ -36,6 +36,8 @@ public sealed class QueryTemplateCatalogTests
         Assert.Contains("MonitoringApp.QueryTemplateCatalog.v1.json",
             typeof(QueryTemplateCatalog).Assembly.GetManifestResourceNames());
         Assert.Contains("MonitoringApp.QueryTemplateCatalog.v2.json",
+            typeof(QueryTemplateCatalog).Assembly.GetManifestResourceNames());
+        Assert.Contains("MonitoringApp.QueryTemplateCatalog.v3.json",
             typeof(QueryTemplateCatalog).Assembly.GetManifestResourceNames());
         Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, "Infrastructure", "Localization", "QueryTemplateCatalog.v1.json")));
     }
@@ -91,7 +93,7 @@ public sealed class QueryTemplateCatalogTests
     [Theory]
     [InlineData("en-US")]
     [InlineData("de-DE")]
-    public void All93FieldsHaveRealResourcesWithoutChangingOriginalDataOrCurrentCulture(string culture)
+    public void All94FieldsHaveRealResourcesWithoutChangingOriginalDataOrCurrentCulture(string culture)
     {
         using var selection = new CultureScope(culture);
         var originalCulture = CultureInfo.CurrentCulture;

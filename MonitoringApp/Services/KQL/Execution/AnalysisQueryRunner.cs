@@ -282,7 +282,9 @@ public sealed class AnalysisQueryRunner(
                 { ErrorNotice = new(AnalysisQueryNoticeCode.PartialResultsRejected, diagnosticId,
                     DiagnosticLoggingFailed: loggingFailure is not null) };
             }
-            return KqlResultNormalizer.Normalize(response.Table, workspace.DisplayName, query.VisualizationType);
+            return query.Profile == KqlExecutionProfile.Scheduled
+                ? KqlResultNormalizer.NormalizeScheduled(response.Table, workspace.DisplayName)
+                : KqlResultNormalizer.Normalize(response.Table, workspace.DisplayName, query.VisualizationType);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {

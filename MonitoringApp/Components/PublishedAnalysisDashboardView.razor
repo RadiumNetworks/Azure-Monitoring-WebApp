@@ -8,7 +8,7 @@
 @inject UiText Text
 @inject ILogger<PublishedAnalysisDashboardView> Logger
 
-<section aria-label="@Text["AnalysisPublications.PublishedDashboard"]">
+<section class="analysis-published-dashboard" aria-label="@Text["AnalysisPublications.PublishedDashboard"]">
     @if (errorMessage is not null)
     {
         <div class="admin-message admin-message-error" role="alert">@errorMessage</div>
@@ -18,18 +18,45 @@
     }
     @if (snapshot is not null)
     {
+        @if (ShowDetails || ShowControls)
+        {
         <div class="admin-section-heading">
+            @if (ShowDetails)
+            {
             <div>
                 <h2>@snapshot.Publication.Name</h2>
-                <p>@Text.Format("AnalysisPublications.PublishedBy", snapshot.Publication.Owner, snapshot.Publication.Version)</p>
-                <p>@Text.Format("AnalysisPublications.SelectedSystems", string.Join(", ", DisplayedSystems.Select(system => system.Computer).DefaultIfEmpty(Text["AnalysisPublications.NoSystems"])))</p>
+                <p title="@snapshot.Publication.Owner">@Text.Format("AnalysisPublications.PublishedBy", snapshot.Publication.OwnerDisplayName ?? snapshot.Publication.Owner, snapshot.Publication.Version)</p>
+                @if (UsesInventoryRoles)
+                {
+                    <p><strong>@Text["Analysis.RoleSelection.Roles"]:</strong> @string.Join(", ", snapshot.Document.InventoryRoles)</p>
+                    <p>@Text["Analysis.RoleSelection.FiltersHelp"]</p>
+                    @if (roleSelection is not null && inventoryLoadedAt is { } loadedAt)
+                    {
+                        <p>@Text.Format("Analysis.RoleSelection.PublishedSnapshot", loadedAt)</p>
+                        <p>@Text.Format("AnalysisPublications.SelectedSystems", string.Join(", ", roleSelection.Systems.Select(system => $"{system.Computer} ({system.SubscriptionId})").DefaultIfEmpty(Text["AnalysisPublications.NoSystems"])))</p>
+                        @if (roleSelection.Systems.Count == 0)
+                        {
+                            <p role="status">@Text["Analysis.RoleSelection.Empty"]</p>
+                        }
+                    }
+                    else
+                    {
+                        <p role="status">@Text["Analysis.RoleSelection.CountUnavailable"]</p>
+                    }
+                }
+                else
+                {
+                    <p>@Text.Format("AnalysisPublications.SelectedSystems", string.Join(", ", DisplayedSystems.Select(system => system.Computer).DefaultIfEmpty(Text["AnalysisPublications.NoSystems"])))</p>
+                }
             </div>
+            }
             @if (ShowControls)
             {
                 <label class="inbox-edit-toggle"><input type="checkbox" @bind="autoRefresh" /><span>@Text["Analysis.AutoRefresh"]</span></label>
                 <button class="admin-primary" type="button" disabled="@(disposed || running || isReloading || !Options.Enabled)" @onclick="RunAsync">@(running ? Text["Analysis.RunningDashboard"] : Text["Analysis.RunDashboard"])</button>
             }
         </div>
+        }
         @if (ShowControls)
         {
         <AnalysisDashboardExecutionControls TimeRangeMinutes="snapshot.Document.TimeRangeMinutesOverride"
@@ -44,7 +71,17 @@
         {
             <p role="status">@status</p>
         }
-        <PublishedAnalysisDashboardGrid Document="snapshot.Document" Results="results" Errors="errors" />
+        @if (!ShowDetails && UsesInventoryRoles && roleSelection is not null && roleSelection.Systems.Count == 0)
+        {
+            <p role="status">@Text["Analysis.RoleSelection.Empty"]</p>
+        }
+        @if (!UsesInventoryRoles)
+        {
+            <AnalysisDashboardInventoryNotice MissingSystems="missingSystems"
+                AllMissing="@(missingSystems.Count > 0 && missingSystems.Count == snapshot.Document.Systems.Count)" />
+        }
+        <PublishedAnalysisDashboardGrid Document="snapshot.Document" Results="results" Errors="errors"
+            WorkspaceWideQueries="workspaceWideQueries" />
     }
 </section>
 
@@ -56,7 +93,9 @@
     [Parameter] public string? Role { get; set; }
     [Parameter] public IReadOnlyList<ComputerInventoryEntry>? FilteredSystems { get; set; }
     [Parameter] public bool ShowControls { get; set; } = true;
+    [Parameter] public bool ShowDetails { get; set; } = true;
     [Parameter] public bool AutoRunOnOpen { get; set; }
+    [Parameter] public EventCallback<bool> InventoryRolesChanged { get; set; }
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
     private PublishedAnalysisDashboardSnapshot? snapshot;
     private readonly Dictionary<string, AnalysisQueryResponse> results = [];
@@ -74,6 +113,15 @@
     private bool wasAutoRunEnabled;
     private string? errorMessage;
     private string? status;
+    private IReadOnlyList<AnalysisDashboardSystem> missingSystems = [];
+    private AnalysisDashboardInventorySelection? roleSelection;
+    private DateTimeOffset? inventoryLoadedAt;
+    private HashSet<Guid> workspaceWideQueries = [];
+    private ReaderScope? lastScope;
+    private long selectionGeneration;
+    private bool UsesInventoryRoles => snapshot?.Document.SelectionMode == AnalysisDashboardSelectionMode.InventoryRoles;
+    private ReaderScope CurrentScope => new(DashboardId, WorkspaceKey, Domain, Site, Role);
+    private sealed record ReaderScope(Guid Dashboard, string? Workspace, string? Domain, string? Site, string? Role);
     private System.Security.Claims.ClaimsPrincipal user = new();
     private IEnumerable<AnalysisDashboardSystem> DisplayedSystems =>
         snapshot?.Document.Systems.Where(system => FilteredSystems is null || FilteredSystems.Any(entry =>
@@ -83,6 +131,21 @@
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var scope = CurrentScope;
+        var previousScope = lastScope;
+        lastScope = scope;
+        if (previousScope is not null && previousScope != scope)
+        {
+            selectionGeneration++;
+            snapshot = null;
+            ClearSelection();
+            status = null;
+            await ReloadAsync();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -96,19 +159,24 @@
                 await RunAsync();
             if (!disposed) StateHasChanged();
         }), cancellation.Token, Clock);
-        var shouldRun = AutoRunOnOpen && !wasAutoRunEnabled;
-        wasAutoRunEnabled = AutoRunOnOpen;
+        if (!AutoRunOnOpen) wasAutoRunEnabled = false;
+        var shouldRun = AutoRunOnOpen && !wasAutoRunEnabled && !running && !isReloading;
         if (shouldRun)
         {
+            wasAutoRunEnabled = true;
             await RunAsync();
             if (!disposed) StateHasChanged();
         }
     }
 
-    private async Task<bool> ReloadAsync()
+    private Task<bool> ReloadAsync() => ReloadCoreAsync(false);
+
+    private async Task<bool> ReloadCoreAsync(bool resolveRoles)
     {
         if (disposed) return false;
         var token = cancellation.Token;
+        var scope = CurrentScope;
+        var generation = selectionGeneration;
         var acquired = false;
         var identityResolved = false;
         try
@@ -121,13 +189,14 @@
             var authenticationTask = AuthenticationStateTask;
             var authentication = await authenticationTask.WaitAsync(token);
             identityResolved = true;
-            if (!CanApplyRead(authenticationTask, token)) return false;
+            if (!CanApplySelection(authenticationTask, token, scope, generation)) return false;
             var current = await Publishing.LoadAsync(DashboardId, authentication.User, token);
-            if (!CanApplyRead(authenticationTask, token)) return false;
+            current.Document.ValidateSelection();
+            if (!CanApplySelection(authenticationTask, token, scope, generation)) return false;
+            var previousMode = snapshot?.Document.SelectionMode;
             if (snapshot?.Publication.Version != current.Publication.Version)
             {
-                results.Clear();
-                errors.Clear();
+                ClearSelection();
                 status = Text["AnalysisStatus.VersionLoaded"];
             }
             else if (snapshot is not null)
@@ -137,12 +206,40 @@
             }
             snapshot = current;
             user = authentication.User;
+            if (previousMode != current.Document.SelectionMode)
+            {
+                await InventoryRolesChanged.InvokeAsync(UsesInventoryRoles);
+                if (!CanApplySelection(authenticationTask, token, scope, generation)) return false;
+            }
             if (!refreshPreferenceInitialized)
             {
                 autoRefresh = current.Document.AutoRefreshEnabled;
                 refreshPreferenceInitialized = true;
             }
             errorMessage = null;
+            if (UsesInventoryRoles && (resolveRoles || roleSelection is null))
+            {
+                ClearSelection();
+                status = null;
+                try
+                {
+                    var selection = await Execution.ResolveDashboardSelectionAsync(current.Document, scope.Workspace, token);
+                    var queries = await Registry.ListPublishedAsync(token);
+                    if (!CanApplySelection(authenticationTask, token, scope, generation)) return false;
+                    roleSelection = selection;
+                    inventoryLoadedAt = Clock.GetUtcNow();
+                    workspaceWideQueries = queries.Where(query => query.Scope == AnalysisQueryScopes.Workspace &&
+                        AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
+                        .Select(query => query.Id).ToHashSet();
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)
+                {
+                    Logger.LogError(exception, "Could not resolve published dashboard {DashboardId} inventory roles.", DashboardId);
+                    if (!CanApplySelection(authenticationTask, token, scope, generation)) return false;
+                    errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.PublishedRefreshFailed");
+                    return false;
+                }
+            }
             return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -152,8 +249,10 @@
         catch (Exception exception)
         {
             Logger.LogError(exception, "Could not load published analysis dashboard {DashboardId}.", DashboardId);
-            if (disposed || token.IsCancellationRequested) return false;
-            ClearView(Text[identityResolved ? exception switch
+            if (!CanApplySelection(AuthenticationStateTask, token, scope, generation)) return false;
+            ClearView(exception is AnalysisValidationException
+                ? AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.PublishedReadFailed")
+                : Text[identityResolved ? exception switch
             {
                 KeyNotFoundException => "Analysis.Errors.PublicationUnavailable",
                 UnauthorizedAccessException => "Analysis.Errors.PublicationNotAllowed",
@@ -181,11 +280,25 @@
         return false;
     }
 
+    private bool CanApplySelection(Task<AuthenticationState> authenticationTask, CancellationToken token,
+        ReaderScope scope, long generation) =>
+        !disposed && !token.IsCancellationRequested && generation == selectionGeneration && scope == CurrentScope &&
+        CanApplyRead(authenticationTask, token);
+
+    private void ClearSelection()
+    {
+        results.Clear();
+        errors.Clear();
+        missingSystems = [];
+        roleSelection = null;
+        inventoryLoadedAt = null;
+        workspaceWideQueries.Clear();
+    }
+
     private void ClearView(string error)
     {
         snapshot = null;
-        results.Clear();
-        errors.Clear();
+        ClearSelection();
         status = null;
         errorMessage = error;
     }
@@ -227,28 +340,46 @@
     {
         var token = cancellation.Token;
         var readerTask = AuthenticationStateTask;
+        var scope = CurrentScope;
+        var generation = selectionGeneration;
+        bool IsCurrent() => CanApplySelection(readerTask, token, scope, generation);
+        async Task<bool> CanContinueAsync(int version) =>
+            IsCurrent() && await ReloadAsync() && IsCurrent() && snapshot?.Publication.Version == version;
         running = true;
         try
         {
-            if (!await ReloadAsync() || !CanApplyRead(readerTask, token))
+            if (!await ReloadCoreAsync(true) || !IsCurrent())
                 return;
             var executing = snapshot!;
-            if (executing.Document.Systems.Count == 0)
+            var usesRoles = executing.Document.SelectionMode == AnalysisDashboardSelectionMode.InventoryRoles;
+            if (!usesRoles && executing.Document.Systems.Count == 0)
             {
                 errorMessage = Text["Analysis.Errors.CreatorSystemsRequired"];
                 Logger.LogWarning("Published analysis dashboard {DashboardId} has no systems.", DashboardId);
                 return;
             }
             StateHasChanged();
-            var systems = executing.Document.Systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray();
+            var selection = usesRoles ? roleSelection! :
+                await Execution.ResolveDashboardSystemsAsync(executing.Document.Systems, token);
+            if (!await CanContinueAsync(executing.Publication.Version))
+                return;
+            missingSystems = selection.MissingSystems;
+            var systems = selection.Systems;
+            if (systems.Count == 0)
+            {
+                results.Clear();
+                errors.Clear();
+                status = Text[usesRoles ? "Analysis.RoleSelection.Empty" : "Analysis.DashboardAllSystemsMissing"];
+                return;
+            }
             var publishedQueries = (await Registry.ListPublishedAsync(token))
                 .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
                 .Select(query => query.Id).ToHashSet();
-            if (!CanApplyRead(readerTask, token)) return;
+            if (!IsCurrent()) return;
             foreach (var widget in executing.Document.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column))
             {
                 // Recheck publication before every query, not just when opening the page.
-                if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
+                if (!await CanContinueAsync(executing.Publication.Version))
                     return;
                 try
                 {
@@ -256,8 +387,9 @@
                         throw new KeyNotFoundException("The published query is unavailable or your role does not permit it.");
                     var response = await Execution.ExecuteAsync(
                         executing.Document.CreateExecutionRequest(widget, systems)
-                            with { WorkspaceKey = WorkspaceKey, Domain = Domain, Site = Site, Role = Role }, token);
-                    if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
+                            with { WorkspaceKey = scope.Workspace, Domain = usesRoles ? null : scope.Domain,
+                                Site = usesRoles ? null : scope.Site, Role = usesRoles ? null : scope.Role }, token);
+                    if (!await CanContinueAsync(executing.Publication.Version))
                         return;
                     results[widget.Id] = response;
                     errors.Remove(widget.Id);
@@ -265,7 +397,7 @@
                 catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)
                 {
                     Logger.LogError(exception, "Published analysis widget {WidgetId} execution failed.", widget.Id);
-                    if (!await ReloadAsync() || !CanApplyRead(readerTask, token) || snapshot!.Publication.Version != executing.Publication.Version)
+                    if (!await CanContinueAsync(executing.Publication.Version))
                         return;
                     results.Remove(widget.Id);
                     errors[widget.Id] = exception is KeyNotFoundException
@@ -275,7 +407,7 @@
                 if (!disposed) StateHasChanged();
                 await Task.Yield();
             }
-            if (await ReloadAsync() && CanApplyRead(readerTask, token) && snapshot!.Publication.Version == executing.Publication.Version)
+            if (await CanContinueAsync(executing.Publication.Version))
             {
                 var failedWidgets = executing.Document.Widgets.Count(widget => errors.ContainsKey(widget.Id));
                 status = failedWidgets > 0
@@ -290,6 +422,7 @@
         catch (Exception exception)
         {
             Logger.LogError(exception, "Published analysis dashboard {DashboardId} refresh failed.", DashboardId);
+            if (!IsCurrent()) return;
             if (!disposed && !token.IsCancellationRequested)
                 errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.PublishedRefreshFailed");
         }

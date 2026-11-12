@@ -21,6 +21,8 @@ public sealed class RootCauseAnalysis
     public string EvidenceEventIdsJson { get; set; } = "[]";
     public string Analysis { get; set; } = string.Empty;
     public string AssignedTo { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? AssigneeDisplayName { get; set; }
     public string Status { get; set; } = RcaStatuses.Open;
     public int Revision { get; set; }
 }
@@ -43,6 +45,12 @@ public sealed class RcaChange
     public string Field { get; set; } = string.Empty;
     public string Before { get; set; } = string.Empty;
     public string After { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? ActorDisplayName { get; set; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? BeforeDisplayName { get; set; }
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? AfterDisplayName { get; set; }
 }
 
 public sealed class RcaAlertLink

@@ -95,7 +95,7 @@
                                     else if (rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
                                     {
                                         <div><dt>@Text["Rules.Scope"]</dt><dd>@Text["Rules.Scope.ReplicationResults"]</dd></div>
-                                        <div><dt>@Text["Rules.Action"]</dt><dd>@Text["Rules.Action.ReplicationWarning"]</dd></div>
+                                        <div><dt>@Text["Rules.Action"]</dt><dd>@Text["Rules.Editor.RetiredReplicationHelp"]</dd></div>
                                         <div><dt>@Text["Rules.Inventory"]</dt><dd>@Text["Rules.Action.InventoryUnchanged"]</dd></div>
                                     }
                                     else if (rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)
@@ -150,7 +150,7 @@
                 }
 
                 <label class="admin-check">
-                    <input type="checkbox" disabled="@(rule.RuleType == AlertRuleTypes.InventoryRoleAssignment)" @bind="rule.Enabled" />
+                    <input type="checkbox" disabled="@(rule.RuleType is AlertRuleTypes.InventoryRoleAssignment or AlertRuleTypes.ReplicationInventoryWarning)" @bind="rule.Enabled" />
                     <span>@Text["Rules.Editor.Enabled"]</span>
                 </label>
 
@@ -164,7 +164,10 @@
                         {
                             <option value="@AlertRuleTypes.InventoryRoleAssignment">@Text["Rules.TypeOption.RetiredRoleAssignment"]</option>
                         }
-                        <option value="@AlertRuleTypes.ReplicationInventoryWarning" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.ReplicationInventoryWarning && existing.Id != rule.Id)">@Text["Rules.TypeOption.ReplicationWarning"]</option>
+                        @if (rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
+                        {
+                            <option value="@AlertRuleTypes.ReplicationInventoryWarning">@Text["Rules.TypeOption.RetiredReplicationWarning"]</option>
+                        }
                         <option value="@AlertRuleTypes.InventoryHeartbeatFreshness" disabled="@rules.Any(existing => existing.RuleType == AlertRuleTypes.InventoryHeartbeatFreshness && existing.Id != rule.Id)">@Text["Rules.TypeOption.HeartbeatFreshness"]</option>
                     </select>
                 </label>
@@ -185,7 +188,7 @@
                 {
                     <fieldset class="admin-fieldset">
                         <legend>@Text["Rules.Editor.ReplicationLegend"]</legend>
-                        <p>@Text["Rules.Editor.ReplicationHelp"]</p>
+                        <p>@Text["Rules.Editor.RetiredReplicationHelp"]</p>
                         <p>@Text["Rules.Editor.ReplicationRetentionHelp"]</p>
                     </fieldset>
                 }
@@ -593,7 +596,7 @@
     private string RuleTypeLabel(AlertRule rule) => Text[rule.RuleType switch
     {
         AlertRuleTypes.InventoryHeartbeatFreshness => "Rules.Type.HeartbeatFreshness",
-        AlertRuleTypes.ReplicationInventoryWarning => "Rules.Type.ReplicationWarning",
+        AlertRuleTypes.ReplicationInventoryWarning => "Rules.TypeOption.RetiredReplicationWarning",
         AlertRuleTypes.InventoryRoleAssignment => "Rules.Type.RetiredRoleAssignment",
         AlertRuleTypes.InventoryStatus => "Rules.Type.InventoryStatus",
         AlertRuleTypes.Suppression => "Rules.Type.Suppression",

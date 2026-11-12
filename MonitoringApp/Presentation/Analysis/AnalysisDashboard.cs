@@ -1,9 +1,19 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MonitoringApp;
 
+[JsonConverter(typeof(JsonStringEnumConverter<AnalysisDashboardSelectionMode>))]
+public enum AnalysisDashboardSelectionMode
+{
+    FixedSystems,
+    InventoryRoles
+}
+
 public sealed class AnalysisDashboardDocument
 {
+    public const int MaximumSystems = 100;
+
     public int Version { get; set; } = 1;
     public string Name { get; set; } = "Personal analysis dashboard";
     public Guid? SourceTemplateId { get; set; }
@@ -19,12 +29,29 @@ public sealed class AnalysisDashboardDocument
     public AnalysisDashboardPanelLayout SystemsPanel { get; set; } = new();
     public AnalysisDashboardPanelLayout QueryLibraryPanel { get; set; } = new();
     public List<AnalysisDashboardSystem> Systems { get; set; } = [];
+    public AnalysisDashboardSelectionMode SelectionMode { get; set; }
+    public List<string> InventoryRoles { get; set; } = [];
     public List<AnalysisDashboardWidget> Widgets { get; set; } = [];
     public List<Guid> HiddenQueryIds { get; set; } = [];
+
+    public void ValidateSelection(bool allowInventoryRoles = true)
+    {
+        if (!Enum.IsDefined(SelectionMode) || Systems is null || Systems.Any(system => system is null) ||
+            InventoryRoles is null || InventoryRoles.Any(string.IsNullOrWhiteSpace))
+            throw new AnalysisValidationException(AnalysisValidationCode.DashboardSelectionInvalid,
+                "The dashboard system selection is invalid.");
+        if (SelectionMode == AnalysisDashboardSelectionMode.InventoryRoles && InventoryRoles.Count == 0)
+            throw new AnalysisValidationException(AnalysisValidationCode.DashboardRolesRequired,
+                "Select at least one inventory role.");
+        if (!allowInventoryRoles && SelectionMode == AnalysisDashboardSelectionMode.InventoryRoles)
+            throw new AnalysisValidationException(AnalysisValidationCode.DashboardSelectionNotAvailable,
+                "Inventory-role selection is not supported by this dashboard view yet.");
+    }
 
     public AnalysisQueryRequest CreateExecutionRequest(
         AnalysisDashboardWidget widget, IReadOnlyList<AnalysisQuerySystem> systems)
     {
+        ValidateSelection();
         ValidateExecutionOverrides(TimeRangeMinutesOverride, BinMinutesOverride);
         return new(widget.QueryDefinitionId, systems,
             TimeRangeMinutesOverride ?? widget.TimeRangeMinutes,
@@ -88,6 +115,7 @@ public sealed class AnalysisDashboardState
     public void Load(AnalysisDashboardDocument document)
     {
         AnalysisDashboardDocument.ValidateExecutionOverrides(document.TimeRangeMinutesOverride, document.BinMinutesOverride);
+        document.ValidateSelection();
         Document = document;
         undo.Clear();
         redo.Clear();
@@ -105,6 +133,18 @@ public sealed class AnalysisDashboardState
         {
             document.TimeRangeMinutesOverride = timeRangeMinutes;
             document.BinMinutesOverride = binMinutes;
+        });
+    }
+
+    public void SetSystemSelection(AnalysisDashboardSelectionMode mode, IEnumerable<string> inventoryRoles)
+    {
+        ArgumentNullException.ThrowIfNull(inventoryRoles);
+        var selection = new AnalysisDashboardDocument { SelectionMode = mode, InventoryRoles = inventoryRoles.ToList() };
+        selection.ValidateSelection();
+        UpdateWorkspace(document =>
+        {
+            document.SelectionMode = selection.SelectionMode;
+            document.InventoryRoles = selection.InventoryRoles;
         });
     }
 
@@ -191,6 +231,11 @@ public sealed class AnalysisDashboardState
     private void Normalize()
     {
         AnalysisDashboardDocument.ValidateExecutionOverrides(Document.TimeRangeMinutesOverride, Document.BinMinutesOverride);
+        Document.ValidateSelection();
+        Document.InventoryRoles = Document.InventoryRoles
+            .Select(role => InventoryRoleRuleMatcher.NormalizeRole(role.Trim()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         Document.Version = 1;
         Document.Columns = Math.Clamp(Document.Columns, 2, 6);
         Document.RowHeight = Math.Clamp(Document.RowHeight, 64, 132);
@@ -202,7 +247,7 @@ public sealed class AnalysisDashboardState
         Document.Systems = Document.Systems
             .Where(system => !string.IsNullOrWhiteSpace(system.SubscriptionId) && !string.IsNullOrWhiteSpace(system.Computer))
             .DistinctBy(system => SubscriptionComputerKey.Create(system.SubscriptionId, system.Computer), StringComparer.OrdinalIgnoreCase)
-            .Take(100)
+            .Take(AnalysisDashboardDocument.MaximumSystems)
             .ToList();
         Document.HiddenQueryIds = Document.HiddenQueryIds.Where(id => id != Guid.Empty).Distinct().ToList();
         foreach (var widget in Document.Widgets)

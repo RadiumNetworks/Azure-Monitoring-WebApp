@@ -58,6 +58,11 @@ var databaseConfiguration = DatabaseConfigurationStatus.Parse(
     builder.Configuration.GetConnectionString("AlertsDatabase"), builder.Environment.IsProduction());
 var databaseSettings = DatabaseSettingsLoader.LoadRequired(databaseConfiguration.RequireConnectionString());
 var applicationAuthentication = databaseSettings.Authentication;
+var identityDirectory = builder.Configuration.GetSection(IdentityDirectoryOptions.SectionName)
+    .Get<IdentityDirectoryOptions>() ?? new IdentityDirectoryOptions();
+builder.Services.AddSingleton(identityDirectory);
+var scim = builder.Configuration.GetSection(ScimOptions.SectionName).Get<ScimOptions>() ?? new ScimOptions();
+builder.Services.AddScimServices(scim, identityDirectory);
 if (applicationAuthentication.IsEntra)
     AppServiceAuthenticationHandler.ValidateHosting(builder.Configuration);
 var alertHistory = databaseSettings.AlertHistory;
@@ -230,7 +235,7 @@ builder.Services.AddAuthentication(options =>
     });
 var authorization = builder.Services.AddAuthorizationBuilder();
 builder.Services.Configure<AuthorizationOptions>(options =>
-    ApplicationAuthorization.Configure(options, applicationAuthentication));
+    ApplicationAuthorization.Configure(options, applicationAuthentication, identityDirectory));
 
 authorization
     .AddPolicy(AlertIngestionAuthorization.PolicyName, policy =>
@@ -252,6 +257,8 @@ builder.Services.AddRazorComponents()
     // Allow bounded 64 KiB JSON imports, including UTF-8 and JSON event-envelope escaping.
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
 builder.Services.AddCascadingAuthenticationState();
+if (identityDirectory.Enabled && !applicationAuthentication.IsOpen)
+    builder.Services.AddScoped<Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider, DirectoryAuthenticationStateProvider>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentUserIdentity>();
 builder.Services.AddAlertDatabase(databaseConfiguration);
@@ -266,7 +273,7 @@ builder.Services.AddSingleton<IncidentAnalysisSnapshotService>();
 builder.Services.AddSingleton(_ => MicrosoftSourceCatalog.CreateDefault());
 builder.Services.AddSingleton<AgentAnalysisOrchestrator>();
 builder.Services.AddSingleton<AgentAnalysisScopePolicy>();
-builder.Services.AddSingleton<AgentAnalysisJobService>();
+builder.Services.AddScoped<AgentAnalysisJobService>();
 builder.Services.AddSingleton<IAgentAnalysisExecutionAdapter, DisabledTeamsWorkflowAdapter>();
 builder.Services.AddSingleton<IAgentAnalysisExecutionAdapter, DisabledApiAnalysisAdapter>();
 builder.Services.AddHttpClient<MicrosoftSourceLinkChecker>(client =>
@@ -330,6 +337,7 @@ app.UseAuthorization();
 app.UseAntiforgery();
 app.MapStaticAssets().AllowAnonymous();
 app.MapUiLanguage();
+app.MapScimApi();
 
 app.MapPost("/auth/login", async (
     [FromForm] LoginRequest request,
@@ -611,11 +619,11 @@ app.MapGet("/api/agent-analysis/jobs", async (
 app.MapGet("/api/agent-analysis/jobs/{id:guid}", async (
     Guid id,
     HttpContext httpContext,
-    AgentAnalysisJobStore jobStore,
+    AgentAnalysisJobService jobService,
     CancellationToken cancellationToken) =>
 {
-    var job = await jobStore.GetAsync(id, cancellationToken);
-    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    var job = await jobService.GetAccessibleAsync(id, httpContext.User, cancellationToken);
+    if (job is null)
     {
         return Results.NotFound();
     }
@@ -631,11 +639,11 @@ app.MapGet("/api/agent-analysis/jobs/{id:guid}", async (
 app.MapGet("/api/agent-analysis/jobs/{id:guid}/result", async (
     Guid id,
     HttpContext httpContext,
-    AgentAnalysisJobStore jobStore,
+    AgentAnalysisJobService jobService,
     CancellationToken cancellationToken) =>
 {
-    var job = await jobStore.GetAsync(id, cancellationToken);
-    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    var job = await jobService.GetAccessibleAsync(id, httpContext.User, cancellationToken);
+    if (job is null)
     {
         return Results.NotFound();
     }
@@ -657,11 +665,11 @@ app.MapGet("/api/agent-analysis/jobs/{id:guid}/result", async (
 app.MapGet("/api/agent-analysis/jobs/{id:guid}/attachment", async (
     Guid id,
     HttpContext httpContext,
-    AgentAnalysisJobStore jobStore,
+    AgentAnalysisJobService jobService,
     CancellationToken cancellationToken) =>
 {
-    var job = await jobStore.GetAsync(id, cancellationToken);
-    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    var job = await jobService.GetAccessibleAsync(id, httpContext.User, cancellationToken);
+    if (job is null)
     {
         return Results.NotFound();
     }
@@ -690,6 +698,7 @@ app.MapPost("/api/agent-analysis/jobs/{id:guid}/cancel", async (
     AgentAnalysisJobCancelRequest request,
     HttpContext httpContext,
     AgentAnalysisJobStore jobStore,
+    AgentAnalysisJobService jobService,
     CancellationToken cancellationToken) =>
 {
     if (request.ExpectedRevision < 1)
@@ -697,8 +706,8 @@ app.MapPost("/api/agent-analysis/jobs/{id:guid}/cancel", async (
         return Results.BadRequest(new { error = "ExpectedRevision must be positive." });
     }
 
-    var job = await jobStore.GetAsync(id, cancellationToken);
-    if (job is null || !AgentAnalysisJobApi.CanAccess(job, httpContext.User, applicationAuthentication.IsOpen))
+    var job = await jobService.GetAccessibleAsync(id, httpContext.User, cancellationToken);
+    if (job is null)
     {
         return Results.NotFound();
     }

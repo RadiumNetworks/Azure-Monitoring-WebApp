@@ -150,7 +150,7 @@ public sealed class QueryStandardTextProvenanceTests
         var stored = Assert.Single(await fixture.Scheduled.ListAsync());
         var original = JsonSerializer.Serialize(stored);
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator).AddSingleton(fixture.Scheduled)
             .AddSingleton(Fixture.Options).BuildServiceProvider();
         var text = services.GetRequiredService<UiText>();
@@ -191,7 +191,7 @@ public sealed class QueryStandardTextProvenanceTests
         using var selection = new CultureScope(culture);
         await using var fixture = await Fixture.Create();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator).AddSingleton(fixture.Scheduled)
             .AddSingleton(Fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -230,7 +230,7 @@ public sealed class QueryStandardTextProvenanceTests
         using var selection = new CultureScope(culture);
         await using var fixture = await Fixture.Create();
         var activator = new CapturingActivator();
-        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+        await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
             .AddSingleton<IComponentActivator>(activator).AddSingleton(fixture.Scheduled)
             .AddSingleton(Fixture.Options).BuildServiceProvider();
         await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());

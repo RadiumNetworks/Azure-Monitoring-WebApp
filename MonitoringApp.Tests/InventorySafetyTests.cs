@@ -441,14 +441,16 @@ public sealed class InventorySafetyTests
         Assert.Equal(1, await fixture.Service.CountAsync(User()));
     }
 
-    [Fact]
-    public async Task WorkspaceAlertsAreNotLegacyInventoryCleanupCandidates()
+    [Theory]
+    [InlineData("ScheduledKqlWorkspace")]
+    [InlineData("ScheduledKqlInventoryTarget")]
+    public async Task ExternalTargetAlertsAreNotLegacyInventoryCleanupCandidates(string type)
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AddAlertAsync("legacy");
         var workspaceId = await fixture.AddAlertAsync("scheduled-query:workspace",
             parsed: true, computer: "Workspace: production",
-            rawJson: """{"queryResult":{"type":"ScheduledKqlWorkspace"}}""");
+            rawJson: JsonSerializer.Serialize(new { queryResult = new { type } }));
         Assert.Equal(1, await fixture.Service.CountAsync(User()));
         Assert.Equal(1, await fixture.Service.ResolveAsync(User(), "RESOLVE"));
         await using var context = fixture.Factory.CreateDbContext();

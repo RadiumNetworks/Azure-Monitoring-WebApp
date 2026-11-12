@@ -79,18 +79,19 @@ public sealed class QueryTextPresentationTests
     public static IEnumerable<object[]> CatalogCases() =>
         from culture in new[] { "en-US", "de-DE" }
         from entry in QueryTemplateCatalog.Entries
-        select new object[] { culture, entry.TemplateId };
+        select new object[] { culture, entry.TemplateId, entry.Revision };
 
     [Theory]
     [MemberData(nameof(CatalogCases))]
-    public async Task EveryCatalogFieldProjectsOnlyWithTrustedUnmodifiedEvidence(string culture, string id)
+    public async Task EveryCatalogFieldProjectsOnlyWithTrustedUnmodifiedEvidence(string culture, string id, string revision)
     {
         using var selection = new Cultures(culture);
         await using var services = Services();
         var text = services.GetRequiredService<UiText>();
         var display = services.GetRequiredService<QueryTextPresentation>();
-        var entry = QueryTemplateCatalog.GetActive(id);
-        Assert.Equal(text[entry.NameResourceKey], display.TemplateName(id));
+        var entry = QueryTemplateCatalog.Get(id, revision);
+        var active = QueryTemplateCatalog.GetActive(id);
+        Assert.Equal(text[active.NameResourceKey], display.TemplateName(id));
         if (entry.Library == "Scheduled")
         {
             var rule = new ScheduledQueryRule { Name = entry.Name };

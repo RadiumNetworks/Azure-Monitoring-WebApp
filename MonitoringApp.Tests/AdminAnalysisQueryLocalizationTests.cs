@@ -182,7 +182,7 @@ public sealed class AdminAnalysisQueryLocalizationTests
                 new DatabaseConfigurationStatus(true, null, new Microsoft.Data.SqlClient.SqlConnectionStringBuilder()),
                 presenter, new AlertRuleEvaluator(presenter), log);
             var activator = new CapturingActivator();
-            await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+            await using var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
                 .AddSingleton<IComponentActivator>(activator).AddSingleton(registry)
                 .AddSingleton(categories).AddSingleton(options).AddSingleton(runner)
                 .AddSingleton(new ApplicationAuthenticationOptions())
@@ -223,7 +223,8 @@ public sealed class AdminAnalysisQueryLocalizationTests
                 Assert.Contains(culture == "de-DE"
                     ? "Die für Operatoren verfügbare KQL erstellen, validieren, versionieren und veröffentlichen."
                     : "Author, validate, version, and publish the KQL available to operators.", html);
-                var heading = Regex.Match(html, "<section class=\"admin-heading\".*?</section>", RegexOptions.Singleline).Value;
+                var heading = Regex.Match(html, "<section class=\"admin-heading[^\"]*\".*?</section>", RegexOptions.Singleline).Value;
+                Assert.Contains("kql-admin-heading", heading);
                 Assert.Contains(culture == "de-DE" ? "Abfragen exportieren (ZIP)" : "Export queries (ZIP)", heading);
                 Assert.Contains(culture == "de-DE" ? "AD-Abfragebibliothek installieren" : "Install AD query library", heading);
                 Assert.Contains(culture == "de-DE" ? "Abfrage erstellen" : "Create query", heading);
@@ -585,12 +586,12 @@ public sealed class AdminAnalysisQueryLocalizationTests
             typeof(AdminAnalysisQueries).GetMethod("WorkspaceAssignmentsChanged", flags)!.Invoke(page, []);
             var helpHtml = WebUtility.HtmlDecode(await RenderPage());
             Assert.Contains(culture == "de-DE"
-                ? "Optionale Einstellungen als Objekt ({} behält Standardwerte bei): color, minimum/maximum, decimals, cellDisplay (Text, ColorText, ColorBackground), wrapText, thresholds, valueMappings und columns. Für Stat: statTitleFontSize und statValueFontSize (8-72 Pixel). Farben: green, red, yellow, orange, blue, purple, gray, teal oder #RRGGBB. Schwellenwerte müssen aufsteigend sein. Einstellungen werden zusammen mit der Abfrage validiert und veröffentlicht."
-                : "Optional settings as an object ({} keeps defaults): color, minimum/maximum, decimals, cellDisplay (Text, ColorText, ColorBackground), wrapText, thresholds, valueMappings and columns. For Stat: statTitleFontSize and statValueFontSize (8-72 pixels). Colors: green, red, yellow, orange, blue, purple, gray, teal or #RRGGBB. Thresholds must be increasing. Settings are validated and published with the query.", helpHtml);
+                ? "Optionale Einstellungen als Objekt ({} behält Standardwerte bei): color, minimum/maximum, decimals, cellDisplay (Text, ColorText, ColorBackground, StatusIcon), wrapText, thresholds, valueMappings und columns. Für reine Symbolzellen in Tabellen benötigt StatusIcon ein statusIcons-Objekt mit mappings (value, text als Symbol, color), unknownSymbol und unknownColor. Metadatenspalten mit cellDisplay: Text überschreiben. Für Stat: statTitleFontSize und statValueFontSize (8-72 Pixel). Farben: green, red, yellow, orange, blue, purple, gray, teal oder #RRGGBB. Schwellenwerte müssen aufsteigend sein. Einstellungen werden zusammen mit der Abfrage validiert und veröffentlicht."
+                : "Optional settings as an object ({} keeps defaults): color, minimum/maximum, decimals, cellDisplay (Text, ColorText, ColorBackground, StatusIcon), wrapText, thresholds, valueMappings and columns. For icon-only table cells, StatusIcon requires statusIcons with mappings (value, text as symbol, color), unknownSymbol and unknownColor. Override metadata columns with cellDisplay: Text. For Stat: statTitleFontSize and statValueFontSize (8-72 pixels). Colors: green, red, yellow, orange, blue, purple, gray, teal or #RRGGBB. Thresholds must be increasing. Settings are validated and published with the query.", helpHtml);
             Assert.DoesNotContain("{{}}", helpHtml);
             Assert.Contains(culture == "de-DE"
-                ? "Systembezogene Abfragen müssen _SelectedSystems verwenden. Workspaceweite Abfragen müssen _TimePeriod verwenden und benötigen keine Computer-Spalte. Liniendiagramme/Statusverläufe verwenden _BinSize und geben Timestamp, Series, Value zurück (optional Label/Dimension). Waben/Balken/Messanzeigen geben Series, Value zurück. Statistiken geben Series und einen numerischen oder null-Wert als Value zurück (optional Dimension/Unit). Tabellen behalten alle Spalten bei; für Symbole ColumnName__Status (OK/Warning/Error/Unknown) hinzufügen. Visualisierungsspalten entsprechen den Tabellenspaltennamen oder Dimension/Series für Diagramme/Statistiken."
-                : "System-scoped queries must use _SelectedSystems. Workspace-wide queries must use _TimePeriod and do not require a Computer column. Lines/status histories use _BinSize and return Timestamp, Series, Value (optional Label/Dimension). Honeycombs/bars/gauges return Series, Value. Statistics return Series, numeric or null Value (optional Dimension/Unit). Tables keep all columns; add ColumnName__Status (OK/Warning/Error/Unknown) for icons. Visualization columns match table column names, or Dimension/Series for charts/statistics.", helpHtml);
+                ? "Systembezogene Abfragen müssen _SelectedSystems verwenden. Workspaceweite Abfragen müssen _TimePeriod verwenden und benötigen keine Computer-Spalte. Liniendiagramme/Statusverläufe verwenden _BinSize und geben Timestamp, Series, Value zurück (optional Label/Dimension). Waben/Balken/Messanzeigen geben Series, Value zurück. Statistiken geben Series und einen numerischen oder null-Wert als Value zurück (optional Dimension/Unit). Tabellen behalten alle Spalten bei; für reine Symbolzellen StatusIcon und statusIcons im Visualisierungs-JSON konfigurieren oder für bisherige Symbole neben Text ColumnName__Status (OK/Warning/Error/Unknown) hinzufügen. Visualisierungsspalten entsprechen den Tabellenspaltennamen oder Dimension/Series für Diagramme/Statistiken."
+                : "System-scoped queries must use _SelectedSystems. Workspace-wide queries must use _TimePeriod and do not require a Computer column. Lines/status histories use _BinSize and return Timestamp, Series, Value (optional Label/Dimension). Honeycombs/bars/gauges return Series, Value. Statistics return Series, numeric or null Value (optional Dimension/Unit). Tables keep all columns; configure StatusIcon and statusIcons in visualization JSON for icon-only cells, or add ColumnName__Status (OK/Warning/Error/Unknown) for legacy icons beside text. Visualization columns match table column names, or Dimension/Series for charts/statistics.", helpHtml);
             Assert.Contains(culture == "de-DE" ? "Diesem Workspace sind keine Inventarsysteme zugeordnet." : "No inventory systems route to this workspace.", helpHtml);
             var preview = new AnalysisQueryExecutionPreview("original-workspace", "Original <preview> &",
                 ["Original <B> &", "Original <A> &"], "// Original <KQL> &\r\nprint Value=1234");
@@ -791,7 +792,7 @@ public sealed class AdminAnalysisQueryLocalizationTests
                     "Added 0 AD query draft(s); existing definitions were preserved. Select workspaces, test, validate and publish before use.",
                     "0 AD-Abfrageentwürfe hinzugefügt; vorhandene Definitionen bleiben erhalten. Vor der Verwendung Workspaces auswählen, testen, validieren und veröffentlichen.");
                 var after = await registry.ListAsync();
-                Assert.Equal(40, after.Count);
+                Assert.Equal(ActiveDirectoryAnalysisQueries.Create().Count() + beforeLibrary.Length, after.Count);
                 Assert.Equal(beforeLibrary, after.Where(query => query.Key.StartsWith("lifecycle-", StringComparison.Ordinal))
                     .OrderBy(query => query.Key).Select(query => JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))));
                 Assert.Equal(version, Assert.Single(after.Single(query => query.Id == saved.Id).Versions).SnapshotJson);
@@ -1771,7 +1772,7 @@ public sealed class AdminAnalysisQueryLocalizationTests
                 presenter, new AlertRuleEvaluator(presenter), new StoreLog());
             var activator = new CapturingActivator();
             var log = new PageLog();
-            var services = new ServiceCollection().AddLogging().AddUiLocalization()
+            var services = new ServiceCollection().AddLogging().AddKqlEditorTestServices().AddUiLocalization()
                 .AddSingleton<IComponentActivator>(activator).AddSingleton<ILogger<AdminAnalysisQueries>>(log)
                 .AddSingleton(registry).AddSingleton(categories).AddSingleton(options).AddSingleton(runner)
                 .AddSingleton(new ApplicationAuthenticationOptions())

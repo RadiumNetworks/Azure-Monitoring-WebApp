@@ -16,7 +16,7 @@
 
 <PageTitle>@Text["AdminAnalysisQueries.PageTitle"]</PageTitle>
 
-<section class="admin-heading">
+<section class="admin-heading kql-admin-heading">
     <div>
         <p class="eyebrow">@Text["Common.Administration"]</p>
         <h1>@Text["Navigation.AnalysisQueries"]</h1>
@@ -266,7 +266,8 @@
                 </fieldset>
                 <label class="admin-field admin-field-wide">
                     <span>KQL</span>
-                    <textarea class="analysis-kql-editor" required rows="18" @bind="editing.Kql"></textarea>
+                    <KqlEditor @bind-Value="editing.Kql" Class="analysis-kql-editor" Required="true" Rows="18"
+                               WorkspaceKeys="@editing.Workspaces.Where(workspace => workspace.Enabled).Select(workspace => workspace.WorkspaceKey).ToArray()" />
                     <small>@Text["AdminAnalysisQueries.KqlHelp"]</small>
                 </label>
                 <div class="admin-form-actions">
@@ -401,7 +402,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        actor = CurrentUserIdentity.GetActor(
+        actor = await CurrentUserIdentity.GetActorAsync(
             (await AuthenticationStateTask).User,
             AuthenticationOptions.IsOpen);
         await RefreshAsync();
@@ -810,7 +811,13 @@
         isBusy = true;
         errorMessage = null;
         statusMessage = null;
-        try { await action(); }
+        try
+        {
+            if (CurrentUserIdentity.DirectoryEnabled)
+                actor = await CurrentUserIdentity.GetActorAsync(
+                    (await AuthenticationStateTask).User, AuthenticationOptions.IsOpen);
+            await action();
+        }
         catch (Exception exception)
         {
             if (exception is QueryTemplateValidationException or AnalysisQueryValidationException or AnalysisValidationException or UnauthorizedAccessException or DbUpdateConcurrencyException)

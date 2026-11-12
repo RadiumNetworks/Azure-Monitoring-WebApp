@@ -48,6 +48,18 @@ public sealed class AgentAnalysisJobStore(
             createdBy);
 
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var previousKeys = request.LegacyActors.Select(actor =>
+            AgentAnalysisJobIdempotency.Compute(request.Snapshot, AlertAgentPrompt.SnapshotPromptVersion, actor)).ToArray();
+        if (previousKeys.Length > 0)
+        {
+            var previous = await context.AgentAnalysisJobs.AsNoTracking().Where(job =>
+                previousKeys.Contains(job.IdempotencyKey) &&
+                (job.Status == AgentAnalysisJobStatuses.Queued || job.Status == AgentAnalysisJobStatuses.Running ||
+                 job.Status == AgentAnalysisJobStatuses.Completed))
+                .OrderByDescending(job => job.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+            if (previous is not null)
+                return previous;
+        }
         var existingJob = await FindReusableJobAsync(context, idempotencyKey, cancellationToken);
         if (existingJob is not null)
         {
@@ -116,9 +128,15 @@ public sealed class AgentAnalysisJobStore(
         int limit = 10,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(createdBy))
+        return await ListForActorsAsync([createdBy], includeAll, limit, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AgentAnalysisJob>> ListForActorsAsync(
+        IReadOnlyList<string> actors, bool includeAll, int limit = 10, CancellationToken cancellationToken = default)
+    {
+        if (actors.Count == 0 || actors.Any(string.IsNullOrWhiteSpace))
         {
-            throw new ArgumentException("CreatedBy is required.", nameof(createdBy));
+            throw new ArgumentException("CreatedBy is required.", nameof(actors));
         }
 
         if (limit is < 1 or > 100)
@@ -129,7 +147,7 @@ public sealed class AgentAnalysisJobStore(
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         return await context.AgentAnalysisJobs
             .AsNoTracking()
-            .Where(job => includeAll || job.CreatedBy == createdBy)
+            .Where(job => includeAll || actors.Contains(job.CreatedBy))
             .OrderByDescending(job => job.CreatedAt)
             .Take(limit)
             .ToArrayAsync(cancellationToken);

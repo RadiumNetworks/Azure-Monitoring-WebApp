@@ -11,7 +11,8 @@
 --
 -- Matches DatabaseResetService: clears operational data, restores the ten
 -- default alert rules, leaves analysis queries empty. Preserves authentication
--- users/passwords/roles, Settings, schema and EF migration history.
+-- users/passwords/roles, directory profiles and historical display aliases,
+-- Settings, schema and EF migration history.
 -- Requires the current application schema; missing tables are NOT skipped.
 -- Requires SELECT and DELETE on operational tables and INSERT on AlertRules.
 -- No TRUNCATE, schema changes, identity reseeding or automatic migrations.
@@ -114,7 +115,7 @@ BEGIN TRY
         SET @Sequence += 1;
     END;
 
-    SET @Step = N'Restore eleven default alert rules';
+    SET @Step = N'Restore ten default alert rules';
     RAISERROR(N'%s', 10, 1, @Step) WITH NOWAIT;
     -- Separate scope makes missing columns and other schema errors catchable.
     EXEC sys.sp_executesql N'
@@ -124,9 +125,6 @@ BEGIN TRY
              [CategoryName], [ApplyToTarget], [Collapsed], [Tone], [InventoryRole],
              [IsCritical], [AnalysisClassification])
         VALUES
-            (''e9b56b85-cd67-4cd2-b693-62bf5a6d0001'', N''Warn about unknown replication inventory targets'', 1, 0,
-             N''ReplicationInventoryWarning'', N'''', N''Replication'', N'''', 0, N'''', N'''',
-             0, 0, N''info'', N'''', 0, N''None''),
             (''d7ab8e49-2cfa-4a2e-a635-964bee230001'', N''Inventory heartbeat freshness'', 1, 0,
              N''InventoryHeartbeatFreshness'', N'''', N'''', N'''', 5, N'''', N'''', 0, 0, N''info'', N'''', 0, N''None''),
             (''7b28f935-087b-4c20-8635-84e2c65484e9'', N''Inventory Heartbeat Status'', 1, 1,

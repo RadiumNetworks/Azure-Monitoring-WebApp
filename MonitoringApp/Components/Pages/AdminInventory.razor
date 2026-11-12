@@ -92,6 +92,37 @@
     <button class="admin-secondary" type="button" disabled="@(!HasInventoryFilters)" @onclick="ClearInventoryFilters">@Text["AdminInventory.ClearFilters"]</button>
 </div>
 
+@if (AlertStore.InventoryTeamFiltersEnabled)
+{
+    <fieldset class="inventory-team-filter">
+        <legend>@Text["AdminInventory.Teams.Title"]</legend>
+        <p>@Text["AdminInventory.Teams.Help"]</p>
+        @if (!teamCatalogLoaded)
+        {
+            <p role="@(isLoading ? "status" : "alert")">@Text[isLoading ? "AdminInventory.Loading" : "AdminInventory.Errors.LoadFailed"]</p>
+        }
+        @foreach (var team in inventoryTeams)
+        {
+            <label>
+                <input type="checkbox" checked="@selectedTeamIds.Contains(team.Id)" disabled="@isLoading"
+                       @onchange="args => ToggleTeam(team.Id, args)" />
+                <span>@team.Name</span>
+            </label>
+        }
+        @foreach (var id in selectedTeamIds.Where(id => !inventoryTeams.Any(team => team.Id == id)).Order())
+        {
+            <label>
+                <input type="checkbox" checked disabled="@isLoading" @onchange="args => ToggleTeam(id, args)" />
+                <span>@Text.Format("AdminInventory.Teams.Unavailable", teamNames.GetValueOrDefault(id, id.ToString()))</span>
+            </label>
+        }
+        @if (teamCatalogLoaded && inventoryTeams.Count == 0)
+        {
+            <p>@Text["AdminInventory.Teams.Empty"]</p>
+        }
+    </fieldset>
+}
+
 <div class="admin-workspace">
     <section class="admin-rule-list" aria-labelledby="inventory-heading">
         <div class="admin-section-heading">
@@ -358,6 +389,10 @@
 @code {
     private IReadOnlyList<ComputerInventoryEntry> entries = [];
     private IReadOnlyList<string> subscriptionIds = [];
+    private IReadOnlyList<InventoryTeamOption> inventoryTeams = [];
+    private readonly HashSet<Guid> selectedTeamIds = [];
+    private readonly Dictionary<Guid, string> teamNames = [];
+    private bool teamCatalogLoaded;
     private readonly HashSet<(string SubscriptionId, string Computer)> expandedEntries = [];
     private ComputerInventoryEntry? editingEntry;
     private ComputerInventoryEntry? entryToDelete;
@@ -374,27 +409,38 @@
     private string? statusMessage;
     private string? errorMessage;
 
-    private IReadOnlyList<ComputerInventoryEntry> FilteredEntries => entries
-        .Where(entry => string.IsNullOrWhiteSpace(searchText) ||
-            entry.Computer.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-            entry.SubscriptionId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-            (entry.ResourceGroup?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (entry.Site?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (entry.Domain?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (entry.Role?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Where(entry => MatchesFilter(entry.SubscriptionId, subscriptionFilter))
-        .Where(entry => MatchesFilter(entry.ResourceGroup, resourceGroupFilter))
-        .Where(entry => MatchesFilter(entry.Site, siteFilter))
-        .Where(entry => MatchesFilter(entry.Domain, domainFilter))
-        .Where(entry => MatchesFilter(entry.Role, roleFilter))
-        .ToArray();
+    private IReadOnlyList<ComputerInventoryEntry> FilteredEntries
+    {
+        get
+        {
+            var roleKeys = inventoryTeams.Where(team => selectedTeamIds.Contains(team.Id))
+                .SelectMany(team => team.RoleKeys).ToHashSet(StringComparer.Ordinal);
+            return entries
+                .Where(entry => !AlertStore.InventoryTeamFiltersEnabled || selectedTeamIds.Count == 0 ||
+                    entry.Role is not null && roleKeys.Contains(UserTeamInventoryRole.NormalizeRoleKey(entry.Role)))
+                .Where(entry => string.IsNullOrWhiteSpace(searchText) ||
+                    entry.Computer.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                    entry.SubscriptionId.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                    (entry.ResourceGroup?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (entry.Site?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (entry.Domain?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (entry.Role?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                .Where(entry => MatchesFilter(entry.SubscriptionId, subscriptionFilter))
+                .Where(entry => MatchesFilter(entry.ResourceGroup, resourceGroupFilter))
+                .Where(entry => MatchesFilter(entry.Site, siteFilter))
+                .Where(entry => MatchesFilter(entry.Domain, domainFilter))
+                .Where(entry => MatchesFilter(entry.Role, roleFilter))
+                .ToArray();
+        }
+    }
 
     private bool HasInventoryFilters =>
         !string.IsNullOrWhiteSpace(subscriptionFilter) ||
         !string.IsNullOrWhiteSpace(resourceGroupFilter) ||
         !string.IsNullOrWhiteSpace(siteFilter) ||
         !string.IsNullOrWhiteSpace(domainFilter) ||
-        !string.IsNullOrWhiteSpace(roleFilter);
+        !string.IsNullOrWhiteSpace(roleFilter) ||
+        AlertStore.InventoryTeamFiltersEnabled && selectedTeamIds.Count > 0;
 
     protected override Task OnInitializedAsync() => LoadInventoryAsync();
 
@@ -404,8 +450,14 @@
         errorMessage = null;
         try
         {
-            entries = await AlertStore.GetComputerInventoryAsync();
-            subscriptionIds = await AlertStore.GetAlertSubscriptionIdsAsync();
+            var loadedEntries = await AlertStore.GetComputerInventoryAsync();
+            var loadedSubscriptions = await AlertStore.GetAlertSubscriptionIdsAsync();
+            var loadedTeams = await AlertStore.GetInventoryTeamsAsync();
+            entries = loadedEntries;
+            subscriptionIds = loadedSubscriptions;
+            inventoryTeams = loadedTeams;
+            teamCatalogLoaded = true;
+            foreach (var team in inventoryTeams) teamNames[team.Id] = team.Name;
         }
         catch (Exception exception)
         {
@@ -609,6 +661,23 @@
         siteFilter = string.Empty;
         domainFilter = string.Empty;
         roleFilter = string.Empty;
+        selectedTeamIds.Clear();
+    }
+
+    private void ToggleTeam(Guid id, ChangeEventArgs args)
+    {
+        if (isLoading) return;
+        if (args.Value is true)
+        {
+            if (!inventoryTeams.Any(team => team.Id == id))
+            {
+                Logger.LogWarning("Inventory team filter selection {TeamId} is no longer available.", id);
+                errorMessage = Text["AdminInventory.Teams.Changed"];
+                return;
+            }
+            selectedTeamIds.Add(id);
+        }
+        else selectedTeamIds.Remove(id);
     }
 
     private static bool MatchesFilter(string? value, string filter) =>

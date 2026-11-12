@@ -6,6 +6,26 @@ public sealed class AnalysisQueryExecutionService(
     IDbContextFactory<AlertDbContext> contextFactory,
     AnalysisQueryRunner runner)
 {
+    public async Task<AnalysisDashboardInventorySelection> ResolveDashboardSelectionAsync(
+        AnalysisDashboardDocument document,
+        string? workspaceKey = null,
+        CancellationToken cancellationToken = default)
+    {
+        document.ValidateSelection();
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var inventory = await context.ComputerInventory.AsNoTracking().ToArrayAsync(cancellationToken);
+        return AnalysisDashboardInventorySelection.Resolve(document, inventory, runner.WorkspaceResolver, workspaceKey);
+    }
+
+    public async Task<AnalysisDashboardInventorySelection> ResolveDashboardSystemsAsync(
+        IReadOnlyList<AnalysisDashboardSystem> systems,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var inventory = await context.ComputerInventory.AsNoTracking().ToArrayAsync(cancellationToken);
+        return AnalysisDashboardInventorySelection.Resolve(systems, inventory);
+    }
+
     public async Task<AnalysisQueryResponse> ExecuteAsync(
         AnalysisQueryRequest request,
         CancellationToken cancellationToken = default)
@@ -30,7 +50,7 @@ public sealed class AnalysisQueryExecutionService(
                 .Select(system => new AnalysisQuerySystem(system.SubscriptionId.Trim(), system.Computer.Trim()))
                 .Distinct()
                 .ToArray();
-            if (requestedSystems.Length is < 1 or > 100)
+            if (requestedSystems.Length is < 1 or > AnalysisDashboardDocument.MaximumSystems)
                 throw new AnalysisValidationException(AnalysisValidationCode.DistinctSystemsRequired,
                     "Select between 1 and 100 distinct systems.");
             selected = await AnalysisQueryInventory.LoadSelectedAsync(context, requestedSystems, cancellationToken);

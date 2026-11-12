@@ -32,7 +32,7 @@ public sealed class LegacyAlertResolutionService(
         if (confirmation != "RESOLVE")
             throw new MaintenanceValidationException(MaintenanceValidationCode.ConfirmationInvalid,
                 "Type RESOLVE exactly to confirm legacy alert resolution.");
-        var actor = identity.GetActor(user, authentication.IsOpen);
+        var actor = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
         var now = timeProvider.GetUtcNow();
         int resolvedCount;
         try
@@ -124,6 +124,7 @@ public sealed class LegacyAlertResolutionService(
         var assignedIds = (await context.ParsedAlerts.Where(alert => alert.InventoryComputerEntry != null)
             .Select(alert => alert.Id).ToArrayAsync(cancellationToken)).ToHashSet();
         return AlertLifecycle.GetActiveAlerts(alerts)
-            .Where(alert => !assignedIds.Contains(alert.Id) && !ScheduledQueryAlert.IsWorkspace(alert)).ToArray();
+            .Where(alert => !assignedIds.Contains(alert.Id) && !ScheduledQueryAlert.IsWorkspace(alert) &&
+                !ScheduledQueryAlert.IsUnknownInventoryTarget(alert)).ToArray();
     }
 }

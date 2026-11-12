@@ -21,6 +21,8 @@ public sealed class AgentAnalysisReviewEvent
     public string Action { get; set; } = string.Empty;
     public string Comment { get; set; } = string.Empty;
     public string Actor { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped, System.Text.Json.Serialization.JsonIgnore]
+    public string? ActorDisplayName { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
     public static AgentAnalysisReviewEvent Create(

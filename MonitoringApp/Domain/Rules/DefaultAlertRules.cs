@@ -6,15 +6,6 @@ public static class DefaultAlertRules
     [
         new()
         {
-            Id = ReplicationInventoryWarning.DefaultRuleId,
-            Name = "Warn about unknown replication inventory targets",
-            Priority = 0,
-            RuleType = AlertRuleTypes.ReplicationInventoryWarning,
-            QueryResultType = "Replication",
-            Collapsed = false
-        },
-        new()
-        {
             Id = new("d7ab8e49-2cfa-4a2e-a635-964bee230001"),
             Name = "Inventory heartbeat freshness",
             Priority = 0,

@@ -2,11 +2,13 @@ namespace MonitoringApp;
 
 public sealed class TargetWorkspaceResolver
 {
+    private readonly HashSet<string> workspaceKeys;
     private readonly IReadOnlyDictionary<string, CrossTenantLogAnalyticsWorkspaceOptions> subscriptions;
     private readonly IReadOnlyDictionary<string, CrossTenantLogAnalyticsWorkspaceOptions> domains;
 
     public TargetWorkspaceResolver(CrossTenantLogAnalyticsOptions options)
     {
+        workspaceKeys = options.Workspaces.Select(workspace => workspace.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         subscriptions = options.Workspaces
             .SelectMany(workspace => workspace.SubscriptionIds.Select(subscriptionId => new
             {
@@ -22,6 +24,8 @@ public sealed class TargetWorkspaceResolver
             }))
             .ToDictionary(item => item.Key, item => item.Workspace, StringComparer.OrdinalIgnoreCase);
     }
+
+    public bool IsConfiguredWorkspace(string key) => workspaceKeys.Contains(key);
 
     public TargetWorkspaceResolution Resolve(string? subscriptionId, string? domain)
     {

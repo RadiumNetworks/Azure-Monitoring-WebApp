@@ -1,5 +1,134 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="UserDirectory.OpenWarning" xml:space="preserve"><value>Open mode: everyone who can reach this application can manage users and teams. The application does not verify upstream Entra authentication or application roles. Local account blocks do not revoke access in Open mode. Changes are audited as Open mode without a verified person. Ownership migration requires SQL or Entra application authentication.</value></data>
+  <data name="UserDirectory.InventoryRoles" xml:space="preserve"><value>Inventory server roles</value></data>
+  <data name="UserDirectory.InventoryRolesHint" xml:space="preserve"><value>Select zero or more observed Inventory roles. Roles may belong to multiple teams and do not grant application permissions. Outer whitespace and case are ignored. Renames are new roles; unobserved assignments remain until explicitly removed. No roles does not mean all servers. Views are not filtered yet.</value></data>
+  <data name="UserDirectory.NoInventoryRoles" xml:space="preserve"><value>No server roles assigned</value></data>
+  <data name="UserDirectory.NoObservedRoles" xml:space="preserve"><value>No Inventory roles available. Maintain server roles in Inventory first.</value></data>
+  <data name="UserDirectory.UnobservedRole" xml:space="preserve"><value>not currently observed</value></data>
+  <data name="UserDirectory.Errors.InventoryRoles" xml:space="preserve"><value>A selected server role is invalid or no longer observed in Inventory. Refresh the list. Existing unobserved assignments may be retained or removed, but cannot be newly assigned.</value></data>
+  <data name="UserDirectory.Title" xml:space="preserve"><value>Users and teams</value></data>
+  <data name="UserDirectory.Intro" xml:space="preserve"><value>Manage SQL logins, known Entra users and provisioned identities together. SCIM is optional. Team assignments do not grant application roles or restrict dashboard access.</value></data>
+  <data name="UserDirectory.CreateSql" xml:space="preserve"><value>Create SQL login</value></data>
+  <data name="UserDirectory.Users" xml:space="preserve"><value>Users</value></data>
+  <data name="UserDirectory.Edit" xml:space="preserve"><value>Edit user</value></data>
+  <data name="UserDirectory.Search" xml:space="preserve"><value>Search name, login or email</value></data>
+  <data name="UserDirectory.Provider" xml:space="preserve"><value>Identity and authentication</value></data>
+  <data name="UserDirectory.Provider.Sql" xml:space="preserve"><value>SQL login</value></data>
+  <data name="UserDirectory.Provider.Entra" xml:space="preserve"><value>Entra login (known user)</value></data>
+  <data name="UserDirectory.Provider.Scim" xml:space="preserve"><value>SCIM identity / Entra login</value></data>
+  <data name="UserDirectory.Provider.Legacy" xml:space="preserve"><value>Unlinked historical identity</value></data>
+  <data name="UserDirectory.Unverified" xml:space="preserve"><value>Unverified / not linked</value></data>
+  <data name="UserDirectory.Aliases.Title" xml:space="preserve"><value>Historical display aliases</value></data>
+  <data name="UserDirectory.Aliases.Main" xml:space="preserve"><value>Main historical profile with aliases</value></data>
+  <data name="UserDirectory.Aliases.Help" xml:space="preserve"><value>This profile determines the display name for selected historical aliases. Alias profiles and their data are preserved; uncheck an alias and save to separate it again. Only unlinked historical profiles can be grouped. In Analysis, the signed-in main account can also view and edit its aliases' dashboards; aliases gain no reciprocal access. The original account key must match, not its display name or contact email. This does not link logins, confirm identities, change application roles or rewrite ownership/history. Separating an alias revokes this additional dashboard access. Grouped profiles must be separated before a verified ownership migration.</value></data>
+  <data name="UserDirectory.Aliases.Empty" xml:space="preserve"><value>No other ungrouped historical profiles are available.</value></data>
+  <data name="UserDirectory.Aliases.Detach" xml:space="preserve"><value>Separate historical alias</value></data>
+  <data name="UserDirectory.Aliases.Unavailable" xml:space="preserve"><value>Source changed; display grouping inactive</value></data>
+  <data name="UserDirectory.Aliases.UnavailableMain" xml:space="preserve"><value>The main profile is no longer an available unlinked historical profile. Its display grouping is inactive. Separate this alias before editing or grouping it again.</value></data>
+  <data name="UserDirectory.Errors.HistoricalGrouped" xml:space="preserve"><value>This historical profile is already an alias. Separate it from its main profile before editing or grouping it again.</value></data>
+  <data name="UserDirectory.Errors.HistoricalAliases" xml:space="preserve"><value>Only separate, unlinked historical profiles may be added as aliases. Self-references, chains and aliases already in another group are not allowed. Refresh and check the selection.</value></data>
+  <data name="IdentityMigration.Conflicts.HistoricalGroup" xml:space="preserve"><value>A selected historical profile belongs to a display group. Separate its aliases before approving a verified ownership migration.</value></data>
+  <data name="UserDirectory.HistoricalProfileHint" xml:space="preserve"><value>This is a locally maintained, unverified historical profile. Its original key remains unchanged. Names and email are display information only: they do not confirm an Entra/SCIM identity, transfer ownership or grant access. Linking requires a separate verified administrative step.</value></data>
+  <data name="UserDirectory.Errors.HistoricalChanged" xml:space="preserve"><value>This historical identity is no longer available as an unlinked profile. Refresh the user list and check its current source before editing.</value></data>
+  <data name="UserDirectory.All" xml:space="preserve"><value>All</value></data>
+  <data name="UserDirectory.Status" xml:space="preserve"><value>Effective account status</value></data>
+  <data name="UserDirectory.Active" xml:space="preserve"><value>Enabled</value></data>
+  <data name="UserDirectory.Inactive" xml:space="preserve"><value>Disabled</value></data>
+  <data name="UserDirectory.Deleted" xml:space="preserve"><value>Deprovisioned (retained)</value></data>
+  <data name="UserDirectory.Teams" xml:space="preserve"><value>Teams</value></data>
+  <data name="UserDirectory.Unassigned" xml:space="preserve"><value>No effective team assignment</value></data>
+  <data name="UserDirectory.Manual" xml:space="preserve"><value>Manual</value></data>
+  <data name="UserDirectory.Group" xml:space="preserve"><value>Group</value></data>
+  <data name="UserDirectory.Count" xml:space="preserve"><value>{0} of {1} users</value></data>
+  <data name="UserDirectory.GivenName" xml:space="preserve"><value>First name</value></data>
+  <data name="UserDirectory.FamilyName" xml:space="preserve"><value>Last name</value></data>
+  <data name="UserDirectory.Email" xml:space="preserve"><value>Email</value></data>
+  <data name="UserDirectory.SourceReadOnly" xml:space="preserve"><value>The source owns these profile fields. Entra updates them at login, or SCIM updates them through provisioning; this editor cannot overwrite them.</value></data>
+  <data name="UserDirectory.UnlinkedHint" xml:space="preserve"><value>This retained identity has no authentication binding. Editing its local metadata does not create login credentials. Historical ownership can be reviewed below.</value></data>
+  <data name="UserDirectory.LocalDisplayName" xml:space="preserve"><value>Local display-name override (optional)</value></data>
+  <data name="UserDirectory.LocalDisplayHint" xml:space="preserve"><value>Leave empty to use the source display name. Changing names does not migrate historical dashboard ownership; use the reviewed identity transition below.</value></data>
+  <data name="UserDirectory.LocalEnabled" xml:space="preserve"><value>Locally enabled</value></data>
+  <data name="UserDirectory.NotRecorded" xml:space="preserve"><value>Recorded on first authorized login or explicit save</value></data>
+  <data name="UserDirectory.Connection" xml:space="preserve"><value>Provisioning source</value></data>
+  <data name="UserDirectory.SourceStatus" xml:space="preserve"><value>SCIM source status</value></data>
+  <data name="UserDirectory.SyncStatus" xml:space="preserve"><value>Synchronization status</value></data>
+  <data name="UserDirectory.LastSynced" xml:space="preserve"><value>Last successful synchronization (UTC)</value></data>
+  <data name="UserDirectory.Never" xml:space="preserve"><value>Not yet synchronized</value></data>
+  <data name="UserDirectory.Sync.Pending" xml:space="preserve"><value>Pending</value></data>
+  <data name="UserDirectory.Sync.Succeeded" xml:space="preserve"><value>Succeeded</value></data>
+  <data name="UserDirectory.Sync.Failed" xml:space="preserve"><value>Failed</value></data>
+  <data name="UserDirectory.SourceStatusHint" xml:space="preserve"><value>Local enabling cannot reactivate a user disabled or deprovisioned by SCIM. Data and team assignments are retained.</value></data>
+  <data name="UserDirectory.EntraRoles" xml:space="preserve"><value>Authentication and application roles are managed in Entra, not through SQL credentials here.</value></data>
+  <data name="UserDirectory.ManualTeams" xml:space="preserve"><value>Manual team assignments</value></data>
+  <data name="UserDirectory.AutomaticTeams" xml:space="preserve"><value>Group-derived teams (read-only)</value></data>
+  <data name="UserDirectory.TeamHint" xml:space="preserve"><value>Select zero or more teams. Removing a manual assignment never removes a group-derived assignment. Users without a team remain usable.</value></data>
+  <data name="UserDirectory.TeamsIntro" xml:space="preserve"><value>Create, rename or disable teams without deleting assignments. Disabled teams are not effective and cannot receive new assignments. Manage explicit group mappings below; users cannot locally remove derived sources.</value></data>
+  <data name="UserDirectory.Mappings" xml:space="preserve"><value>Group-to-team mappings</value></data>
+  <data name="UserDirectory.MappingsIntro" xml:space="preserve"><value>Only explicit mappings produce automatic team assignments. Direct members are synchronized through SCIM; nested groups are not supported. Disabling a mapping removes only its derived assignments, never manual or other group sources. Pausing provisioning alone preserves the last synchronized assignments.</value></data>
+  <data name="UserDirectory.NoGroups" xml:space="preserve"><value>No provisioned groups. SCIM remains optional; manual teams are still available.</value></data>
+  <data name="UserDirectory.CreateMapping" xml:space="preserve"><value>Create mapping</value></data>
+  <data name="UserDirectory.SelectMapping" xml:space="preserve"><value>Select a group and team.</value></data>
+  <data name="UserDirectory.SourceGroups" xml:space="preserve"><value>Source groups, stable IDs and synchronization status (UTC)</value></data>
+  <data name="UserDirectory.MappingIdentityHint" xml:space="preserve"><value>The group/team pair is immutable. To change it, disable the old mapping and create another pair. Existing mappings can be enabled again; no name-based matching or role grants occur.</value></data>
+  <data name="UserDirectory.Errors.DuplicateMapping" xml:space="preserve"><value>This group/team mapping already exists, possibly disabled. Edit the existing mapping.</value></data>
+  <data name="UserDirectory.Errors.MappingIdentity" xml:space="preserve"><value>A mapping's group and team cannot be replaced. Disable the old mapping and create another pair.</value></data>
+  <data name="UserDirectory.Errors.MappingSource" xml:space="preserve"><value>Enabling a mapping requires a nondeleted active source group and an enabled team. Existing mappings to disabled teams can be retained or disabled.</value></data>
+  <data name="UserDirectory.CreateTeam" xml:space="preserve"><value>Create team</value></data>
+  <data name="UserDirectory.TeamName" xml:space="preserve"><value>Team name</value></data>
+  <data name="UserDirectory.DeleteSql" xml:space="preserve"><value>Delete SQL login</value></data>
+  <data name="UserDirectory.DeleteHint" xml:space="preserve"><value>Delete only the SQL credentials and disable the directory identity. Dashboards, teams and identity history are retained. The final SQL account and final enabled SQL Admin are protected.</value></data>
+  <data name="UserDirectory.Saved" xml:space="preserve"><value>Changes and audit entry saved. Other open drafts were not changed.</value></data>
+  <data name="UserDirectory.SavedRefreshFailed" xml:space="preserve"><value>The changes were saved, but the list could not be refreshed. Your access may have changed. Refresh or sign in again; do not repeat the operation blindly.</value></data>
+  <data name="UserDirectory.ReloadRequired" xml:space="preserve"><value>Changes are blocked until a successful refresh. Drafts are retained; reselect an entry to load its saved state.</value></data>
+  <data name="UserDirectory.Errors.Access" xml:space="preserve"><value>An active administrator with the configured authentication method is required. Refresh or sign in again.</value></data>
+  <data name="UserDirectory.Errors.Missing" xml:space="preserve"><value>The user or team no longer exists. Refresh and reselect the entry.</value></data>
+  <data name="UserDirectory.Errors.Stale" xml:space="preserve"><value>The saved entry changed. Your draft was retained. Refresh and reselect the user or team before saving again.</value></data>
+  <data name="UserDirectory.Errors.SourceReadOnly" xml:space="preserve"><value>Source profile and credential changes are not allowed for this identity. Entra/SCIM identities cannot receive SQL credentials here.</value></data>
+  <data name="UserDirectory.Errors.SelfDisable" xml:space="preserve"><value>You cannot locally disable your own administrator identity.</value></data>
+  <data name="UserDirectory.Errors.LastEffectiveAdmin" xml:space="preserve"><value>The final enabled SQL Admin cannot be disabled, demoted or deleted. Enable another SQL Admin first.</value></data>
+  <data name="UserDirectory.Errors.ReservedLogin" xml:space="preserve"><value>This login name is a confirmed historical identity alias. Choose a different SQL username; a new account must not reuse protected ownership.</value></data>
+  <data name="UserDirectory.Errors.TeamName" xml:space="preserve"><value>Enter a nonempty team name of at most 256 characters.</value></data>
+  <data name="UserDirectory.Errors.DuplicateTeam" xml:space="preserve"><value>A team with this name already exists, including disabled teams.</value></data>
+  <data name="UserDirectory.Errors.Profile" xml:space="preserve"><value>A profile field exceeds its maximum length (256 characters; email: 320).</value></data>
+  <data name="UserDirectory.Errors.Teams" xml:space="preserve"><value>A selected team is missing or disabled. Refresh; new assignments require enabled teams.</value></data>
+  <data name="UserDirectory.Errors.Binding" xml:space="preserve"><value>This identity has inconsistent authentication links. No change was made; an administrator must review the database and logs.</value></data>
+  <data name="UserDirectory.Errors.Persistence" xml:space="preserve"><value>The database operation could not be confirmed. Refresh and check the saved state and server logs before retrying.</value></data>
+  <data name="IdentityMigration.Title" xml:space="preserve"><value>Stable identities and existing data</value></data>
+  <data name="IdentityMigration.Intro" xml:space="preserve"><value>Users are recorded after an authorized login. Review and approve historical aliases here, in this installation; no developer access to the production database is needed.</value></data>
+  <data name="IdentityMigration.Warning" xml:space="preserve"><value>Back up the database and pause editing before approval. Collections are combined without changing dashboard IDs. The first collection in owner-key order remains active; hidden-query preferences are combined. Original documents and approval evidence are archived. Conflicts block approval. Old editors must reload; unsaved drafts are not migrated.</value></data>
+  <data name="IdentityMigration.Target" xml:space="preserve"><value>Verified target user</value></data>
+  <data name="IdentityMigration.Select" xml:space="preserve"><value>Select a user</value></data>
+  <data name="IdentityMigration.DisplayName" xml:space="preserve"><value>Display name</value></data>
+  <data name="IdentityMigration.Mode" xml:space="preserve"><value>Ownership mode</value></data>
+  <data name="IdentityMigration.Stable" xml:space="preserve"><value>Stable user ID</value></data>
+  <data name="IdentityMigration.Legacy" xml:space="preserve"><value>Existing ownership unchanged</value></data>
+  <data name="IdentityMigration.Candidates" xml:space="preserve"><value>Historical identity candidates (not verified users)</value></data>
+  <data name="IdentityMigration.Aliases" xml:space="preserve"><value>Verified historical aliases, one per line</value></data>
+  <data name="IdentityMigration.AliasHelp" xml:space="preserve"><value>Include the current login name and, for Entra, the Object ID shown above, plus verified old email/login names. A matching email alone is not proof of identity. Never assign aliases belonging to another person.</value></data>
+  <data name="IdentityMigration.Preview" xml:space="preserve"><value>Generate read-only preview</value></data>
+  <data name="IdentityMigration.Counts" xml:space="preserve"><value>Collections: {0}; dashboards: {1}; inbox layouts: {2}; publications: {3}; existing jobs accessible through verified aliases: {4}.</value></data>
+  <data name="IdentityMigration.Evidence" xml:space="preserve"><value>Assignment verification evidence (no secrets or tokens)</value></data>
+  <data name="IdentityMigration.Confirm" xml:space="preserve"><value>I verified the target identity and all aliases, reviewed the preview, and have a database backup.</value></data>
+  <data name="IdentityMigration.Commit" xml:space="preserve"><value>Approve assignment and activate stable ownership</value></data>
+  <data name="IdentityMigration.Success" xml:space="preserve"><value>The assignment was committed. Reload existing editors without discarding unsaved drafts. Refresh this list before another operation.</value></data>
+  <data name="IdentityMigration.Errors.Evidence" xml:space="preserve"><value>Enter verification evidence (1 to 2000 characters).</value></data>
+  <data name="IdentityMigration.Errors.Stale" xml:space="preserve"><value>The preview is missing or outdated. Generate and review a new preview.</value></data>
+  <data name="IdentityMigration.Errors.Conflicts" xml:space="preserve"><value>Resolve all preview conflicts before approval.</value></data>
+  <data name="IdentityMigration.Errors.Target" xml:space="preserve"><value>The selected directory user no longer exists.</value></data>
+  <data name="IdentityMigration.Errors.Aliases" xml:space="preserve"><value>Select at most 100 human identity aliases, each up to 256 characters. System and stable owner keys cannot be assigned.</value></data>
+  <data name="IdentityMigration.Errors.ReloadEditor" xml:space="preserve"><value>Ownership changed. Preserve your draft and reload this editor before loading or saving again.</value></data>
+  <data name="IdentityMigration.Errors.Operation" xml:space="preserve"><value>The identity operation failed. Check the server logs and database state, then reload before retrying.</value></data>
+  <data name="IdentityMigration.Conflicts.Disabled" xml:space="preserve"><value>The target user is disabled.</value></data>
+  <data name="IdentityMigration.Conflicts.Identity" xml:space="preserve"><value>The target user has no linked SQL or Entra sign-in identity.</value></data>
+  <data name="IdentityMigration.Conflicts.Alias" xml:space="preserve"><value>An alias has a different target or ambiguous tenant assignments.</value></data>
+  <data name="IdentityMigration.Conflicts.Login" xml:space="preserve"><value>An alias belongs to a different directory identity.</value></data>
+  <data name="IdentityMigration.Conflicts.MissingAlias" xml:space="preserve"><value>Include the current login and Entra Object ID in the reviewed aliases.</value></data>
+  <data name="IdentityMigration.Conflicts.Inbox" xml:space="preserve"><value>Multiple inbox layouts exist. Preserve/export them and explicitly resolve which layout to retain before migration.</value></data>
+  <data name="IdentityMigration.Conflicts.LegacyJson" xml:space="preserve"><value>A legacy single-dashboard document must first be saved as a collection in the existing editor.</value></data>
+  <data name="IdentityMigration.Conflicts.DashboardId" xml:space="preserve"><value>Dashboard IDs collide. No collection will be overwritten.</value></data>
+  <data name="IdentityMigration.Conflicts.InvalidJson" xml:space="preserve"><value>A stored dashboard document is invalid. Repair it before migration.</value></data>
+  <data name="IdentityMigration.Conflicts.Publication" xml:space="preserve"><value>A publication owner or personal source does not match the selected collections.</value></data>
   <data name="QueryTemplates.Display.Invalid" xml:space="preserve"><value>Standard query text could not be displayed. Check the query provenance.</value></data>
   <data name="QueryTemplates.V1.kql.ad.ad-certificate-mapping-overview.Name" xml:space="preserve"><value>Strong certificate mapping overview</value></data>
   <data name="QueryTemplates.V1.kql.ad.ad-certificate-mapping-overview.Description" xml:space="preserve"><value>Latest KB5014754 KDC 39/41 observations per DC, event ID and certificate/account identity. Unlike serial-only grouping, this preserves different reporters and unparsed events (using their raw payload as fallback identity).</value></data>
@@ -131,6 +260,7 @@
   <data name="Navigation.Inbox" xml:space="preserve"><value>Inbox</value></data>
   <data name="Navigation.Graph" xml:space="preserve"><value>Graph</value></data>
   <data name="Navigation.Dashboards" xml:space="preserve"><value>Dashboards</value></data>
+  <data name="Navigation.DashboardListFailed" xml:space="preserve"><value>Published dashboards could not be loaded. Open My dashboards to try again.</value></data>
   <data name="Navigation.Analyze" xml:space="preserve"><value>Analyze</value></data>
   <data name="Navigation.Queries" xml:space="preserve"><value>Queries</value></data>
   <data name="Navigation.Logbook" xml:space="preserve"><value>Logbook</value></data>
@@ -1025,6 +1155,12 @@
   <data name="AnalysisPublications.ReadOnlyCanvas" xml:space="preserve"><value>Read-only published dashboard</value></data>
   <data name="AnalysisPublications.Empty" xml:space="preserve"><value>This published dashboard has no widgets.</value></data>
   <data name="AnalysisStatus.NotSaved" xml:space="preserve"><value>Dashboard not saved</value></data>
+  <data name="AdminScheduledQueries.InventoryBaselineHelp" xml:space="preserve"><value>_InventoryComputers contains the current Inventory names and their domain-qualified aliases for this workspace, including maintenance systems, independently of rule filters. Names match without case sensitivity; trailing dots are ignored by this template. An empty or conflicting Inventory baseline fails the check without raising an alert. Test the disabled template before enabling it.</value></data>
+  <data name="Rules.TypeOption.RetiredReplicationWarning" xml:space="preserve"><value>Replication inventory warning (retired)</value></data>
+  <data name="Rules.Editor.RetiredReplicationHelp" xml:space="preserve"><value>This ingestion rule is retired and cannot be enabled. Use the Unknown replication inventory targets template under Scheduled KQL queries instead. Existing alerts are retained.</value></data>
+  <data name="QueryTemplates.V1.kql.scheduled.replication-unknown-targets.Name" xml:space="preserve"><value>Unknown replication inventory targets</value></data>
+  <data name="Analysis.DashboardMissingSystems" xml:space="preserve"><value>These systems are no longer in Inventory and were skipped: {0}. The saved selection is unchanged.</value></data>
+  <data name="Analysis.DashboardAllSystemsMissing" xml:space="preserve"><value>No selected systems remain in Inventory. No query was executed.</value></data>
   <data name="AnalysisStatus.Restored" xml:space="preserve"><value>Dashboard restored · revision {0}</value></data>
   <data name="AnalysisStatus.Saved" xml:space="preserve"><value>Dashboard saved · revision {0}</value></data>
   <data name="AnalysisStatus.NamedSaved" xml:space="preserve"><value>{0} · saved revision {1}</value></data>
@@ -1177,6 +1313,10 @@
   <data name="AdminScheduledQueries.EditTargetStatus" xml:space="preserve"><value>Edit / target status</value></data>
   <data name="AdminScheduledQueries.SelectedSystems" xml:space="preserve"><value>Selected systems</value></data>
   <data name="AdminScheduledQueries.WorkspaceWide" xml:space="preserve"><value>Workspace-wide</value></data>
+  <data name="AdminScheduledQueries.UnknownInventoryTargets" xml:space="preserve"><value>Unknown inventory targets</value></data>
+  <data name="AdminScheduledQueries.TargetCount" xml:space="preserve"><value>count_</value></data>
+  <data name="AdminScheduledQueries.UnknownTargetsKqlHelp" xml:space="preserve"><value>Use _WindowStart, _WindowEnd and _InventoryComputers. Return Target and a positive integer count_, for example: where Target !in~ (_InventoryComputers) | summarize count() by Target. Each unknown target has its own alert. A successful complete result without that target, or its addition to Inventory, resolves its alert; query errors do not. No rows means no unknown targets. Do not use _SelectedSystems.</value></data>
+  <data name="QueryResults.TargetObservations" xml:space="preserve"><value>Observations</value></data>
   <data name="AdminScheduledQueries.NewRule" xml:space="preserve"><value>New scheduled rule</value></data>
   <data name="AdminScheduledQueries.Workspaces" xml:space="preserve"><value>Workspaces</value></data>
   <data name="AdminScheduledQueries.MissingWorkspace" xml:space="preserve"><value>{0} (no longer configured)</value></data>
@@ -1712,6 +1852,25 @@
   <data name="Rca.Validation.AssigneeInvalid" xml:space="preserve"><value>Enter an email address or select an existing user as assignee.</value></data>
   <data name="Analysis.Validation.DashboardTimeRangeInvalid" xml:space="preserve"><value>Select a supported dashboard time range or use widget settings.</value></data>
   <data name="Analysis.Validation.DashboardIntervalInvalid" xml:space="preserve"><value>Select a dashboard averaging interval of 15 minutes, 30 minutes or 1 hour, or use widget settings.</value></data>
+  <data name="Analysis.Validation.DashboardSelectionInvalid" xml:space="preserve"><value>The dashboard system selection is invalid. Reload or correct the saved selection.</value></data>
+  <data name="Analysis.RoleSelection.Mode" xml:space="preserve"><value>Server assignment</value></data>
+  <data name="Analysis.RoleSelection.CountUnavailable" xml:space="preserve"><value>Selection not resolved</value></data>
+  <data name="Analysis.RoleSelection.Fixed" xml:space="preserve"><value>Fixed servers</value></data>
+  <data name="Analysis.RoleSelection.Dynamic" xml:space="preserve"><value>Inventory roles (dynamic)</value></data>
+  <data name="Analysis.RoleSelection.Roles" xml:space="preserve"><value>Inventory roles (OR)</value></data>
+  <data name="Analysis.RoleSelection.Help" xml:space="preserve"><value>Select one or more roles (OR). Matching inventory servers are resolved again on every run or enabled automatic refresh. The preview is not a saved server list.</value></data>
+  <data name="Analysis.RoleSelection.FiltersHelp" xml:space="preserve"><value>Role mode uses the workspace selection above. Existing domain, site and single-role filters do not apply; domain/site rules will follow later.</value></data>
+  <data name="Analysis.RoleSelection.Refresh" xml:space="preserve"><value>Refresh inventory preview</value></data>
+  <data name="Analysis.RoleSelection.Loading" xml:space="preserve"><value>Reading current inventory…</value></data>
+  <data name="Analysis.RoleSelection.Snapshot" xml:space="preserve"><value>Inventory snapshot: {0}. Run or refresh the preview to reload.</value></data>
+  <data name="Analysis.RoleSelection.PublishedSnapshot" xml:space="preserve"><value>Inventory snapshot: {0}. Membership is refreshed on each run or enabled automatic refresh.</value></data>
+  <data name="Analysis.RoleSelection.Empty" xml:space="preserve"><value>No inventory systems currently match the roles and workspace. No query is executed; the role rule is retained.</value></data>
+  <data name="Analysis.RoleSelection.Changes" xml:space="preserve"><value>Unsaved server assignment changes.</value></data>
+  <data name="Analysis.RoleSelection.WorkspaceWide" xml:space="preserve"><value>Workspace-wide — not role-restricted: matching servers choose the workspaces only. Results may include every system/domain in those workspaces.</value></data>
+  <data name="Analysis.Validation.DashboardRolesRequired" xml:space="preserve"><value>Select at least one inventory role.</value></data>
+  <data name="Analysis.Validation.DashboardSystemsLimitExceeded" xml:space="preserve"><value>The dashboard selection matches more than 100 systems. Narrow the role or workspace selection.</value></data>
+  <data name="Analysis.Validation.DashboardSelectionNotAvailable" xml:space="preserve"><value>This dashboard view does not support inventory-role selection yet. The saved rule is unchanged; fixed systems are not used as a fallback.</value></data>
+  <data name="Analysis.Validation.DashboardInventoryRoutingInvalid" xml:space="preserve"><value>Inventory systems could not be assigned unambiguously to configured workspaces. Check the subscription/domain routing; no replacement selection is used.</value></data>
   <data name="AdminAnalysisQueries.Errors.LoadFailed" xml:space="preserve"><value>Query administration data could not be loaded. Previously loaded data is retained. Refresh before editing again.</value></data>
   <data name="AdminAnalysisQueries.Errors.CategorySaveFailed" xml:space="preserve"><value>The category save could not be confirmed. Refresh the registry before saving again.</value></data>
   <data name="AdminAnalysisQueries.Errors.CategoryDeleteFailed" xml:space="preserve"><value>The category deletion could not be confirmed. Refresh the registry before trying again.</value></data>
@@ -1751,7 +1910,7 @@
   <data name="ScheduledQueries.Validation.WorkspaceSelectionInvalid" xml:space="preserve"><value>Select at least one workspace. Workspace keys must not be empty and may contain at most 128 characters.</value></data>
   <data name="ScheduledQueries.Validation.WorkspaceUnavailable" xml:space="preserve"><value>Every selected workspace must be configured. Remove unavailable workspaces before saving.</value></data>
   <data name="ScheduledQueries.Validation.IdentityInvalid" xml:space="preserve"><value>A rule ID and a name of 1–256 characters are required.</value></data>
-  <data name="ScheduledQueries.Validation.ScopeInvalid" xml:space="preserve"><value>Select a supported rule scope: selected systems or workspace-wide.</value></data>
+  <data name="ScheduledQueries.Validation.ScopeInvalid" xml:space="preserve"><value>Select a supported rule scope: selected systems, workspace-wide or unknown inventory targets.</value></data>
   <data name="ScheduledQueries.Validation.WorkspaceFiltersInvalid" xml:space="preserve"><value>Workspace-wide rules do not accept inventory filters. Clear Domain, Site, Role and Computers.</value></data>
   <data name="ScheduledQueries.Validation.FiltersInvalid" xml:space="preserve"><value>Enter a category. Filters and category may contain at most 256 characters; the computer list at most 4000.</value></data>
   <data name="ScheduledQueries.Validation.TimingInvalid" xml:space="preserve"><value>Interval and evaluation window must be 1–1440 minutes; ingestion delay must be 0–60 minutes.</value></data>
@@ -1802,12 +1961,34 @@
   <data name="FreeKql.Title" xml:space="preserve"><value>Free KQL query</value></data>
   <data name="FreeKql.Help" xml:space="preserve"><value>The query is sent exactly as entered, without target-system or time filters, parameters or query wrappers. Choose a configured workspace. Azure permissions and service limits still apply. Results are shown as plain tables; nothing is saved or scheduled.</value></data>
   <data name="FreeKql.Workspace" xml:space="preserve"><value>Workspace</value></data>
+  <data name="FreeKql.Tables.Title" xml:space="preserve"><value>Visible tables</value></data>
+  <data name="AdminInventory.Teams.Title" xml:space="preserve"><value>Teams (optional view filter)</value></data>
+  <data name="AdminInventory.Teams.Help" xml:space="preserve"><value>No selection shows all systems. Selected active teams combine their inventory roles; teams without roles match no systems. This filter does not change access rights. Refresh to reload teams and inventory roles.</value></data>
+  <data name="AdminInventory.Teams.Empty" xml:space="preserve"><value>No active teams are available.</value></data>
+  <data name="AdminInventory.Teams.Unavailable" xml:space="preserve"><value>{0} (no longer available; contributes no roles)</value></data>
+  <data name="AdminInventory.Teams.Changed" xml:space="preserve"><value>The selected team is no longer available. Refresh the inventory and check your selection.</value></data>
+  <data name="FreeKql.Tables.Empty" xml:space="preserve"><value>No tables with visible data were found in this workspace.</value></data>
   <data name="FreeKql.SelectWorkspace" xml:space="preserve"><value>Select a workspace</value></data>
   <data name="FreeKql.Running" xml:space="preserve"><value>Running query…</value></data>
   <data name="FreeKql.Execute" xml:space="preserve"><value>Run query</value></data>
   <data name="FreeKql.Limited" xml:space="preserve"><value>Display limited to 1000 rows or 4 MiB of cell/column text across all tables. Additional results were omitted. No filters were added to the query.</value></data>
   <data name="FreeKql.Empty" xml:space="preserve"><value>The query returned no rows.</value></data>
   <data name="FreeKql.Required" xml:space="preserve"><value>Enter a KQL query first.</value></data>
+  <data name="KqlEditor.CompletionHelp" xml:space="preserve"><value>A unique completion appears in grey: tables and visible tabular let variables at expression starts, operators after |, columns from a loaded single-workspace schema, and scalar let variables in expressions. Supported pipelines and materialize preserve the tracked schema. Functions and unknown constructs may remain unresolved; calculated types may be unknown. Tab accepts, Escape dismisses, Enter inserts a new line. Hover or F1 shows available help.</value></data>
+  <data name="KqlEditor.CompletionFailed" xml:space="preserve"><value>KQL completion could not be loaded. You can still edit the query. Reload the page to try again.</value></data>
+  <data name="KqlEditor.Keywords.Title" xml:space="preserve"><value>KQL keyword reference</value></data>
+  <data name="KqlEditor.Keywords.Help" xml:space="preserve"><value>Hover, focus or tap a keyword to read its help. Arrow keys, Home and End navigate the list; Escape closes it. This reference does not change your query.</value></data>
+  <data name="KqlEditor.Keywords.NoInfo" xml:space="preserve"><value>No help is stored for this keyword in the JSON dictionary.</value></data>
+  <data name="KqlEditor.TablesLoading" xml:space="preserve"><value>Loading table names from the selected workspaces…</value></data>
+  <data name="KqlEditor.TablesLoaded" xml:space="preserve"><value>{0} table names loaded. Complete table names appear in black and bold.</value></data>
+  <data name="KqlEditor.TablesFailed" xml:space="preserve"><value>Table names could not be loaded from all selected workspaces. Check live-query configuration and workspace permissions. Keyword completion remains available.</value></data>
+  <data name="KqlEditor.TablesRetry" xml:space="preserve"><value>Reload table names</value></data>
+  <data name="KqlEditor.SchemaLoading" xml:space="preserve"><value>Loading table schema…</value></data>
+  <data name="KqlEditor.SchemaFailed" xml:space="preserve"><value>The table schema could not be loaded. Check the first selected workspace and its permissions, then reload table names to try again.</value></data>
+  <data name="KqlEditor.SchemaTitle" xml:space="preserve"><value>{0} — columns and KQL types (workspace: {1})</value></data>
+  <data name="KqlEditor.SchemaEmpty" xml:space="preserve"><value>No columns returned.</value></data>
+  <data name="KqlEditor.SchemaUnavailable" xml:space="preserve"><value>This table was not discovered in this workspace. Reload table names to check again. No schema-based column suggestions are available for this source.</value></data>
+  <data name="KqlEditor.MultipleWorkspaces" xml:space="preserve"><value>Select exactly one workspace for schema-based column completion. Schema tooltips refer only to the first selected workspace, not to a shared schema of all workspaces.</value></data>
   <data name="FreeKql.Cancelled" xml:space="preserve"><value>Query cancelled.</value></data>
   <data name="FreeKql.Failed" xml:space="preserve"><value>The query failed. Check the KQL and workspace permissions. Application logs contain the technical details; partial results are not displayed.</value></data>
   <data name="ScheduledQueries.Data.WorkspaceSelectionInvalid" xml:space="preserve"><value>The stored scheduled query workspace selection could not be read. Ask an administrator to check the rule. No stored data was changed.</value></data>
@@ -1875,6 +2056,13 @@
   <data name="FreeKql.Examples.ExpandRows" xml:space="preserve"><value>Expand an array into multiple rows</value></data>
   <data name="FreeKql.Examples.ExpandColumns" xml:space="preserve"><value>Expand an array into multiple columns</value></data>
   <data name="FreeKql.Examples.Join" xml:space="preserve"><value>Join DCDiag and replication data</value></data>
+  <data name="FreeKql.Examples.Query.Tables" xml:space="preserve"><value>search *&#10;| summarize count() by $table&#10;| sort by $table</value></data>
+  <data name="FreeKql.Examples.Query.Schema" xml:space="preserve"><value>Perf | getschema</value></data>
+  <data name="FreeKql.Examples.Query.Values" xml:space="preserve"><value>Perf | take 10</value></data>
+  <data name="FreeKql.Examples.Query.Distinct" xml:space="preserve"><value>Event | distinct EventID</value></data>
+  <data name="FreeKql.Examples.Query.ExpandRows" xml:space="preserve"><value>DCDiagData_CL&#10;| summarize arg_max(TimeGenerated, Status) by Computer&#10;| extend Tests = todynamic(Status)&#10;| mv-expand Test = bag_keys(Tests)&#10;| extend TestName = tostring(Test)&#10;| project Timestamp = TimeGenerated, Computer, TestName,Result = tostring(Tests[TestName])&#10;| order by Result asc, Computer, TestName asc</value></data>
+  <data name="FreeKql.Examples.Query.ExpandColumns" xml:space="preserve"><value>DCDiagData_CL&#10;| summarize arg_max(TimeGenerated, Status) by Computer&#10;| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)&#10;| evaluate bag_unpack(Tests, "")&#10;| order by Computer asc</value></data>
+  <data name="FreeKql.Examples.Query.Join" xml:space="preserve"><value>let ReplData = DCReplicationData_CL&#10;| summarize arg_max(TimeGenerated, *) by Computer = SourceDSA, DestDSA, NC&#10;| where Source == "showrepl_INFO"&#10;| summarize&#10;    NumberOfFailures = sum(tolong(NumberOfFailures)),&#10;    LastObservation = max(TimeGenerated)&#10;    by Computer&#10;| order by NumberOfFailures desc, Computer asc;&#10;DCDiagData_CL&#10;| summarize arg_max(TimeGenerated, Status) by Computer&#10;| project Computer, Timestamp = TimeGenerated, Tests = todynamic(Status)&#10;| evaluate bag_unpack(Tests, "")&#10;| order by Computer asc&#10;| join ReplData on Computer</value></data>
   <data name="Inbox.TargetServicesDescription" xml:space="preserve"><value>{0}; Non-running services: {1}</value></data>
   <data name="AdminInventory.LastBootTime" xml:space="preserve"><value>Last boot time</value></data>
   <data name="Navigation.Support" xml:space="preserve"><value>Support</value></data>
@@ -1894,4 +2082,34 @@
   <data name="Lockouts.NoEvents" xml:space="preserve"><value>No failed logons found for this user in the selected time range.</value></data>
   <data name="Lockouts.LoadFailed" xml:space="preserve"><value>Could not load locked-out users. Check the application logs.</value></data>
   <data name="Lockouts.SearchFailed" xml:space="preserve"><value>Could not search failed logons. Check the application logs.</value></data>
+  <data name="Rca.FreeTextAssignee" xml:space="preserve"><value>Unassigned / free-text email</value></data>
+  <data name="Rca.DirectoryAssigneeHelp" xml:space="preserve"><value>Active directory users are available before their first login. Selecting a user stores a stable ID, not their name or email.</value></data>
+  <data name="Rca.UnavailableAssignee" xml:space="preserve"><value>{0} (no longer available for new assignments)</value></data>
+  <data name="Identity.UserId" xml:space="preserve"><value>User ID</value></data>
+  <data name="Identity.TenantId" xml:space="preserve"><value>Tenant ID</value></data>
+  <data name="Identity.ObjectId" xml:space="preserve"><value>Object ID</value></data>
+  <data name="AnalysisDashboards.Owner" xml:space="preserve"><value>Original dashboard owner</value></data>
+  <data name="AnalysisDashboards.OwnCollection" xml:space="preserve"><value>My account: {0}</value></data>
+  <data name="AnalysisDashboards.AliasHelp" xml:space="preserve"><value>Select your account or a historical alias to manage its dashboards. Changes, new dashboards and copies remain in the selected owner's collection. Only the main account receives this additional access; publishing still requires administrator access.</value></data>
+  <data name="AnalysisDashboards.AccessDenied" xml:space="preserve"><value>Access to this historical dashboard collection is no longer available. Check the alias assignment and select your own account again.</value></data>
+  <data name="AnalysisDashboards.UnavailableOwner" xml:space="preserve"><value>Access unavailable: {0}</value></data>
+  <data name="KqlEditor.Hints.Title" xml:space="preserve"><value>Local editor hints.</value></data>
+  <data name="KqlEditor.Hints.Limited" xml:space="preserve"><value>Limited analysis, not a full Kusto syntax check. Run and Save remain available.</value></data>
+  <data name="KqlEditor.Hints.Draft" xml:space="preserve"><value>Unfinished input is treated as a draft, not an error.</value></data>
+  <data name="KqlEditor.Hints.Truncated" xml:space="preserve"><value>Only the first 12 hints are shown.</value></data>
+  <data name="KqlEditor.Hints.Location" xml:space="preserve"><value>Line {0}, column {1}:</value></data>
+  <data name="KqlEditor.Hints.Error" xml:space="preserve"><value>Structure</value></data>
+  <data name="KqlEditor.Hints.Warning" xml:space="preserve"><value>Check column</value></data>
+  <data name="KqlEditor.Hints.Info" xml:space="preserve"><value>Draft</value></data>
+  <data name="KqlEditor.Hints.UnexpectedCloser" xml:space="preserve"><value>This closing bracket has no matching opening bracket here.</value></data>
+  <data name="KqlEditor.Hints.OpenDelimiter" xml:space="preserve"><value>This opening bracket is not closed yet.</value></data>
+  <data name="KqlEditor.Hints.OpenLiteral" xml:space="preserve"><value>This string is not closed yet.</value></data>
+  <data name="KqlEditor.Hints.OpenComment" xml:space="preserve"><value>This block comment is not closed yet.</value></data>
+  <data name="KqlEditor.Hints.UnknownColumn" xml:space="preserve"><value>Column "{0}" is not in the reliably known input schema of this operator.</value></data>
+  <data name="KqlEditor.Hints.SchemaReady" xml:space="preserve"><value>Simple column references in the active statement are checked against its schema flow.</value></data>
+  <data name="KqlEditor.Hints.SchemaPending" xml:space="preserve"><value>Column hints are waiting for schema metadata; this is not a syntax error.</value></data>
+  <data name="KqlEditor.Hints.SchemaFailed" xml:space="preserve"><value>Schema loading failed; column validity cannot be determined.</value></data>
+  <data name="KqlEditor.Hints.SchemaMultiple" xml:space="preserve"><value>Multiple workspaces: no cross-workspace column validation.</value></data>
+  <data name="KqlEditor.Hints.SchemaLimited" xml:space="preserve"><value>Schema or query context is not fully known; no invalid columns are inferred from it.</value></data>
+  <data name="KqlEditor.Hints.Failed" xml:space="preserve"><value>Local editor hints are unavailable. You can still edit, run and save the query.</value></data>
 </root>

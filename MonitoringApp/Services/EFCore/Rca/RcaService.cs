@@ -16,6 +16,8 @@ public sealed class RcaService(
     AlertRuleEvaluator evaluator,
     QueryResultPresenter presenter)
 {
+    public bool DirectoryAssigneesEnabled => identity.DirectoryEnabled && !authentication.IsOpen;
+
     public async Task<IReadOnlyList<RcaAlertCandidate>> GetAssignableAlertsAsync(
         ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
@@ -44,7 +46,7 @@ public sealed class RcaService(
             throw new RcaValidationException(RcaValidationCode.NameInvalid, "Enter an RCA name of 1-256 characters without control characters.");
         if (selections.Count == 0 || selections.Select(selection => selection.AlertEventId).Distinct().Count() != selections.Count)
             throw new RcaValidationException(RcaValidationCode.SelectionsInvalid, "Select at least one alert, without duplicate selections.");
-        var actor = identity.GetActor(user, authentication.IsOpen);
+        var actor = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
         var targetId = id ?? Guid.NewGuid();
         try
         {
@@ -54,8 +56,12 @@ public sealed class RcaService(
                 var state = await LoadAssignmentsAsync(context, now, cancellationToken);
                 var target = id is null ? new RootCauseAnalysis
                 {
-                    Id = targetId, CategoryName = name!, RuleId = Guid.Empty,
-                    CreatedAt = now, FollowUpDueAt = now.AddMinutes(15), Revision = 1
+                    Id = targetId,
+                    CategoryName = name!,
+                    RuleId = Guid.Empty,
+                    CreatedAt = now,
+                    FollowUpDueAt = now.AddMinutes(15),
+                    Revision = 1
                 } : state.Cases.SingleOrDefault(rca => rca.Id == id)
                     ?? throw new RcaValidationException(RcaValidationCode.CaseMissing, "The selected RCA no longer exists.");
                 if (id is not null && target.Revision != revision)
@@ -114,7 +120,9 @@ public sealed class RcaService(
                     {
                         Alerts = selected.Select(candidate => new
                         {
-                            candidate.Alert.Id, PreviousRcaId = candidate.RcaId, PreviousRcaName = candidate.RcaName
+                            candidate.Alert.Id,
+                            PreviousRcaId = candidate.RcaId,
+                            PreviousRcaName = candidate.RcaName
                         }),
                         AssignedEventIds = eventIds.Order()
                     }));
@@ -163,8 +171,15 @@ public sealed class RcaService(
         await using var context = await factory.CreateDbContextAsync(cancellationToken);
         var cases = await context.RootCauseAnalyses.AsNoTracking()
             .Where(rca => rca.Status != "Closed")
-            .Select(rca => new { rca.Id, rca.CategoryName, rca.CreatedAt, rca.EvidenceEventIdsJson,
-                rca.Status, rca.AssignedTo })
+            .Select(rca => new
+            {
+                rca.Id,
+                rca.CategoryName,
+                rca.CreatedAt,
+                rca.EvidenceEventIdsJson,
+                rca.Status,
+                rca.AssignedTo
+            })
             .ToArrayAsync(cancellationToken);
         if (cases.Length == 0)
             return [];
@@ -177,12 +192,14 @@ public sealed class RcaService(
             .Select(alert => new { alert.Id, alert.InventoryComputerEntry!.Domain })
             .ToDictionaryAsync(alert => alert.Id, alert => alert.Domain, cancellationToken);
 
+        var labels = await UserReferenceQueries.LabelsAsync(context, cases.Select(rca => rca.AssignedTo), identity.DirectoryEnabled, cancellationToken, DirectoryAssigneesEnabled);
         return cases.OrderByDescending(rca => rca.CreatedAt).ThenBy(rca => rca.Id)
             .Select(rca => new OpenRcaNotice(rca.Id, rca.CategoryName,
                 evidence[rca.Id].Select(id => domains.GetValueOrDefault(id))
                     .OfType<string>().Select(domain => domain.Trim()).Where(domain => domain.Length > 0)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray(),
-                rca.Status, rca.AssignedTo))
+                rca.Status, rca.AssignedTo)
+            { AssigneeDisplayName = labels.GetValueOrDefault(rca.AssignedTo) })
             .ToArray();
     }
 
@@ -199,6 +216,8 @@ public sealed class RcaService(
     {
         await using var context = await factory.CreateDbContextAsync(cancellationToken);
         var cases = await context.RootCauseAnalyses.AsNoTracking().ToArrayAsync(cancellationToken);
+        var labels = await UserReferenceQueries.LabelsAsync(context, cases.Select(rca => rca.AssignedTo), identity.DirectoryEnabled, cancellationToken, DirectoryAssigneesEnabled);
+        foreach (var rca in cases) rca.AssigneeDisplayName = labels.GetValueOrDefault(rca.AssignedTo);
         return cases.OrderByDescending(rca => rca.CreatedAt).ToArray();
     }
 
@@ -213,6 +232,16 @@ public sealed class RcaService(
     {
         await using var context = await factory.CreateDbContextAsync();
         var changes = await context.RcaChanges.AsNoTracking().Where(change => change.RcaId == id).ToArrayAsync();
+        var labels = await UserReferenceQueries.LabelsAsync(context, changes.SelectMany(change =>
+            change.Field == "AssignedTo" ? new[] { change.Actor, change.Before, change.After } : [change.Actor]),
+            identity.DirectoryEnabled, default, DirectoryAssigneesEnabled);
+        foreach (var change in changes)
+        {
+            change.ActorDisplayName = labels.GetValueOrDefault(change.Actor);
+            if (change.Field != "AssignedTo") continue;
+            change.BeforeDisplayName = labels.GetValueOrDefault(change.Before);
+            change.AfterDisplayName = labels.GetValueOrDefault(change.After);
+        }
         return changes.OrderByDescending(change => change.CreatedAt).ThenBy(change => change.Field).ToArray();
     }
 
@@ -224,28 +253,60 @@ public sealed class RcaService(
 
         await using var context = await factory.CreateDbContextAsync(cancellationToken);
         var accounts = await context.AuthenticationUsers.AsNoTracking()
+            .Where(account => !DirectoryAssigneesEnabled || SqlAuthenticationRoles.All.Contains(account.Role))
             .Select(account => account.Username).ToArrayAsync(cancellationToken);
-        var knownIdentities = await context.AnalysisDashboards.Select(dashboard => dashboard.OwnerKey)
-            .Union(context.InboxLayouts.Select(layout => layout.OwnerKey))
-            .Union(context.LogbookEntries.Select(entry => entry.User))
-            .Union(context.AgentAnalysisJobs.Select(job => job.CreatedBy))
-            .Union(context.AgentAnalysisReviewEvents.Select(review => review.Actor))
-            .Union(context.AnalysisDashboardTemplates.Select(dashboard => dashboard.UpdatedBy))
-            .Union(context.AnalysisQueryDefinitions.Select(query => query.UpdatedBy))
-            .Union(context.AnalysisQueryVersions.Select(version => version.PublishedBy))
-            .Union(context.RcaChanges.Select(change => change.Actor))
-            .Union(context.RootCauseAnalyses.Select(rca => rca.AssignedTo))
-            .ToArrayAsync(cancellationToken);
-        var pastAssignments = await context.RcaChanges.Where(change => change.Field == "AssignedTo")
-            .Select(change => new { change.Before, change.After }).ToArrayAsync(cancellationToken);
+        var knownIdentities = await HistoricalUserQueries.AliasesAsync(context, cancellationToken);
         var currentIdentity = identity.GetDisplayName(user);
-        return accounts.Select(account => account.Trim())
-            .Concat(knownIdentities.Concat(pastAssignments.SelectMany(change => new[] { change.Before, change.After }))
+        var legacy = accounts.Select(account => account.Trim())
+            .Concat(knownIdentities
                 .Append(currentIdentity ?? string.Empty)
                 .Select(candidate => candidate.Trim()).Where(IsEmailAddress))
             .Where(candidate => candidate.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (identity.DirectoryEnabled)
+        {
+            var historicalProfiles = HistoricalUserQueries.Profiles(context);
+            var groups = await (
+                from link in context.HistoricalUserAliases.AsNoTracking()
+                join alias in historicalProfiles on link.AliasUserId equals alias.Id
+                join main in historicalProfiles on link.MainUserId equals main.Id
+                select new { Alias = alias.UserName, Main = main.UserName }
+            ).ToArrayAsync(cancellationToken);
+            if (groups.Length > 0)
+            {
+                var reserved = await HistoricalUserQueries.ReservedAliasesAsync(context, cancellationToken);
+                var groupedAliases = groups.Where(group => !reserved.Contains(group.Alias) && !reserved.Contains(group.Main))
+                    .Select(group => group.Alias.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                legacy = legacy.Where(value => !groupedAliases.Contains(value)).ToArray();
+            }
+        }
+        if (!DirectoryAssigneesEnabled) return legacy;
+        var unavailable = await UserReferenceQueries.UnavailableNamesAsync(context, cancellationToken);
+        var available = await UserReferenceQueries.AvailableUsers(context).Select(entry => entry.Id).ToArrayAsync(cancellationToken);
+        var historical = HistoricalUserQueries.Profiles(context);
+        var profiles = await context.DirectoryUsers.AsNoTracking().Where(entry => !historical.Any(profile => profile.Id == entry.Id))
+            .Select(entry => new { entry.UserName, entry.Email }).ToArrayAsync(cancellationToken);
+        var directoryNames = profiles.SelectMany(entry => new[] { entry.UserName, entry.Email ?? "" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        directoryNames.UnionWith(await context.LegacyUserLinks.AsNoTracking()
+            .Where(link => link.Status == LegacyUserLinkStatuses.Confirmed && link.TargetUserId.HasValue)
+            .Select(link => link.Alias).ToArrayAsync(cancellationToken));
+        return legacy.Where(value => !unavailable.Contains(value) && !directoryNames.Contains(value)).Concat(available.Select(DirectoryIdentity.OwnerKey))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async Task<IReadOnlyList<UserReference>> GetAssigneeOptionsAsync(
+        ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    {
+        var keys = await GetAssigneesAsync(user, cancellationToken);
+        await using var context = await factory.CreateDbContextAsync(cancellationToken);
+        var labels = await UserReferenceQueries.LabelsAsync(context, keys, identity.DirectoryEnabled, cancellationToken, DirectoryAssigneesEnabled);
+        var references = keys.Select(key => new UserReference(key, labels.GetValueOrDefault(key, key))).ToArray();
+        var ambiguous = references.GroupBy(reference => reference.Label, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return references.Select(reference => ambiguous.Contains(reference.Label)
+                ? reference with { Label = $"{reference.Label} [{reference.Key}]" } : reference)
+            .OrderBy(reference => reference.Label, StringComparer.OrdinalIgnoreCase).ThenBy(reference => reference.Key).ToArray();
     }
 
     public async Task SaveAsync(
@@ -257,51 +318,69 @@ public sealed class RcaService(
         if (!RcaStatuses.All.Contains(status))
             throw new RcaValidationException(RcaValidationCode.StatusInvalid, "Unknown RCA status.");
         assignedTo = assignedTo.Trim();
+        if (DirectoryAssigneesEnabled && DirectoryIdentity.TryReadUserId(assignedTo, out var selectedUserId))
+            assignedTo = DirectoryIdentity.OwnerKey(selectedUserId);
         if (analysis.Length > 100_000 || comment.Length > 4000 || assignedTo.Length > 256)
             throw new RcaValidationException(RcaValidationCode.LengthExceeded, "Analysis, comment or assignee exceeds the allowed length.");
 
-        var actor = identity.GetActor(user, authentication.IsOpen);
+        var actor = await identity.GetActorAsync(user, authentication.IsOpen, cancellationToken);
         var now = timeProvider.GetUtcNow();
-        await using var context = await factory.CreateDbContextAsync(cancellationToken);
-        var rca = await context.RootCauseAnalyses.SingleOrDefaultAsync(rca => rca.Id == id, cancellationToken)
-            ?? throw new RcaValidationException(RcaValidationCode.CaseMissing, "The selected RCA no longer exists.");
-        if (rca.Revision != revision)
-            throw new RcaValidationException(RcaValidationCode.Changed, "This RCA changed. Refresh and reapply your changes.");
-        if (assignedTo.Length > 0 && assignedTo != rca.AssignedTo && !IsEmailAddress(assignedTo) &&
-            !await context.AuthenticationUsers.AnyAsync(
-            candidate => candidate.Username == assignedTo, cancellationToken))
-            throw new RcaValidationException(RcaValidationCode.AssigneeInvalid, "Enter an email address or select an existing user as assignee.");
+        await DatabaseTransactions.ExecuteAsync(factory, async context =>
+        {
+            var rca = await context.RootCauseAnalyses.SingleOrDefaultAsync(rca => rca.Id == id, cancellationToken)
+                ?? throw new RcaValidationException(RcaValidationCode.CaseMissing, "The selected RCA no longer exists.");
+            if (rca.Revision != revision)
+                throw new RcaValidationException(RcaValidationCode.Changed, "This RCA changed. Refresh and reapply your changes.");
+            if (assignedTo.Length > 0 && assignedTo != rca.AssignedTo)
+            {
+                var valid = IsEmailAddress(assignedTo) || await context.AuthenticationUsers.AnyAsync(
+                    candidate => candidate.Username == assignedTo &&
+                        (!DirectoryAssigneesEnabled || SqlAuthenticationRoles.All.Contains(candidate.Role)), cancellationToken);
+                if (DirectoryAssigneesEnabled)
+                {
+                    if (DirectoryIdentity.TryReadUserId(assignedTo, out var target))
+                    {
+                        valid = await UserReferenceQueries.AvailableUsers(context).AnyAsync(entry => entry.Id == target, cancellationToken);
+                        assignedTo = DirectoryIdentity.OwnerKey(target);
+                    }
+                    else if ((await UserReferenceQueries.UnavailableNamesAsync(context, cancellationToken)).Contains(assignedTo))
+                        valid = false;
+                }
+                if (!valid)
+                    throw new RcaValidationException(RcaValidationCode.AssigneeInvalid, "Enter an email address or select an active existing user as assignee.");
+            }
 
-        var hasChanges = false;
-        void Change(string field, string before, string after)
-        {
-            if (before == after)
+            var hasChanges = false;
+            void Change(string field, string before, string after)
+            {
+                if (before == after)
+                    return;
+                RcaAutomation.AddChange(context, rca, now, actor, field, before, after);
+                hasChanges = true;
+            }
+            Change("Analysis", rca.Analysis, analysis);
+            Change("AssignedTo", rca.AssignedTo, assignedTo);
+            Change("Status", rca.Status, status);
+            if (!string.IsNullOrWhiteSpace(comment))
+            {
+                RcaAutomation.AddChange(context, rca, now, actor, "Comment", "", comment.Trim());
+                hasChanges = true;
+            }
+            if (!hasChanges)
                 return;
-            RcaAutomation.AddChange(context, rca, now, actor, field, before, after);
-            hasChanges = true;
-        }
-        Change("Analysis", rca.Analysis, analysis);
-        Change("AssignedTo", rca.AssignedTo, assignedTo);
-        Change("Status", rca.Status, status);
-        if (!string.IsNullOrWhiteSpace(comment))
-        {
-            RcaAutomation.AddChange(context, rca, now, actor, "Comment", "", comment.Trim());
-            hasChanges = true;
-        }
-        if (!hasChanges)
-            return;
-        rca.Analysis = analysis;
-        rca.AssignedTo = assignedTo;
-        rca.Status = status;
-        rca.Revision++;
-        try
-        {
-            await context.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException exception)
-        {
-            throw new RcaValidationException(RcaValidationCode.Changed, "This RCA changed. Refresh and reapply your changes.", exception);
-        }
+            rca.Analysis = analysis;
+            rca.AssignedTo = assignedTo;
+            rca.Status = status;
+            rca.Revision++;
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                throw new RcaValidationException(RcaValidationCode.Changed, "This RCA changed. Refresh and reapply your changes.", exception);
+            }
+        }, cancellationToken, DirectoryAssigneesEnabled ? IsolationLevel.Serializable : null);
     }
 
     private static bool IsEmailAddress(string value) =>

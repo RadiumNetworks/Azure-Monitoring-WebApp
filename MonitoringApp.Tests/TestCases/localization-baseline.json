@@ -5,49 +5,49 @@
       "component": "Navigation",
       "mode": "sql",
       "role": "Reader",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-sql-operator",
       "component": "Navigation",
       "mode": "sql",
       "role": "Operator",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-sql-admin",
       "component": "Navigation",
       "mode": "sql",
       "role": "Admin",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-entra-reader",
       "component": "Navigation",
       "mode": "entra",
       "role": "Reader",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-entra-operator",
       "component": "Navigation",
       "mode": "entra",
       "role": "Operator",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-entra-admin",
       "component": "Navigation",
       "mode": "entra",
       "role": "Admin",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Signed in baseline-user Sign out Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Signed in baseline-user Sign out Azure Monitor"
     },
     {
       "id": "navigation-open",
       "component": "Navigation",
       "mode": "open",
       "role": "",
-      "text": "Alert Console Overview Inbox Graph Dashboards Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Azure Monitor"
+      "text": "Alert Console Overview Inbox Graph Dashboards Support Lockouts Analyze Queries Logbook Root cause analysis Analysis workspace Configuration Rules Inventory Admin Settings Log Analytics Alert authentication Analysis queries Users Azure Monitor"
     },
     {
       "id": "login-open",

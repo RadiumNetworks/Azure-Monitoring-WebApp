@@ -25,7 +25,7 @@ public sealed class DatabaseResetTests
         var changes = 0;
         fixture.Store.Changed += () => changes++;
 
-        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
 
         await using var context = fixture.Factory.CreateDbContext();
         await AssertOperationalCountsAsync(context, 0);
@@ -51,12 +51,12 @@ public sealed class DatabaseResetTests
             Assert.False(context.LogbookEntries.Any());
             Assert.False(context.RootCauseAnalyses.Any());
             Assert.False(context.ScheduledQueryNotifications.Any());
-            Assert.Equal(11, context.AlertRules.Count());
+            Assert.Equal(10, context.AlertRules.Count());
             Assert.Equal("unchanged-password-hash", context.AuthenticationUsers.Single().PasswordHash);
             Assert.Equal(2, context.Settings.Count());
             notifications++;
         };
-        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         Assert.Equal(1, notifications);
     }
 
@@ -64,7 +64,7 @@ public sealed class DatabaseResetTests
     public async Task InitializesEmptyOperationalTablesAndCanBeRepeated()
     {
         await using var fixture = await Fixture.CreateAsync();
-        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         await using (var context = fixture.Factory.CreateDbContext())
         {
             var rule = await context.AlertRules.FirstAsync();
@@ -72,9 +72,9 @@ public sealed class DatabaseResetTests
             rule.Enabled = false;
             await context.SaveChangesAsync();
         }
-        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         await using var check = fixture.Factory.CreateDbContext();
-        Assert.Equal(11, await check.AlertRules.CountAsync());
+        Assert.Equal(10, await check.AlertRules.CountAsync());
         Assert.All(await check.AlertRules.ToArrayAsync(), rule =>
             Assert.Equal(rule.RuleType != AlertRuleTypes.InventoryRoleAssignment, rule.Enabled));
         Assert.False(await check.AlertRules.AnyAsync(rule => rule.Name == "Changed default"));
@@ -120,7 +120,7 @@ public sealed class DatabaseResetTests
     public async Task HonorsExistingOpenAuthenticationAdminPolicy()
     {
         await using var fixture = await Fixture.CreateAsync(open: true);
-        Assert.Equal(11, await fixture.Reset.ResetAsync(new ClaimsPrincipal(new ClaimsIdentity()), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(new ClaimsPrincipal(new ClaimsIdentity()), "RESET"));
     }
 
     [Theory]
@@ -151,7 +151,7 @@ public sealed class DatabaseResetTests
         fixture.Store.Changed += () => throw new InvalidOperationException("Disposed subscriber");
         fixture.Store.Changed += () => notified = true;
 
-        Assert.Equal(11, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
+        Assert.Equal(10, await fixture.Reset.ResetAsync(User(SqlAuthenticationRoles.Admin), "RESET"));
         Assert.True(notified);
     }
 
@@ -183,6 +183,10 @@ public sealed class DatabaseResetTests
         }
 
         Assert.Equal(11, expected.Count);
+        var retired = Assert.Single(expected, rule => rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
+        Assert.True(retired.Enabled);
+        Assert.Contains("AND NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'20261111120000_RetireReplicationInventoryWarning')", script);
+        expected.Remove(retired);
         Assert.Equal(JsonSerializer.Serialize(expected.OrderBy(rule => rule.Id)),
             JsonSerializer.Serialize(DefaultAlertRules.Create().OrderBy(rule => rule.Id)));
     }
@@ -217,7 +221,8 @@ public sealed class DatabaseResetTests
             }
             rules.Add(rule);
         }
-        Assert.Equal(11, rules.Count);
+        Assert.Equal(10, rules.Count);
+        Assert.DoesNotContain(rules, rule => rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning);
         Assert.Equal(JsonSerializer.Serialize(DefaultAlertRules.Create().OrderBy(rule => rule.Id)),
             JsonSerializer.Serialize(rules.OrderBy(rule => rule.Id)));
 
@@ -308,6 +313,24 @@ public sealed class DatabaseResetTests
         Assert.Equal("{\"Type\":\"sql\"}", settings["Authentication"]);
         Assert.Equal("{\"Workspace\":\"keep\"}", settings["CustomConnection"]);
         Assert.Equal(["test-migration"], await context.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(4, await context.DirectoryUsers.CountAsync());
+        Assert.Single(await context.HistoricalUserAliases.ToArrayAsync());
+        Assert.Equal("Preserved alias profile", (await context.DirectoryUsers.SingleAsync(user => user.UserName == "historical-alias@example.test")).DisplayName);
+        Assert.Single(await context.SqlUserIdentities.ToArrayAsync());
+        Assert.Single(await context.EntraUserIdentities.ToArrayAsync());
+        Assert.Single(await context.ScimConnections.ToArrayAsync());
+        Assert.Single(await context.ScimUserStates.ToArrayAsync());
+        Assert.Single(await context.ScimGroups.ToArrayAsync());
+        Assert.Single(await context.ScimGroupMembers.ToArrayAsync());
+        Assert.Single(await context.UserTeams.ToArrayAsync());
+        Assert.Equal("RETAINED ROLE", (await context.UserTeamInventoryRoles.SingleAsync()).RoleKey);
+        Assert.Single(await context.UserTeamGroupMappings.ToArrayAsync());
+        Assert.Equal(2, await context.UserTeamMemberships.CountAsync());
+        Assert.Single(await context.LegacyUserLinks.ToArrayAsync());
+        Assert.Equal("Local display", (await context.DirectoryUsers.SingleAsync(user => user.Origin == DirectoryUserOrigins.EntraLogin)).LocalDisplayName);
+        Assert.False((await context.ScimConnections.SingleAsync()).IsEnabled);
+        Assert.Single(await context.IdentityMigrationRecords.ToArrayAsync());
+        Assert.Single(await context.IdentityAdministrationRecords.ToArrayAsync());
     }
 
     private sealed class Fixture(SqliteConnection connection, ServiceProvider services, TestDbContextFactory factory) : IAsyncDisposable
@@ -388,6 +411,23 @@ public sealed class DatabaseResetTests
             context.AnalysisDashboardTemplates.Add(new() { Id = Guid.NewGuid(), Name = "Shared dashboard", Published = true, UpdatedBy = "admin" });
             context.InboxLayouts.Add(new() { OwnerKey = "admin", Name = "Custom inbox" });
             context.AuthenticationUsers.Add(new() { Username = "admin", PasswordHash = "unchanged-password-hash", Role = SqlAuthenticationRoles.Admin });
+            var identityData = IdentityDirectoryTestData.AddTo(context, "admin");
+            var historicalMain = new DirectoryUser { UserName = "historical-main@example.test" };
+            var historicalAlias = new DirectoryUser { UserName = "historical-alias@example.test", DisplayName = "Preserved alias profile" };
+            context.DirectoryUsers.AddRange(historicalMain, historicalAlias);
+            context.HistoricalUserAliases.Add(new() { AliasUserId = historicalAlias.Id, MainUserId = historicalMain.Id });
+            context.UserTeamInventoryRoles.Add(new() { TeamId = identityData.Team.Id, RoleKey = "RETAINED ROLE" });
+            context.IdentityAdministrationRecords.Add(new()
+            {
+                ActorUserId = identityData.SqlUser.Id, TargetUserId = identityData.EntraUser.Id,
+                Action = "UserUpdated", BeforeJson = "{\"keep\":\"before\"}", AfterJson = "{\"keep\":\"after\"}"
+            });
+            context.IdentityMigrationRecords.Add(new()
+            {
+                UserId = identityData.EntraUser.Id, ApprovedByUserId = identityData.SqlUser.Id,
+                Fingerprint = new string('A', 64), VerificationNote = "Preserve approved assignment",
+                OriginalStateJson = "{\"original\":\"preserve\"}", CreatedAt = DateTimeOffset.UtcNow
+            });
             var rca = new RootCauseAnalysis { Id = Guid.NewGuid(), RuleId = Guid.NewGuid(), CategoryName = "Incident" };
             context.RootCauseAnalyses.Add(rca);
             context.RcaAlertLinks.Add(new() { RcaId = rca.Id, AlertEventId = alert.Id });

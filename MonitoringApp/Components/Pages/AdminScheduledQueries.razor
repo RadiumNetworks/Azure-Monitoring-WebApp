@@ -11,7 +11,7 @@
 
 <PageTitle>@Text["AdminScheduledQueries.Title"]</PageTitle>
 
-<section class="admin-heading">
+<section class="admin-heading kql-admin-heading">
     <div>
         <p class="eyebrow">@Text["AdminScheduledQueries.Eyebrow"]</p>
         <h1>@Text["AdminScheduledQueries.Title"]</h1>
@@ -43,10 +43,11 @@
         }
     </div>
 }
-<div class="admin-card-actions">
+<div class="admin-card-actions kql-query-actions">
     <button class="admin-primary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginNew(null)">@Text["AdminScheduledQueries.Create"]</button>
     <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginNew(false)">@Text["AdminScheduledQueries.CpuExample"]</button>
     <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginNew(true)">@Text["AdminScheduledQueries.KerberosExample"]</button>
+    <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick='() => BeginTemplate("replication-unknown-targets.json")'>@QueryText.TemplateName("kql/scheduled/replication-unknown-targets")</button>
     @foreach (var example in eventExamples)
     {
         <button class="admin-secondary" type="button" disabled="@ActionsUnavailable" @onclick="() => BeginEventExample(example.EventId)">@QueryText.TemplateName($"kql/scheduled/event-{example.EventId}")</button>
@@ -55,7 +56,7 @@
 </div>
 <QueryJsonImport Busy="@ActionsUnavailable" OnImport="ImportJsonAsync"
                  Description="@Text["QueryImport.ScheduledDescription"]" />
-<div class="admin-workspace">
+<div class="admin-workspace admin-scheduled-workspace">
     <section class="admin-rule-list">
         <h2>@Text.Format("AdminScheduledQueries.RuleCount", rules.Count)</h2>
         @foreach (var rule in rules)
@@ -63,7 +64,7 @@
             <article class="admin-rule-card" @key="rule.Id">
                 <details class="scheduled-rule-details">
                 <summary><h3>@QueryText.Name(rule)</h3></summary>
-                <p>@Text.Format("AdminScheduledQueries.CardSummary", Text[rule.Enabled ? "Common.Enabled" : "Common.Disabled"], Text[rule.Scope == AnalysisQueryScopes.Workspace ? "AdminScheduledQueries.WorkspaceWide" : "AdminScheduledQueries.SelectedSystems"], string.Join(", ", rule.WorkspaceKeys), rule.IntervalMinutes.ToString(CultureInfo.CurrentCulture))</p>
+                <p>@Text.Format("AdminScheduledQueries.CardSummary", Text[rule.Enabled ? "Common.Enabled" : "Common.Disabled"], Text[ScopeLabel(rule.Scope)], string.Join(", ", rule.WorkspaceKeys), rule.IntervalMinutes.ToString(CultureInfo.CurrentCulture))</p>
                 <p>@Text.Format("AdminScheduledQueries.CardCondition", rule.CategoryName, rule.Severity, rule.Comparison, rule.Threshold.ToString(CultureInfo.CurrentCulture))</p>
                 <p>@rule.LastStatus</p>
                 <p>@Text.Format("AdminScheduledQueries.LastCheck", Time(rule.LastRunUtc), Time(rule.LastWindowEndUtc))</p>
@@ -105,6 +106,7 @@
                     <span>@Text["Rules.Scope"]</span><select @bind="rule.Scope" @bind:after="ScopeChanged">
                         <option value="@AnalysisQueryScopes.SelectedSystems">@Text["AdminScheduledQueries.SelectedSystems"]</option>
                         <option value="@AnalysisQueryScopes.Workspace">@Text["AdminScheduledQueries.WorkspaceWide"]</option>
+                        <option value="@ScheduledQueryScopes.UnknownInventoryTargets">@Text["AdminScheduledQueries.UnknownInventoryTargets"]</option>
                     </select>
                     <small>@Text["AdminScheduledQueries.ScopeHelp"]</small>
                 </label>
@@ -157,8 +159,13 @@
                 </select></label>
                 <label class="admin-field"><span>@Text["Rules.Category"]</span><input required maxlength="256" @bind="rule.CategoryName" /></label>
                 <label class="admin-field admin-field-wide">
-                    <span>KQL</span><textarea required rows="15" maxlength="65536" spellcheck="false" @bind="rule.Kql"></textarea>
-                    @if (rule.Scope == AnalysisQueryScopes.Workspace)
+                    <span>KQL</span>
+                    <KqlEditor @bind-Value="rule.Kql" Required="true" Rows="15" MaxLength="65536" WorkspaceKeys="@rule.WorkspaceKeys" />
+                    @if (rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets)
+                    {
+                        <small>@Text["AdminScheduledQueries.UnknownTargetsKqlHelp"]</small>
+                    }
+                    else if (rule.Scope == AnalysisQueryScopes.Workspace)
                     {
                         <small>@Text["AdminScheduledQueries.WorkspaceKqlHelp"]</small>
                         <small>@Text["AdminScheduledQueries.EventFieldsHelp"]</small>
@@ -168,6 +175,10 @@
                     {
                         <small>@Text["AdminScheduledQueries.SystemKqlHelp"]</small>
                         <small>@Text["AdminScheduledQueries.CountersHelp"]</small>
+                    }
+                    @if (rule.Kql.Contains("_InventoryComputers", StringComparison.Ordinal))
+                    {
+                        <small>@Text["AdminScheduledQueries.InventoryBaselineHelp"]</small>
                     }
                 </label>
                 <p class="admin-field-wide">@Text["AdminScheduledQueries.LifecycleHelp"]</p>
@@ -183,7 +194,7 @@
                     <h3>@Text["AdminScheduledQueries.EffectiveKql"]</h3>
                     <p>@Text.Format("AdminScheduledQueries.WorkspaceIdentity", executionPreview.Query.WorkspaceDisplayName, executionPreview.Query.WorkspaceKey, executionPreview.WorkspaceId)</p>
                     <p>@Text.Format(executionPreview.ApiTimeRangeMinutes == 1 ? "AdminScheduledQueries.TestWindow.One" : "AdminScheduledQueries.TestWindow.Other", Time(executionPreview.WindowStartUtc), Time(executionPreview.WindowEndUtc), executionPreview.ApiTimeRangeMinutes.ToString(CultureInfo.CurrentCulture))</p>
-                    <p>@Text[rule.Scope == AnalysisQueryScopes.Workspace ? "AdminScheduledQueries.WorkspaceTestHelp" : "AdminScheduledQueries.SystemTestHelp"]</p>
+                    <p>@Text[rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets ? "AdminScheduledQueries.UnknownTargetsKqlHelp" : rule.Scope == AnalysisQueryScopes.Workspace ? "AdminScheduledQueries.WorkspaceTestHelp" : "AdminScheduledQueries.SystemTestHelp"]</p>
                     @if (rule.Scope == AnalysisQueryScopes.SelectedSystems && executionPreview.Query.Systems.Count == 0)
                     {
                         <p role="status">@Text["AdminScheduledQueries.NoSystems"]</p>
@@ -206,11 +217,15 @@
                     {
                         <div class="admin-message admin-message-error" role="alert">@Text["AdminScheduledQueries.Errors.PreviewWorkspaceFailed"]</div>
                     }
-                    <div class="table-scroll"><table><thead><tr><th>@Text["AdminScheduledQueries.Target"]</th><th>@Text["AdminScheduledQueries.Subscription"]</th><th>@Text["AdminScheduledQueries.Value"]</th><th>@Text["AdminScheduledQueries.Evaluation"]</th></tr></thead><tbody>
+                    <div class="table-scroll"><table><thead><tr><th>@Text["AdminScheduledQueries.Target"]</th>
+                        @if (rule.Scope != ScheduledQueryScopes.UnknownInventoryTargets) { <th>@Text["AdminScheduledQueries.Subscription"]</th> }
+                        <th>@Text[rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets ? "AdminScheduledQueries.TargetCount" : "AdminScheduledQueries.Value"]</th><th>@Text["AdminScheduledQueries.Evaluation"]</th></tr></thead><tbody>
                         @foreach (var target in result.Targets.Take(50))
                         {
                             var value = result.Values.GetValueOrDefault(target.Series);
-                            <tr><td>@target.DisplayName</td><td>@target.SubscriptionId</td><td>@value</td><td>@Text[result.Error is not null ? "AdminScheduledQueries.TestError" : value is null ? "AdminScheduledQueries.TestNoData" : rule.Matches(value.Value) ? "AdminScheduledQueries.TestWouldAlert" : "AdminScheduledQueries.TestNormal"]</td></tr>
+                            <tr><td>@target.DisplayName</td>
+                                @if (rule.Scope != ScheduledQueryScopes.UnknownInventoryTargets) { <td>@target.SubscriptionId</td> }
+                                <td>@value</td><td>@Text[result.Error is not null ? "AdminScheduledQueries.TestError" : value is null ? "AdminScheduledQueries.TestNoData" : rule.Matches(value.Value) ? "AdminScheduledQueries.TestWouldAlert" : "AdminScheduledQueries.TestNormal"]</td></tr>
                         }
                     </tbody></table></div>
                     @foreach (var details in result.EventDetails?.Values ?? Enumerable.Empty<ScheduledQueryEventDetails>())
@@ -240,10 +255,10 @@
             {
                 <h3>@Text["AdminScheduledQueries.SavedStatus"]</h3>
                 <p>@Text["AdminScheduledQueries.SavedStatusHelp"]</p>
-                <div class="table-scroll"><table><thead><tr><th>@Text["Filters.Workspace"]</th><th>@Text["AdminScheduledQueries.Target"]</th><th>@Text["AdminScheduledQueries.Subscription"]</th><th>@Text["AdminScheduledQueries.Status"]</th><th>@Text["AdminScheduledQueries.Value"]</th><th>@Text["AdminScheduledQueries.ActiveAlert"]</th><th>@Text["AdminScheduledQueries.Checked"]</th></tr></thead><tbody>
+                <div class="table-scroll"><table><thead><tr><th>@Text["Filters.Workspace"]</th><th>@Text["AdminScheduledQueries.Target"]</th><th>@Text["AdminScheduledQueries.Subscription"]</th><th>@Text["AdminScheduledQueries.Status"]</th><th>@Text[rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets ? "AdminScheduledQueries.TargetCount" : "AdminScheduledQueries.Value"]</th><th>@Text["AdminScheduledQueries.ActiveAlert"]</th><th>@Text["AdminScheduledQueries.Checked"]</th></tr></thead><tbody>
                     @foreach (var state in states.Skip(statePage * 50).Take(50))
                     {
-                        <tr><td>@state.WorkspaceKey</td><td>@(state.SubscriptionId.Length == 0 ? Text.Format("AdminScheduledQueries.SavedWorkspaceTarget", state.WorkspaceKey) : state.Computer)</td><td>@state.SubscriptionId</td><td>@state.Status</td><td>@state.Value</td><td>@Text[state.ActiveAlertId is null ? "IngestionAdmin.No" : "IngestionAdmin.Yes"]</td><td>@Time(state.CheckedUtc)</td></tr>
+                        <tr><td>@state.WorkspaceKey</td><td>@(state.SubscriptionId.Length == 0 ? Text.Format("AdminScheduledQueries.SavedWorkspaceTarget", state.WorkspaceKey) : state.Computer)</td><td>@(rule.Scope == ScheduledQueryScopes.UnknownInventoryTargets ? "" : state.SubscriptionId)</td><td>@state.Status</td><td>@state.Value</td><td>@Text[state.ActiveAlertId is null ? "IngestionAdmin.No" : "IngestionAdmin.Yes"]</td><td>@Time(state.CheckedUtc)</td></tr>
                     }
                 </tbody></table></div>
                 <button class="admin-secondary" type="button" disabled="@(statePage == 0)" @onclick="() => statePage--">@Text["Common.Previous"]</button>
@@ -392,7 +407,7 @@
 
     private void ScopeChanged()
     {
-        if (editing?.Scope == AnalysisQueryScopes.Workspace)
+        if (editing is not null && editing.Scope != AnalysisQueryScopes.SelectedSystems)
             editing.Domain = editing.Site = editing.Role = editing.Computers = "";
         preview = null;
         executionPreviews.Clear();
@@ -439,6 +454,13 @@
     }, "AdminScheduledQueries.Errors.SaveFailed");
 
     private void TemplateNameChanged() => templateDraft?.ObserveName();
+
+    private static string ScopeLabel(string scope) => scope switch
+    {
+        AnalysisQueryScopes.Workspace => "AdminScheduledQueries.WorkspaceWide",
+        ScheduledQueryScopes.UnknownInventoryTargets => "AdminScheduledQueries.UnknownInventoryTargets",
+        _ => "AdminScheduledQueries.SelectedSystems"
+    };
 
     private void CancelEdit()
     {

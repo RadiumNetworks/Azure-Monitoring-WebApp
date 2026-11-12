@@ -442,7 +442,7 @@
                     {
                         <li>
                             <strong>@entry.Action</strong>
-                            <span>@entry.Actor · @entry.CreatedAt.ToLocalTime().ToString("g") · v@entry.ResultVersion</span>
+                            <span title="@entry.Actor">@(entry.ActorDisplayName ?? entry.Actor) · @entry.CreatedAt.ToLocalTime().ToString("g") · v@entry.ResultVersion</span>
                             @if (!string.IsNullOrWhiteSpace(entry.Comment))
                             {
                                 <p>@entry.Comment</p>

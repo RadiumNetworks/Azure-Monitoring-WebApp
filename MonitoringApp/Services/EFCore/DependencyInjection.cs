@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace MonitoringApp;
 
@@ -9,6 +10,13 @@ public static class DatabaseServiceCollectionExtensions
     {
         var connectionString = configuration.RequireConnectionString();
         services.AddSingleton(configuration);
+        services.TryAddSingleton<IdentityDirectoryOptions>();
+        services.AddScoped<IdentityDirectoryService>();
+        services.AddScoped<IdentityMigrationService>();
+        services.AddScoped<UserAdministrationService>();
+        services.AddScoped<IProvisioningUserStore, ProvisioningUserStore>();
+        services.AddScoped<IProvisioningGroupStore, ProvisioningGroupStore>();
+        services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, DirectoryAccessHandler>();
         services.AddSingleton<SqlCommandFailureLoggingInterceptor>();
         services.AddSingleton<SqlConnectionFailureLoggingInterceptor>();
         services.AddDbContextFactory<AlertDbContext>((provider, options) =>

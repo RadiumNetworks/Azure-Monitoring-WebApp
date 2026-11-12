@@ -50,4 +50,12 @@ MonitoringApp/doc/LogicApps/logic-app-*.codeview.json
 /Learn/UIDynamic/wwwroot
 /Learn/Blazor/wwwroot
 *.zip
+# Keep the existing documentation exclusions, but version the index and SCIM documents.
+/doc/*
+!/doc/README.md
+!/doc/SCIM-PROJEKTPLAN.md
+!/doc/SCIM-AP1.md
+!/doc/SCIM-AP2.md
+!/doc/SCIM-AP3.md
+!/doc/
 /doc

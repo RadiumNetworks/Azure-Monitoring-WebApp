@@ -725,7 +725,7 @@ public sealed class SettingsLocalizationTests
                 {
                     Assert.Empty(await context.Alerts.ToArrayAsync());
                     Assert.Empty(await context.LogbookEntries.ToArrayAsync());
-                    Assert.Equal(11, await context.AlertRules.CountAsync());
+                    Assert.Equal(10, await context.AlertRules.CountAsync());
                 }
             }
             if (legacy)
@@ -750,7 +750,7 @@ public sealed class SettingsLocalizationTests
                 commit.Fail = false;
                 await fixture.Invoke(panel, "ResetAsync");
                 Assert.Equal(commits + 2, commit.Commits);
-                Assert.Equal(fixture.Text.Plural("DatabaseReset.Completed", 11), fixture.Get<string>(panel, "statusMessage"));
+                Assert.Equal(fixture.Text.Plural("DatabaseReset.Completed", 10), fixture.Get<string>(panel, "statusMessage"));
                 Assert.False(fixture.Get<bool>(panel, "resetReviewRequired"));
             }
         }
@@ -787,7 +787,7 @@ public sealed class SettingsLocalizationTests
         await action;
         Assert.False(fixture.Get<bool>(panel, legacy ? "busy" : "isResetting"));
         Assert.Null(fixture.Get<string?>(panel, legacy ? "error" : "errorMessage"));
-        Assert.Equal(fixture.Text.Plural(legacy ? "LegacyAlerts.Completed" : "DatabaseReset.Completed", legacy ? 1 : 11),
+        Assert.Equal(fixture.Text.Plural(legacy ? "LegacyAlerts.Completed" : "DatabaseReset.Completed", legacy ? 1 : 10),
             fixture.Get<string>(panel, legacy ? "message" : "statusMessage"));
         if (legacy)
         {
@@ -889,7 +889,7 @@ public sealed class SettingsLocalizationTests
         }
         await fixture.Set(panel, "confirmation", legacy ? "RESOLVE" : "RESET");
         await fixture.Invoke(panel, legacy ? "ResolveAsync" : "ResetAsync");
-        Assert.Equal(fixture.Text.Plural(legacy ? "LegacyAlerts.Completed" : "DatabaseReset.Completed", legacy ? 1 : 11),
+        Assert.Equal(fixture.Text.Plural(legacy ? "LegacyAlerts.Completed" : "DatabaseReset.Completed", legacy ? 1 : 10),
             fixture.Get<string>(panel, legacy ? "message" : "statusMessage"));
         Assert.Null(fixture.Get<string?>(panel, legacy ? "error" : "errorMessage"));
     }

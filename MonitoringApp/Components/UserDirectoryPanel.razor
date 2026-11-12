@@ -1,0 +1,599 @@
+@inject UserAdministrationService Administration
+@inject AuthenticationStateProvider AuthenticationState
+@inject UiText Text
+@inject ILogger<UserDirectoryPanel> Logger
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+
+<section class="admin-heading">
+    <div>
+        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <h1>@Text["UserDirectory.Title"]</h1>
+        <p class="subtitle">@Text["UserDirectory.Intro"]</p>
+    </div>
+    <div class="admin-heading-actions">
+        <button type="button" class="admin-secondary" disabled="@busy" @onclick="RefreshAsync">@Text["Common.Refresh"]</button>
+        <button type="button" class="admin-primary" disabled="@Blocked" @onclick="BeginCreate">@Text["UserDirectory.CreateSql"]</button>
+    </div>
+</section>
+@if (AuthenticationOptions.IsOpen)
+{
+    <p class="admin-message admin-message-warning" role="alert">@Text["UserDirectory.OpenWarning"]</p>
+}
+@if (error is not null)
+{
+    <p class="admin-message admin-message-error" role="alert">@error</p>
+}
+@if (success is not null)
+{
+    <p class="admin-message admin-message-success" role="status">@success</p>
+}
+@if (reloadRequired)
+{
+    <p class="admin-message admin-message-warning" role="status">@Text["UserDirectory.ReloadRequired"]</p>
+}
+<div class="admin-workspace">
+    <section class="admin-rule-list" aria-labelledby="directory-users-heading">
+        <h2 id="directory-users-heading">@Text["UserDirectory.Users"]</h2>
+        <div class="admin-form">
+            <label class="admin-field admin-field-wide">
+                <span>@Text["UserDirectory.Search"]</span>
+                <input type="search" @bind="search" @bind:event="oninput" />
+            </label>
+            <label class="admin-field">
+                <span>@Text["UserDirectory.Provider"]</span>
+                <select @bind="providerFilter">
+                    <option value="">@Text["UserDirectory.All"]</option>
+                    @foreach (var provider in Providers)
+                    {
+                        <option value="@provider">@Text["UserDirectory.Provider." + provider]</option>
+                    }
+                </select>
+            </label>
+            <label class="admin-field">
+                <span>@Text["UserDirectory.Status"]</span>
+                <select @bind="statusFilter">
+                    <option value="">@Text["UserDirectory.All"]</option>
+                    <option value="active">@Text["UserDirectory.Active"]</option>
+                    <option value="inactive">@Text["UserDirectory.Inactive"]</option>
+                    <option value="historical">@Text["UserDirectory.Unverified"]</option>
+                </select>
+            </label>
+            <label class="admin-field admin-field-wide">
+                <span>@Text["UserDirectory.Teams"]</span>
+                <select @bind="teamFilter">
+                    <option value="">@Text["UserDirectory.All"]</option>
+                    <option value="unassigned">@Text["UserDirectory.Unassigned"]</option>
+                    @foreach (var team in snapshot.Teams.Where(team => team.IsEnabled))
+                    {
+                        <option value="@team.Id">@team.Name</option>
+                    }
+                </select>
+            </label>
+        </div>
+        @if (!loaded)
+        {
+            <p>@Text["AdminUsers.Loading"]</p>
+        }
+        else
+        {
+            <p>@Text.Format("UserDirectory.Count", FilteredUsers.Count(), VisibleUsers.Count())</p>
+            <div class="admin-rule-cards">
+                @foreach (var user in FilteredUsers)
+                {
+                    <article @key="user.Key" class="admin-rule-card @(editing?.Key == user.Key ? "selected" : null)">
+                        <div class="admin-rule-card-heading">
+                            <div>
+                                <span class="admin-status">@Text["UserDirectory.Provider." + user.Provider]</span>
+                                <span class="admin-status @(user.EffectiveEnabled && !user.IsHistorical ? "enabled" : null)">@Text[user.IsHistorical ? "UserDirectory.Unverified" : user.EffectiveEnabled ? "UserDirectory.Active" : "UserDirectory.Inactive"]</span>
+                                <h3>@user.EffectiveDisplayName</h3>
+                            </div>
+                            @if (user.HistoricalMainKey is not null)
+                            {
+                                <button type="button" class="admin-secondary" disabled="@(Blocked || editing is not null || creating)"
+                                        @onclick="() => DetachAliasAsync(user)">@Text["UserDirectory.Aliases.Detach"]</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="admin-secondary" disabled="@Blocked" @onclick="() => BeginEdit(user)">@Text["Common.Edit"]</button>
+                            }
+                        </div>
+                        <p>@user.UserName<br />@user.Email</p>
+                        @if (user.HistoricalMainKey is not null && !user.HistoricalMainAvailable)
+                        {
+                            <p role="alert">@Text["UserDirectory.Aliases.UnavailableMain"]</p>
+                        }
+                        @if (user.HistoricalAliases.Count > 0)
+                        {
+                            <strong>@Text["UserDirectory.Aliases.Main"]</strong>
+                            <ul>
+                                @foreach (var alias in user.HistoricalAliases)
+                                {
+                                    <li>@alias.DisplayName @(!alias.IsAvailable ? "(" + Text["UserDirectory.Aliases.Unavailable"] + ")" : null)</li>
+                                }
+                            </ul>
+                        }
+                        @if (user.SqlRole is not null) { <p>@Text["AdminUsers.Role"]: @user.SqlRole</p> }
+                        @if (user.Unassigned && !user.IsHistorical) { <p>@Text["UserDirectory.Unassigned"]</p> }
+                        @foreach (var source in user.TeamSources)
+                        {
+                            <div>@source.TeamName - @Text[source.Manual ? "UserDirectory.Manual" : "UserDirectory.Group"]
+                                @if (!source.Manual) { <span>: @source.GroupName (@source.ConnectionName)</span> }
+                                @if (!source.Effective) { <span> (@Text["UserDirectory.Inactive"])</span> }
+                            </div>
+                        }
+                    </article>
+                }
+            </div>
+        }
+    </section>
+    <section class="admin-editor" aria-labelledby="directory-editor-heading">
+        <h2 id="directory-editor-heading">@Text[creating ? "UserDirectory.CreateSql" : "UserDirectory.Edit"]</h2>
+        @if (editing is null && !creating)
+        {
+            <p>@Text["AdminUsers.SelectUser"]</p>
+        }
+        else
+        {
+            <form class="admin-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+                <fieldset class="admin-field-wide directory-fields" disabled="@busy">
+                    <label class="admin-field">
+                        <span>@Text["Authentication.Username"]</span>
+                        <input required maxlength="@(creating ? 128 : 256)" readonly="@(!creating)" autocomplete="off" @bind="username" />
+                    </label>
+                    <label class="admin-field">
+                        <span>@Text["IdentityMigration.DisplayName"]</span>
+                        <input maxlength="256" readonly="@(!CanEditProfile)" @bind="displayName" />
+                    </label>
+                    <label class="admin-field">
+                        <span>@Text["UserDirectory.GivenName"]</span>
+                        <input maxlength="256" readonly="@(!CanEditProfile)" @bind="givenName" />
+                    </label>
+                    <label class="admin-field">
+                        <span>@Text["UserDirectory.FamilyName"]</span>
+                        <input maxlength="256" readonly="@(!CanEditProfile)" @bind="familyName" />
+                    </label>
+                    <label class="admin-field">
+                        <span>@Text["UserDirectory.Email"]</span>
+                        <input maxlength="320" readonly="@(!CanEditProfile)" @bind="email" />
+                    </label>
+                    @if (editing?.IsHistorical == true) { <p>@Text["UserDirectory.HistoricalProfileHint"]</p> }
+                    else if (editing?.TenantId is not null) { <p>@Text["UserDirectory.SourceReadOnly"]</p> }
+                    else if (!CanManageSql) { <p>@Text["UserDirectory.UnlinkedHint"]</p> }
+                    <label class="admin-field">
+                        <span>@Text["UserDirectory.LocalDisplayName"]</span>
+                        <input maxlength="256" @bind="localDisplayName" />
+                        <small>@Text["UserDirectory.LocalDisplayHint"]</small>
+                    </label>
+                    @if (!creating)
+                    {
+                        @if (editing?.IsHistorical == true)
+                        {
+                            <section class="admin-field-wide">
+                                <h3>@Text["UserDirectory.Aliases.Title"]</h3>
+                                <p>@Text["UserDirectory.Aliases.Help"]</p>
+                                @if (!HistoricalAliasCandidates.Any())
+                                {
+                                    <p>@Text["UserDirectory.Aliases.Empty"]</p>
+                                }
+                                @foreach (var alias in HistoricalAliasCandidates)
+                                {
+                                    <label class="admin-check">
+                                        <input type="checkbox" checked="@historicalAliasKeys.Contains(alias.Key)"
+                                               disabled="@(!alias.IsAvailable && !historicalAliasKeys.Contains(alias.Key))"
+                                               @onchange="args => SetHistoricalAlias(alias.Key, args)" />
+                                        @alias.DisplayName @(!alias.IsAvailable ? "(" + Text["UserDirectory.Aliases.Unavailable"] + ")" : null)
+                                    </label>
+                                }
+                            </section>
+                        }
+                        @if (editing?.IsHistorical != true)
+                        {
+                            <label><input type="checkbox" @bind="enabled" /> @Text["UserDirectory.LocalEnabled"]</label>
+                        }
+                        <dl>
+                            <dt>@Text["UserDirectory.Provider"]</dt><dd>@Text["UserDirectory.Provider." + editing!.Provider]</dd>
+                            <dt>@Text["Identity.UserId"]</dt><dd>@(editing.Id?.ToString("D") ?? Text["UserDirectory.NotRecorded"])</dd>
+                            <dt>@Text["IdentityMigration.Mode"]</dt><dd>@Text[editing.UsesStableIdentity ? "IdentityMigration.Stable" : "IdentityMigration.Legacy"]</dd>
+                            @if (editing.TenantId is not null)
+                            {
+                                <dt>@Text["Identity.TenantId"]</dt><dd>@editing.TenantId</dd><dt>@Text["Identity.ObjectId"]</dt><dd>@editing.ObjectId</dd>
+                            }
+                            @if (editing.IsScim)
+                            {
+                                <dt>@Text["UserDirectory.Connection"]</dt><dd>@editing.ConnectionName</dd>
+                                <dt>@Text["UserDirectory.SourceStatus"]</dt><dd>@Text[editing.ScimDeleted ? "UserDirectory.Deleted" : editing.ScimActive == true ? "UserDirectory.Active" : "UserDirectory.Inactive"]</dd>
+                                <dt>@Text["UserDirectory.SyncStatus"]</dt><dd>@Text["UserDirectory.Sync." + editing.SyncStatus]</dd>
+                                <dt>@Text["UserDirectory.LastSynced"]</dt><dd>@(editing.LastSyncedAt?.ToUniversalTime().ToString("u") ?? Text["UserDirectory.Never"])</dd>
+                            }
+                        </dl>
+                        @if (editing.IsScim) { <p>@Text["UserDirectory.SourceStatusHint"]</p> }
+                    }
+                    @if (CanManageSql)
+                    {
+                        <label class="admin-field">
+                            <span>@Text["AdminUsers.Role"]</span>
+                            <select @bind="sqlRole">
+                                @foreach (var role in SqlAuthenticationRoles.All) { <option value="@role">@role</option> }
+                            </select>
+                        </label>
+                        <label class="admin-field">
+                            <span>@Text[creating ? "Authentication.Password" : "AdminUsers.NewPassword"]</span>
+                            <input type="password" maxlength="1024" required="@PasswordRequired" autocomplete="new-password" @bind="password" @bind:event="oninput" />
+                        </label>
+                        <label class="admin-field">
+                            <span>@Text["AdminUsers.ConfirmPassword"]</span>
+                            <input type="password" maxlength="1024" required="@PasswordRequired" autocomplete="new-password" @bind="passwordConfirmation" @bind:event="oninput" />
+                        </label>
+                    }
+                    else if (editing?.TenantId is not null) { <p>@Text["UserDirectory.EntraRoles"]</p> }
+                    @if (editing?.IsHistorical != true)
+                    {
+                    <h3>@Text["UserDirectory.ManualTeams"]</h3>
+                    <p>@Text["UserDirectory.TeamHint"]</p>
+                    @foreach (var team in snapshot.Teams)
+                    {
+                        <label class="admin-field">
+                            <span><input type="checkbox" checked="@manualTeams.Contains(team.Id)" disabled="@(!team.IsEnabled && !manualTeams.Contains(team.Id))"
+                                @onchange="args => SetTeam(team.Id, args)" /> @team.Name @(!team.IsEnabled ? "(" + Text["UserDirectory.Inactive"] + ")" : null)</span>
+                        </label>
+                    }
+                    @if (editing?.TeamSources.Any(source => !source.Manual) == true)
+                    {
+                        <h3>@Text["UserDirectory.AutomaticTeams"]</h3>
+                        @foreach (var source in editing.TeamSources.Where(source => !source.Manual))
+                        {
+                            <p>@source.TeamName - @source.GroupName (@source.ConnectionName) @(!source.Effective ? "(" + Text["UserDirectory.Inactive"] + ")" : null)</p>
+                        }
+                    }
+                    }
+                    <div class="admin-form-actions">
+                        <button type="button" class="admin-secondary" @onclick="CancelEdit">@Text["Common.Cancel"]</button>
+                        <button type="submit" class="admin-primary" disabled="@Blocked">@Text["Common.SaveChanges"]</button>
+                        @if (!creating && CanManageSql)
+                        {
+                            <button type="button" class="admin-danger" disabled="@Blocked" @onclick="BeginDelete">@Text["UserDirectory.DeleteSql"]</button>
+                        }
+                    </div>
+                </fieldset>
+            </form>
+        }
+    </section>
+</div>
+<section class="admin-editor" aria-labelledby="directory-teams-heading">
+    <h2 id="directory-teams-heading">@Text["UserDirectory.Teams"]</h2>
+    <p>@Text["UserDirectory.TeamsIntro"]</p>
+    @foreach (var team in snapshot.Teams)
+    {
+        <p>@team.Name - @Text[team.IsEnabled ? "UserDirectory.Active" : "UserDirectory.Inactive"]
+            <button type="button" class="admin-secondary" disabled="@Blocked" @onclick="() => BeginTeam(team)">@Text["Common.Edit"]</button>
+        </p>
+        <p>@Text["UserDirectory.InventoryRoles"]:
+            @(team.InventoryRoleKeys.Count == 0 ? Text["UserDirectory.NoInventoryRoles"] :
+                string.Join(", ", snapshot.InventoryRoles.Where(role => team.InventoryRoleKeys.Contains(role.Key))
+                    .Select(role => role.Name + (role.IsObserved ? "" : " (" + Text["UserDirectory.UnobservedRole"] + ")"))))
+        </p>
+    }
+    <button type="button" class="admin-secondary" disabled="@Blocked" @onclick="() => BeginTeam(null)">@Text["UserDirectory.CreateTeam"]</button>
+    @if (editingTeam)
+    {
+        <form class="admin-form" @onsubmit="SaveTeamAsync" @onsubmit:preventDefault>
+            <fieldset class="admin-field-wide directory-fields" disabled="@busy">
+                <label class="admin-field"><span>@Text["UserDirectory.TeamName"]</span><input required maxlength="256" @bind="teamName" /></label>
+                <label><input type="checkbox" @bind="teamEnabled" /> @Text["UserDirectory.Active"]</label>
+                <h3>@Text["UserDirectory.InventoryRoles"]</h3>
+                <p>@Text["UserDirectory.InventoryRolesHint"]</p>
+                @foreach (var role in snapshot.InventoryRoles)
+                {
+                    var retained = snapshot.Teams.Any(team => team.Id == teamId && team.InventoryRoleKeys.Contains(role.Key));
+                    <label class="admin-field-wide">
+                        <input type="checkbox" checked="@teamInventoryRoles.Contains(role.Key)"
+                            disabled="@(!role.IsObserved && !retained)"
+                            @onchange="args => SetInventoryRole(role.Key, args)" />
+                        @role.Name @(!role.IsObserved ? "(" + Text["UserDirectory.UnobservedRole"] + ")" : null)
+                    </label>
+                }
+                @if (snapshot.InventoryRoles.Count == 0) { <p>@Text["UserDirectory.NoObservedRoles"]</p> }
+                <div class="admin-form-actions">
+                    <button type="button" class="admin-secondary" @onclick="CancelTeam">@Text["Common.Cancel"]</button>
+                    <button type="submit" class="admin-primary" disabled="@Blocked">@Text["Common.SaveChanges"]</button>
+                </div>
+            </fieldset>
+        </form>
+    }
+</section>
+<section class="admin-editor" aria-labelledby="directory-mappings-heading">
+    <h2 id="directory-mappings-heading">@Text["UserDirectory.Mappings"]</h2>
+    <p>@Text["UserDirectory.MappingsIntro"]</p>
+    @foreach (var mapping in snapshot.Mappings)
+    {
+        var source = snapshot.Groups.Single(group => group.Id == mapping.GroupId);
+        var team = snapshot.Teams.Single(team => team.Id == mapping.TeamId);
+        <p>@source.Name (@source.ConnectionName) &rarr; @team.Name -
+            @Text[mapping.IsEnabled ? "UserDirectory.Active" : "UserDirectory.Inactive"]
+            @if (source.IsDeleted) { <span> (@Text["UserDirectory.Deleted"])</span> }
+            <button type="button" class="admin-secondary" disabled="@Blocked" @onclick="() => BeginMapping(mapping)">@Text["Common.Edit"]</button>
+        </p>
+    }
+    @if (loaded && snapshot.Groups.Count == 0) { <p>@Text["UserDirectory.NoGroups"]</p> }
+    <button type="button" class="admin-secondary" disabled="@(Blocked || snapshot.Groups.Count == 0 || snapshot.Teams.Count == 0)" @onclick="() => BeginMapping(null)">@Text["UserDirectory.CreateMapping"]</button>
+    @if (editingMapping)
+    {
+        <form class="admin-form" @onsubmit="SaveMappingAsync" @onsubmit:preventDefault>
+            <fieldset class="admin-field-wide directory-fields" disabled="@busy">
+                <label class="admin-field">
+                    <span>@Text["UserDirectory.Group"]</span>
+                    <select required disabled="@(mappingId is not null)" @bind="mappingGroupId">
+                        <option value="@Guid.Empty">@Text["UserDirectory.SelectMapping"]</option>
+                        @foreach (var group in snapshot.Groups)
+                        {
+                            <option value="@group.Id">@group.Name (@group.ConnectionName / @group.ExternalId) @(group.IsDeleted ? "[" + Text["UserDirectory.Deleted"] + "]" : null)</option>
+                        }
+                    </select>
+                </label>
+                <label class="admin-field">
+                    <span>@Text["UserDirectory.Teams"]</span>
+                    <select required disabled="@(mappingId is not null)" @bind="mappingTeamId">
+                        <option value="@Guid.Empty">@Text["UserDirectory.SelectMapping"]</option>
+                        @foreach (var team in snapshot.Teams)
+                        {
+                            <option value="@team.Id">@team.Name @(!team.IsEnabled ? "[" + Text["UserDirectory.Inactive"] + "]" : null)</option>
+                        }
+                    </select>
+                </label>
+                <label><input type="checkbox" @bind="mappingEnabled" /> @Text["UserDirectory.Active"]</label>
+                <p>@Text["UserDirectory.MappingIdentityHint"]</p>
+                <div class="admin-form-actions">
+                    <button type="button" class="admin-secondary" @onclick="CancelMapping">@Text["Common.Cancel"]</button>
+                    <button type="submit" class="admin-primary" disabled="@Blocked">@Text["Common.SaveChanges"]</button>
+                </div>
+            </fieldset>
+        </form>
+    }
+    <details>
+        <summary>@Text["UserDirectory.SourceGroups"]</summary>
+        @foreach (var group in snapshot.Groups)
+        {
+            <article class="admin-rule-card">
+                <h3>@group.Name</h3>
+                <p>@group.ConnectionName / @group.TenantId<br />@group.ExternalId / @group.Id</p>
+                <p>@Text[group.IsDeleted ? "UserDirectory.Deleted" : group.IsActive ? "UserDirectory.Active" : "UserDirectory.Inactive"] -
+                    @Text["UserDirectory.Sync." + group.SyncStatus] -
+                    @(group.LastSyncedAt?.ToUniversalTime().ToString("u") ?? Text["UserDirectory.Never"])</p>
+            </article>
+        }
+    </details>
+</section>
+@if (!AuthenticationOptions.IsOpen)
+{
+    <details class="admin-editor">
+        <summary>@Text["IdentityMigration.Title"]</summary>
+        <IdentityMigrationPanel />
+    </details>
+}
+@if (deleting is not null)
+{
+    <div class="admin-dialog-backdrop" role="presentation">
+        <section class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="directory-delete-heading">
+            <h2 id="directory-delete-heading">@Text["UserDirectory.DeleteSql"]</h2>
+            <p>@deleting.UserName</p>
+            <p>@Text["UserDirectory.DeleteHint"]</p>
+            <div class="admin-form-actions">
+                <button type="button" class="admin-secondary" disabled="@busy" @onclick="CancelDelete">@Text["Common.Cancel"]</button>
+                <button type="button" class="admin-danger" disabled="@Blocked" @onclick="DeleteAsync">@Text["Common.Delete"]</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private static readonly string[] Providers = ["Sql", "Entra", "Scim", "Legacy"];
+    private UserAdministrationSnapshot snapshot = new([], []);
+    private UserAdministrationUser? editing, deleting;
+    private string search = "", providerFilter = "", statusFilter = "", teamFilter = "";
+    private string username = "", displayName = "", givenName = "", familyName = "", email = "", localDisplayName = "";
+    private string sqlRole = SqlAuthenticationRoles.Reader, password = "", passwordConfirmation = "";
+    private HashSet<Guid> manualTeams = [];
+    private HashSet<string> historicalAliasKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool creating, enabled = true, busy, loaded, reloadRequired, editingTeam, teamEnabled = true;
+    private Guid? teamId;
+    private int? teamRevision;
+    private string teamName = "";
+    private HashSet<string> teamInventoryRoles = new(StringComparer.Ordinal);
+    private bool editingMapping, mappingEnabled = true;
+    private Guid? mappingId;
+    private int? mappingRevision;
+    private Guid mappingTeamId, mappingGroupId;
+    private string? error, success;
+    private bool Blocked => busy || !loaded || reloadRequired;
+    private bool CanManageSql => creating || editing?.CanManageSql == true;
+    private bool CanEditProfile => creating || editing?.CanEditProfile == true;
+    private bool PasswordRequired => CanManageSql && (creating || password.Length > 0 || passwordConfirmation.Length > 0);
+    private IEnumerable<UserAdministrationUser> VisibleUsers => snapshot.Users.Where(user => !user.HistoricalMainAvailable);
+    private IEnumerable<UserAdministrationHistoricalAlias> HistoricalAliasCandidates =>
+        (editing?.HistoricalAliases ?? []).Concat(snapshot.Users.Where(user =>
+            user.IsHistorical && user.Key != editing?.Key && user.HistoricalMainKey is null && user.HistoricalAliases.Count == 0)
+            .Select(user => new UserAdministrationHistoricalAlias(user.Key, user.UserName, user.EffectiveDisplayName + " (" + user.UserName + ")", true)))
+        .DistinctBy(alias => alias.Key, StringComparer.OrdinalIgnoreCase).OrderBy(alias => alias.UserName, StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<UserAdministrationUser> FilteredUsers => VisibleUsers.Where(user =>
+        (providerFilter.Length == 0 || user.Provider == providerFilter) &&
+        (statusFilter.Length == 0 || (statusFilter == "historical" ? user.IsHistorical :
+            !user.IsHistorical && user.EffectiveEnabled == (statusFilter == "active"))) &&
+        (teamFilter.Length == 0 || teamFilter == "unassigned" && user.Unassigned ||
+            Guid.TryParse(teamFilter, out var team) && user.TeamSources.Any(source => source.TeamId == team && source.Effective)) &&
+        new[] { user.UserName, user.EffectiveDisplayName, user.GivenName, user.FamilyName, user.Email, user.SqlUsername }
+            .Concat(user.HistoricalAliases.SelectMany(alias => new[] { alias.UserName, alias.DisplayName }))
+            .Any(value => value?.Contains(search.Trim(), StringComparison.CurrentCultureIgnoreCase) == true));
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+    private async Task RefreshAsync()
+    {
+        if (busy) return;
+        busy = true;
+        error = success = null;
+        try { await ReloadAsync(); }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load user administration.");
+            error = ErrorMessage(exception);
+            reloadRequired = true;
+        }
+        finally { busy = false; }
+    }
+    private async Task ReloadAsync()
+    {
+        snapshot = await Administration.GetSnapshotAsync((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        loaded = true;
+        reloadRequired = false;
+    }
+    private void BeginCreate()
+    {
+        if (Blocked) return;
+        ClearEdit();
+        creating = true;
+        username = displayName = givenName = familyName = email = localDisplayName = "";
+        sqlRole = snapshot.Users.Any(user => user.SqlUsername is not null) ? SqlAuthenticationRoles.Reader : SqlAuthenticationRoles.Admin;
+        enabled = true;
+        manualTeams = [];
+    }
+    private void BeginEdit(UserAdministrationUser user)
+    {
+        if (Blocked || user.HistoricalMainKey is not null) return;
+        ClearEdit();
+        editing = user;
+        username = user.UserName;
+        displayName = user.DisplayName;
+        givenName = user.GivenName ?? "";
+        familyName = user.FamilyName ?? "";
+        email = user.Email ?? "";
+        localDisplayName = user.LocalDisplayName ?? "";
+        enabled = user.IsEnabled;
+        sqlRole = user.SqlRole ?? SqlAuthenticationRoles.Reader;
+        manualTeams = user.TeamSources.Where(source => source.Manual).Select(source => source.TeamId).ToHashSet();
+        historicalAliasKeys = user.HistoricalAliases.Select(alias => alias.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+    private void ClearEdit()
+    {
+        creating = false;
+        editing = deleting = null;
+        password = passwordConfirmation = "";
+    }
+    private void CancelEdit() { if (!busy) ClearEdit(); }
+    private void CancelTeam() { if (!busy) editingTeam = false; }
+    private void CancelMapping() { if (!busy) editingMapping = false; }
+    private void CancelDelete() { if (!busy) deleting = null; }
+    private void BeginDelete() { if (!Blocked && CanManageSql) deleting = editing; }
+    private void SetTeam(Guid team, ChangeEventArgs args)
+    {
+        if (Blocked) return;
+        if (args.Value is true) manualTeams.Add(team);
+        else manualTeams.Remove(team);
+    }
+    private void SetHistoricalAlias(string key, ChangeEventArgs args)
+    {
+        if (Blocked) return;
+        if (args.Value is true) historicalAliasKeys.Add(key);
+        else historicalAliasKeys.Remove(key);
+    }
+    private async Task DetachAliasAsync(UserAdministrationUser user)
+    {
+        if (Blocked || editing is not null || creating) return;
+        await MutateAsync(administrator => Administration.DetachHistoricalAliasAsync(administrator, user.Key, user.Version), ClearEdit);
+    }
+    private async Task SaveAsync()
+    {
+        if (Blocked || !creating && editing is null) return;
+        if (PasswordRequired && (password.Length == 0 || password != passwordConfirmation))
+        {
+            error = Text["AdminUsers.PasswordMismatch"];
+            return;
+        }
+        var profile = new SqlUserProfile(displayName, givenName, familyName, email);
+        await MutateAsync(administrator => creating
+            ? Administration.CreateSqlUserAsync(administrator, username, password, sqlRole, profile, localDisplayName, manualTeams.ToArray())
+            : Administration.SaveUserAsync(administrator, new(editing!.Key, editing.Version, localDisplayName, enabled,
+                manualTeams.ToArray(), CanEditProfile ? profile : null, CanManageSql ? sqlRole : null,
+                CanManageSql && password.Length > 0 ? password : null,
+                editing.IsHistorical ? historicalAliasKeys.ToArray() : null)), ClearEdit);
+    }
+    private async Task DeleteAsync()
+    {
+        if (Blocked || deleting is null) return;
+        await MutateAsync(administrator => Administration.DeleteSqlUserAsync(administrator, deleting.Key, deleting.Version), ClearEdit);
+    }
+    private void BeginTeam(UserAdministrationTeam? team)
+    {
+        if (Blocked) return;
+        teamId = team?.Id;
+        teamRevision = team?.Revision;
+        teamName = team?.Name ?? "";
+        teamEnabled = team?.IsEnabled ?? true;
+        teamInventoryRoles = new(team?.InventoryRoleKeys ?? [], StringComparer.Ordinal);
+        editingTeam = true;
+    }
+    private void SetInventoryRole(string key, ChangeEventArgs args)
+    {
+        if (Blocked) return;
+        if (args.Value is true) teamInventoryRoles.Add(key);
+        else teamInventoryRoles.Remove(key);
+    }
+    private async Task SaveTeamAsync()
+    {
+        if (Blocked || !editingTeam) return;
+        await MutateAsync(administrator => Administration.SaveTeamAsync(administrator, teamId, teamRevision, teamName, teamEnabled,
+                inventoryRoles: teamInventoryRoles.ToArray()),
+            () => editingTeam = false);
+    }
+    private void BeginMapping(UserAdministrationMapping? mapping)
+    {
+        if (Blocked) return;
+        mappingId = mapping?.Id;
+        mappingRevision = mapping?.Revision;
+        mappingGroupId = mapping?.GroupId ?? Guid.Empty;
+        mappingTeamId = mapping?.TeamId ?? Guid.Empty;
+        mappingEnabled = mapping?.IsEnabled ?? true;
+        editingMapping = true;
+    }
+    private async Task SaveMappingAsync()
+    {
+        if (Blocked || !editingMapping) return;
+        if (mappingGroupId == Guid.Empty || mappingTeamId == Guid.Empty)
+        {
+            error = Text["UserDirectory.SelectMapping"];
+            return;
+        }
+        await MutateAsync(administrator => Administration.SaveGroupMappingAsync(administrator, mappingId, mappingRevision,
+            mappingTeamId, mappingGroupId, mappingEnabled), () => editingMapping = false);
+    }
+    private async Task MutateAsync(Func<System.Security.Claims.ClaimsPrincipal, Task> mutation, Action committedAction)
+    {
+        busy = true;
+        error = success = null;
+        var committed = false;
+        try
+        {
+            await mutation((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            committed = true;
+            committedAction();
+            await ReloadAsync();
+            success = Text["UserDirectory.Saved"];
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "User administration mutation failed or could not be refreshed. Committed={Committed}.", committed);
+            error = committed ? Text["UserDirectory.SavedRefreshFailed"] : ErrorMessage(exception);
+            reloadRequired = committed || exception is not (UserAdministrationException or SqlAuthenticationException) ||
+                exception is UserAdministrationException { ResourceKey: "UserDirectory.Errors.Persistence" } ||
+                exception is SqlAuthenticationException { Code: SqlAuthenticationErrorCode.CreateUnconfirmed or SqlAuthenticationErrorCode.PasswordUnconfirmed or SqlAuthenticationErrorCode.DeleteUnconfirmed };
+            if (reloadRequired) deleting = null;
+        }
+        finally { busy = false; }
+    }
+    private string ErrorMessage(Exception exception) => exception switch
+    {
+        UserAdministrationException known => Text[known.ResourceKey],
+        UnauthorizedAccessException => Text["UserDirectory.Errors.Access"],
+        SqlAuthenticationException { Code: SqlAuthenticationErrorCode.DuplicateUser, Arguments: [string name] } => Text.Format("AdminUsers.Errors.DuplicateUser", name),
+        SqlAuthenticationException known => Text["AdminUsers.Errors." + known.Code],
+        _ => Text["UserDirectory.Errors.Persistence"]
+    };
+}

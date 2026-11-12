@@ -206,15 +206,38 @@
                 </label>
                 <label class="admin-field">
                     <span>@Text["Rca.Assignee"]</span>
+                    @if (RcaService.DirectoryAssigneesEnabled)
+                    {
+                        <select @bind="DirectoryAssignee" disabled="@(!canEdit || busy || reloadRequired || AlertPickerOpen)">
+                            <option value="">@Text["Rca.FreeTextAssignee"]</option>
+                            @if (DirectoryAssignee.Length > 0 && !assignees.Any(reference => reference.Key == assignedTo))
+                            {
+                                <option value="@assignedTo" disabled>@(canEdit ? Text.Format("Rca.UnavailableAssignee", selected.AssigneeDisplayName ?? assignedTo) : selected.AssigneeDisplayName ?? assignedTo)</option>
+                            }
+                            @foreach (var reference in assignees.Where(reference => DirectoryIdentity.TryReadUserId(reference.Key, out _)))
+                            {
+                                <option value="@reference.Key" title="@reference.Key">@reference.Label</option>
+                            }
+                        </select>
+                        <small>@Text["Rca.DirectoryAssigneeHelp"]</small>
+                    }
+                    @if (DirectoryAssignee.Length == 0)
+                    {
                     <input type="text" list="rca-assignees" maxlength="256" @bind="assignedTo"
                            disabled="@(!canEdit || busy || reloadRequired || AlertPickerOpen)" placeholder="@Text["Rca.AssigneePlaceholder"]" />
                     <datalist id="rca-assignees">
-                        @foreach (var assignee in assignees)
+                        @foreach (var assignee in assignees.Where(reference => !RcaService.DirectoryAssigneesEnabled || !DirectoryIdentity.TryReadUserId(reference.Key, out _)))
                         {
-                            <option value="@assignee"></option>
+                            <option value="@assignee.Key">@assignee.Label</option>
                         }
                     </datalist>
                     <small>@Text["Rca.AssigneeHelp"]</small>
+                    @if (assignees.FirstOrDefault(reference => reference.Key.Equals(assignedTo, StringComparison.OrdinalIgnoreCase)) is { } currentAssignee &&
+                        !currentAssignee.Label.Equals(assignedTo, StringComparison.Ordinal))
+                    {
+                        <small title="@assignedTo">@currentAssignee.Label</small>
+                    }
+                    }
                 </label>
                 <label class="admin-field admin-field-wide">
                     <span>@Text["Rca.Analysis"]</span>
@@ -246,17 +269,17 @@
             @foreach (var change in changes)
             {
                 <details @key="change.Id">
-                    <summary>@Utc(change.CreatedAt) / @change.Actor / @change.Field</summary>
+                    <summary title="@change.Actor">@Utc(change.CreatedAt) / @(change.ActorDisplayName ?? change.Actor) / @change.Field</summary>
                     @if (change.Field != "Comment")
                     {
                         <label class="admin-field admin-field-wide">
                             <span>@Text["Rca.Before"]</span>
-                            <textarea rows="3" readonly value="@change.Before"></textarea>
+                            <textarea rows="3" readonly title="@change.Before" value="@(change.BeforeDisplayName ?? change.Before)"></textarea>
                         </label>
                     }
                     <label class="admin-field admin-field-wide">
                         <span>@Text[change.Field == "Comment" ? "Logbook.Comment" : "Rca.After"]</span>
-                        <textarea rows="4" readonly value="@change.After"></textarea>
+                        <textarea rows="4" readonly title="@change.After" value="@(change.AfterDisplayName ?? change.After)"></textarea>
                     </label>
                 </details>
             }
@@ -278,7 +301,12 @@
     private IReadOnlyList<RcaPrompt> prompts = [];
     private IReadOnlyList<RcaChange> changes = [];
     private IReadOnlyList<AlertRecord> linkedAlerts = [];
-    private IReadOnlyList<string> assignees = [];
+    private IReadOnlyList<UserReference> assignees = [];
+    private string DirectoryAssignee
+    {
+        get => RcaService.DirectoryAssigneesEnabled && DirectoryIdentity.TryReadUserId(assignedTo, out _) ? assignedTo : "";
+        set => assignedTo = value;
+    }
     private RootCauseAnalysis? selected;
     private string analysis = "";
     private string assignedTo = "";
@@ -427,7 +455,7 @@
         {
             var loadedCases = await RcaService.ListAsync();
             var loadedAssignees = canEdit
-                ? await RcaService.GetAssigneesAsync((await AuthenticationStateTask).User) : Array.Empty<string>();
+                ? await RcaService.GetAssigneeOptionsAsync((await AuthenticationStateTask).User) : Array.Empty<UserReference>();
             var current = loadedCases.FirstOrDefault(rca => rca.Id == (pendingReloadCaseId ?? selected?.Id ?? CaseId));
             if (current is not null)
                 await LoadSelectionAsync(current);

@@ -592,12 +592,10 @@ internal sealed class AlertPersistence(
         var resolvedAlert = queryResultPresenter.ResolveDisplayIdentity(alert);
 
         AddAlertResult result;
-        var warningsCreated = false;
         try
         {
             result = await DatabaseTransactions.ExecuteAsync(contextFactory, async dbContext =>
             {
-                warningsCreated = await CreateReplicationInventoryWarningsAsync(dbContext, resolvedAlert, cancellationToken);
                 var suppressionRules = await dbContext.AlertRules
                     .AsNoTracking()
                     .Where(rule => rule.Enabled && rule.RuleType == AlertRuleTypes.Suppression)
@@ -674,82 +672,12 @@ internal sealed class AlertPersistence(
             throw;
         }
 
-        if (result.Created || result.Suppressed || warningsCreated)
+        if (result.Created || result.Suppressed)
         {
             notifyChanged();
         }
 
         return result with { Alert = queryResultPresenter.ResolveDisplayIdentity(result.Alert) };
-    }
-
-    private async Task<bool> CreateReplicationInventoryWarningsAsync(
-        AlertDbContext context, AlertRecord source, CancellationToken cancellationToken)
-    {
-        if (!ReplicationInventoryWarning.IsReplication(source) ||
-            AlertInventoryLearning.HasZeroRowCount(source.RawJson))
-            return false;
-        var rule = await context.AlertRules.AsNoTracking()
-            .Where(candidate => candidate.Enabled && candidate.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
-            .OrderBy(candidate => candidate.Priority).ThenBy(candidate => candidate.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (rule is null)
-            return false;
-        if (source.SubscriptionId.Trim().Length is 0 or > 64)
-        {
-            logger.LogWarning("Cannot check replication inventory targets for alert {AlertId}: its subscription ID is missing or too long.", source.AlertId);
-            return false;
-        }
-
-        IReadOnlyList<string> systems;
-        try
-        {
-            systems = ReplicationInventoryWarning.ReadSystems(source);
-        }
-        catch (InvalidOperationException exception)
-        {
-            logger.LogWarning(exception, "Cannot check replication inventory targets for alert {AlertId}: invalid query-result table.", source.AlertId);
-            return false;
-        }
-        if (systems.Count == 0)
-        {
-            logger.LogWarning("No valid SourceDSA or DestDSA systems were found in replication alert {AlertId}.", source.AlertId);
-            return false;
-        }
-
-        var inventory = await context.ComputerInventory.AsNoTracking().ToArrayAsync(cancellationToken);
-        var created = new List<AlertRecord>();
-        foreach (var computer in systems.Where(computer => !inventory.Any(entry =>
-            entry.SubscriptionId.Equals(source.SubscriptionId.Trim(), StringComparison.OrdinalIgnoreCase) &&
-            entry.Computer.Equals(computer, StringComparison.OrdinalIgnoreCase))))
-        {
-            var warning = ReplicationInventoryWarning.Create(source, rule, computer);
-            if (await context.Alerts.AnyAsync(candidate => candidate.AlertId == warning.AlertId, cancellationToken))
-                continue;
-            context.Alerts.Add(warning);
-            context.AlertHistory.Add(AlertHistoryRecord.Create(warning));
-            var parsed = ParsedAlertFactory.Create(warning);
-            parsed.InventorySubscriptionId = null;
-            parsed.InventoryComputer = null;
-            context.ParsedAlerts.Add(parsed);
-            created.Add(warning);
-            logger.LogWarning("Replication alert {AlertId} reports unknown inventory target {Computer} in subscription {SubscriptionId}.",
-                source.AlertId, computer, source.SubscriptionId);
-        }
-        if (created.Count == 0)
-            return false;
-        await context.SaveChangesAsync(cancellationToken);
-        foreach (var warning in created)
-        {
-            await SynchronizeParsedAlertLifecyclesAsync(context, warning.AlertId, cancellationToken);
-            var parsed = context.ParsedAlerts.Local.Single(record => record.Id == warning.Id);
-            var logbookEntry = CriticalAlertLogbook.CreateEntry(warning, parsed.IsCritical, DateTimeOffset.UtcNow);
-            if (logbookEntry is not null)
-                context.LogbookEntries.Add(logbookEntry);
-        }
-        await RcaAutomation.ReconcileAsync(context, alertRuleEvaluator,
-            queryResultPresenter, DateTimeOffset.UtcNow, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-        return true;
     }
 
     /// <summary>

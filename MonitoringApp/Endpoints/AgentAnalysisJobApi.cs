@@ -134,7 +134,7 @@ public static class AgentAnalysisJobApi
             return "open-mode-operator";
         }
 
-        return user.FindFirstValue(ClaimTypes.NameIdentifier)
+        return DirectoryIdentity.Actor(user) ?? user.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? user.Identity?.Name
             ?? throw new AgentAnalysisJobValidationException(AgentAnalysisJobValidationCode.ActorRequired, "The authenticated user has no stable identifier.");
     }
@@ -145,7 +145,8 @@ public static class AgentAnalysisJobApi
         ArgumentNullException.ThrowIfNull(user);
         return openAuthentication ||
             user.IsInRole(SqlAuthenticationRoles.Admin) ||
-            job.CreatedBy.Equals(GetActor(user, false), StringComparison.OrdinalIgnoreCase);
+            job.CreatedBy.Equals(GetActor(user, false), StringComparison.OrdinalIgnoreCase) ||
+            DirectoryIdentity.JobActors(user).Contains(job.CreatedBy, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool TryParseScopeType(string? value, out IncidentAnalysisScopeType scopeType) =>

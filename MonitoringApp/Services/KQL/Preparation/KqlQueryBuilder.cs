@@ -23,24 +23,31 @@ internal static class KqlQueryBuilder
     internal static PreparedKqlQuery PrepareScheduled(
         CrossTenantLogAnalyticsWorkspaceOptions workspace,
         string kql, IReadOnlyList<string> systems, DateTime windowStartUtc, DateTime windowEndUtc,
-        int apiTimeRangeMinutes)
+        int apiTimeRangeMinutes, IReadOnlyList<string>? inventoryComputers = null)
     {
+        var inventoryParameter = string.Empty;
+        if (kql.Contains("_InventoryComputers", StringComparison.Ordinal))
+        {
+            if (inventoryComputers is null || inventoryComputers.Count == 0)
+                throw new InvalidOperationException("The workspace has no Inventory baseline for _InventoryComputers.");
+            inventoryParameter = $"let _InventoryComputers = dynamic({JsonSerializer.Serialize(inventoryComputers)});\n";
+        }
+        var parameters = string.Concat(
+            kql.Contains("_SelectedSystems", StringComparison.Ordinal) ? $"let _SelectedSystems = dynamic({JsonSerializer.Serialize(systems)});\n" : "",
+            kql.Contains("_BinSize", StringComparison.Ordinal) ? "let _BinSize = 1m;\n" : "",
+            kql.Contains("_TimePeriod", StringComparison.Ordinal) ? $"let _TimePeriod = {apiTimeRangeMinutes}m;\n" : "",
+            kql.Contains("_GroupBy", StringComparison.Ordinal) ? "let _GroupBy = \"SourceDSA\";\n" : "");
         var wrapped = $$"""
             set truncationmaxsize={{KqlQueryLimits.MaxScheduledResponseBytes}};
-            let _WindowStart = datetime({{windowStartUtc:O}});
+            {{parameters}}{{inventoryParameter}}let _WindowStart = datetime({{windowStartUtc:O}});
             let _WindowEnd = datetime({{windowEndUtc:O}});
             let _ScheduledQueryResult = () {
             {{kql}}
             };
             _ScheduledQueryResult()
-            | project Series, Value,
-                      EventId = column_ifexists("EventId", int(null)),
-                      Users = column_ifexists("Users", ""),
-                      UnparsedEvents = column_ifexists("UnparsedEvents", long(null)),
-                      UsersTruncated = column_ifexists("UsersTruncated", false)
             | take {{KqlQueryLimits.MaxScheduledTargets + 1}}
             """;
-        return Prepare(workspace, wrapped, systems, 1, apiTimeRangeMinutes, "SourceDSA",
+        return new(workspace, Array.AsReadOnly(systems.ToArray()), wrapped, 1, apiTimeRangeMinutes, "SourceDSA",
             AnalysisQueryVisualizationTypes.Stat, KqlExecutionProfile.Scheduled);
     }
 

@@ -1,0 +1,29 @@
+@page "/analysis/published/{DashboardId:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "OperatorAccess")]
+@inject CrossTenantLogAnalyticsOptions Options
+@inject UiText Text
+
+<PageTitle>@Text["AnalysisPublications.PublishedDashboard"]</PageTitle>
+<h1 class="analysis-published-title">@Text["AnalysisPublications.PublishedDashboard"]</h1>
+
+<section class="analysis-controls analysis-published-controls" aria-label="@Text["Filters.Workspace"]">
+    <label>
+        <span>@Text["Filters.Workspace"]</span>
+        <select @bind="workspaceKey">
+            <option value="">@Text["Filters.AllWorkspaces"]</option>
+            @foreach (var workspace in Options.Workspaces.OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+            {
+                <option value="@workspace.Key">@workspace.DisplayName</option>
+            }
+        </select>
+    </label>
+</section>
+
+<PublishedAnalysisDashboardView @key="(DashboardId, workspaceKey)" DashboardId="DashboardId"
+    WorkspaceKey="@workspaceKey" ShowDetails="false" ShowControls="false" AutoRunOnOpen="true" />
+
+@code {
+    [Parameter] public Guid DashboardId { get; set; }
+    private string? workspaceKey;
+}

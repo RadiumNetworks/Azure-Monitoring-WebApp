@@ -127,7 +127,8 @@ public sealed class AgentAnalysisJobService(
     AlertGraphOptions graphOptions,
     AgentAnalysisContextOptions contextOptions,
     TimeProvider timeProvider,
-    ApplicationAuthenticationOptions authentication)
+    ApplicationAuthenticationOptions authentication,
+    IdentityDirectoryService? directory = null)
 {
     public AgentAnalysisExecutionState ExecutionState => orchestrator.ExecutionState;
 
@@ -136,6 +137,7 @@ public sealed class AgentAnalysisJobService(
         ClaimsPrincipal user,
         CancellationToken cancellationToken = default)
     {
+        user = await ResolveAsync(user, cancellationToken);
         var validationErrors = AgentAnalysisJobApi.Validate(request);
         if (validationErrors.Count > 0)
         {
@@ -169,7 +171,7 @@ public sealed class AgentAnalysisJobService(
                 snapshot,
                 orchestrator.ExecutionState,
                 actor,
-                generatedAt.Add(AgentAnalysisJobApi.JobRetention)),
+                generatedAt.Add(AgentAnalysisJobApi.JobRetention)) { LegacyActors = DirectoryIdentity.JobActors(user).ToArray() },
             cancellationToken);
 
         return new AgentAnalysisJobStartResponse(
@@ -182,9 +184,11 @@ public sealed class AgentAnalysisJobService(
         int limit = 10,
         CancellationToken cancellationToken = default)
     {
+        user = await ResolveAsync(user, cancellationToken);
         var actor = AgentAnalysisJobApi.GetActor(user, authentication.IsOpen);
         var includeAll = authentication.IsOpen || user.IsInRole(SqlAuthenticationRoles.Admin);
-        var jobs = await jobStore.ListAsync(actor, includeAll, limit, cancellationToken);
+        var jobs = await jobStore.ListForActorsAsync(
+            DirectoryIdentity.JobActors(user).Append(actor).ToArray(), includeAll, limit, cancellationToken);
         return jobs.Select(AgentAnalysisJobResponse.FromJob).ToArray();
     }
 
@@ -193,6 +197,7 @@ public sealed class AgentAnalysisJobService(
         ClaimsPrincipal user,
         CancellationToken cancellationToken = default)
     {
+        user = await ResolveAsync(user, cancellationToken);
         var job = await jobStore.GetAsync(id, cancellationToken);
         return job is not null && AgentAnalysisJobApi.CanAccess(job, user, authentication.IsOpen)
             ? job
@@ -204,6 +209,7 @@ public sealed class AgentAnalysisJobService(
         ClaimsPrincipal user,
         CancellationToken cancellationToken = default)
     {
+        user = await ResolveAsync(user, cancellationToken);
         var job = await GetAccessibleAsync(id, user, cancellationToken);
         if (job is null)
         {
@@ -220,6 +226,7 @@ public sealed class AgentAnalysisJobService(
         string? comment,
         CancellationToken cancellationToken = default)
     {
+        user = await ResolveAsync(user, cancellationToken);
         var job = await GetAccessibleAsync(id, user, cancellationToken);
         if (job is null)
         {
@@ -233,6 +240,9 @@ public sealed class AgentAnalysisJobService(
             comment,
             cancellationToken);
     }
+
+    private Task<ClaimsPrincipal> ResolveAsync(ClaimsPrincipal user, CancellationToken cancellationToken) =>
+        directory is null ? Task.FromResult(user) : directory.ResolveAsync(user, cancellationToken);
 }
 
 public sealed class AgentAnalysisRetentionService(

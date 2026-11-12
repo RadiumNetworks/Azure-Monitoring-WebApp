@@ -53,6 +53,24 @@ internal sealed class ComputerInventoryPersistence(
             .ToArray();
     }
 
+    public async Task<IReadOnlyList<InventoryTeamOption>> GetInventoryTeamsAsync(CancellationToken cancellationToken)
+    {
+        AlertStoreAccess.Require(databaseConfiguration, "Inventory teams cannot be accessed: ");
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var rows = await (from team in context.UserTeams.AsNoTracking()
+                          where team.IsEnabled
+                          join role in context.UserTeamInventoryRoles.AsNoTracking() on team.Id equals role.TeamId into roles
+                          from role in roles.DefaultIfEmpty()
+                          select new { team.Id, team.Name, RoleKey = (string?)role.RoleKey })
+            .ToArrayAsync(cancellationToken);
+        return rows.GroupBy(row => new { row.Id, row.Name })
+            .Select(group => new InventoryTeamOption(group.Key.Id, group.Key.Name, group
+                .Where(row => row.RoleKey is not null)
+                .Select(row => UserTeamInventoryRole.NormalizeRoleKey(row.RoleKey!))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()))
+            .OrderBy(team => team.Name, StringComparer.OrdinalIgnoreCase).ThenBy(team => team.Id).ToArray();
+    }
+
     /// <summary>
     /// Creates a manually maintained computer inventory entry. Its subscription must have been observed in an alert.
     /// </summary>

@@ -12,6 +12,9 @@ internal static class ScheduledQueryResultNormalizer
         var eventDetails = new Dictionary<string, ScheduledQueryEventDetails>(StringComparer.OrdinalIgnoreCase);
         var seriesIndex = table.Columns.ToList().FindIndex(column => column.Name == "Series");
         var valueIndex = table.Columns.ToList().FindIndex(column => column.Name == "Value");
+        if (seriesIndex < 0 || valueIndex < 0 || table.Rows.Any(row => string.IsNullOrWhiteSpace(row[seriesIndex]) ||
+            row[valueIndex] is not null && (!double.TryParse(row[valueIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))))
+            throw new InvalidOperationException("Scheduled queries must return Series and numeric or null Value columns.");
         var names = targets.Select(item => item.Series).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var row in table.Rows)
         {
@@ -25,6 +28,34 @@ internal static class ScheduledQueryResultNormalizer
                 eventDetails.Add(computer, details);
         }
         return (values, eventDetails);
+    }
+
+    internal static (ScheduledQueryTarget[] Targets, Dictionary<string, double?> Values) NormalizeUnknownTargets(
+        AnalysisQueryTable table, string workspaceKey, IReadOnlyList<string> inventoryComputers)
+    {
+        var targetIndex = table.Columns.ToList().FindIndex(column => column.Name == "Target");
+        var countIndex = table.Columns.ToList().FindIndex(column => column.Name == "count_");
+        if (targetIndex < 0 || countIndex < 0 ||
+            table.Columns.Count(column => column.Name == "Target") != 1 || table.Columns.Count(column => column.Name == "count_") != 1 ||
+            table.Rows.Any(row => row.Count != table.Columns.Count))
+            throw new InvalidOperationException("Unknown inventory target queries must return Target and count_ columns.");
+        var known = inventoryComputers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var values = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+        var targets = new List<ScheduledQueryTarget>();
+        foreach (var row in table.Rows)
+        {
+            var target = row[targetIndex]?.Trim().TrimEnd('.');
+            if (string.IsNullOrWhiteSpace(target) || target.Length > 256 || target.Any(char.IsControl) ||
+                !AlertRecord.IsMeaningfulTarget(target) ||
+                !long.TryParse(row[countIndex], NumberStyles.None, CultureInfo.InvariantCulture, out var count) || count <= 0 ||
+                count > 9_007_199_254_740_991L ||
+                !values.TryAdd(target, count))
+                throw new InvalidOperationException("Each unknown Target must be nonempty, unique, at most 256 characters and have a positive integer count_ within the exact numeric range (1-9007199254740991).");
+            if (known.Contains(target))
+                throw new InvalidOperationException("The query returned a Target that is already in the workspace Inventory baseline.");
+            targets.Add(new("", target, WorkspaceKey: workspaceKey) { IsUnknownInventoryTarget = true });
+        }
+        return (targets.ToArray(), values);
     }
 
     internal static ScheduledQueryEventDetails? ReadEventDetails(AnalysisQueryTable table, IReadOnlyList<string?> row)

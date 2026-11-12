@@ -3,14 +3,41 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MonitoringApp;
 
-public sealed class AnalysisDashboardRepository(IDbContextFactory<AlertDbContext> contextFactory)
+public sealed class AnalysisDashboardRepository(IDbContextFactory<AlertDbContext> contextFactory, IdentityDirectoryOptions? directoryOptions = null)
 {
-    public async Task<(AnalysisDashboardCollection? Collection, int Revision)> LoadAsync(
+    public Task<(AnalysisDashboardCollection? Collection, int Revision)> LoadAsync(
         string ownerKey,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => LoadForOwnerAsync(ownerKey, ownerKey, cancellationToken);
+
+    public async Task<IReadOnlyList<AnalysisDashboardOwner>> ListOwnersAsync(
+        string actorKey, CancellationToken cancellationToken = default)
     {
+        actorKey = DashboardOwnerKeys.Normalize(actorKey, "dashboard");
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var allowed = await AnalysisDashboardOwnership.AllowedOwnersAsync(context, actorKey, directoryOptions, cancellationToken);
+        var storedOwners = await context.AnalysisDashboards.AsNoTracking()
+            .Select(item => item.OwnerKey).ToArrayAsync(cancellationToken);
+        var owners = new[] { actorKey }.Concat(storedOwners.Where(owner => allowed.Contains(owner)))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var labels = await UserReferenceQueries.LabelsAsync(context, owners, directoryOptions?.Enabled == true, cancellationToken);
+        return owners.Select(owner => new AnalysisDashboardOwner(owner, labels.GetValueOrDefault(owner))).ToArray();
+    }
+
+    public async Task RequireAccessAsync(string actorKey, string ownerKey, CancellationToken cancellationToken = default)
+    {
+        actorKey = DashboardOwnerKeys.Normalize(actorKey, "dashboard");
         ownerKey = DashboardOwnerKeys.Normalize(ownerKey, "dashboard");
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await AnalysisDashboardOwnership.RequireAsync(context, actorKey, ownerKey, directoryOptions, cancellationToken);
+    }
+
+    public async Task<(AnalysisDashboardCollection? Collection, int Revision)> LoadForOwnerAsync(
+        string actorKey, string ownerKey, CancellationToken cancellationToken = default)
+    {
+        actorKey = DashboardOwnerKeys.Normalize(actorKey, "dashboard");
+        ownerKey = DashboardOwnerKeys.Normalize(ownerKey, "dashboard");
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await AnalysisDashboardOwnership.RequireAsync(context, actorKey, ownerKey, directoryOptions, cancellationToken);
         var stored = await context.AnalysisDashboards.AsNoTracking()
             .Where(item => item.OwnerKey == ownerKey)
             .Select(item => new { item.DocumentJson, item.Revision })
@@ -27,15 +54,32 @@ public sealed class AnalysisDashboardRepository(IDbContextFactory<AlertDbContext
         }
     }
 
-    public async Task<AnalysisDashboardSaveResult> SaveAsync(
+    public Task<AnalysisDashboardSaveResult> SaveAsync(
         string ownerKey,
         AnalysisDashboardCollection collection,
         int expectedRevision,
+        CancellationToken cancellationToken = default) =>
+        SaveForOwnerAsync(ownerKey, ownerKey, collection, expectedRevision, cancellationToken);
+
+    public async Task<AnalysisDashboardSaveResult> SaveForOwnerAsync(
+        string actorKey, string ownerKey, AnalysisDashboardCollection collection, int expectedRevision,
         CancellationToken cancellationToken = default)
     {
+        actorKey = DashboardOwnerKeys.Normalize(actorKey, "dashboard");
         ownerKey = DashboardOwnerKeys.Normalize(ownerKey, "dashboard");
-        var now = DateTimeOffset.UtcNow;
+        if (directoryOptions?.Enabled == true)
+            return await DatabaseTransactions.ExecuteAsync(contextFactory,
+                context => SaveCoreAsync(context, actorKey, ownerKey, collection, expectedRevision, cancellationToken),
+                cancellationToken, System.Data.IsolationLevel.Serializable);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await SaveCoreAsync(context, actorKey, ownerKey, collection, expectedRevision, cancellationToken);
+    }
+
+    private async Task<AnalysisDashboardSaveResult> SaveCoreAsync(AlertDbContext context, string actorKey, string ownerKey,
+        AnalysisDashboardCollection collection, int expectedRevision, CancellationToken cancellationToken)
+    {
+        await AnalysisDashboardOwnership.RequireAsync(context, actorKey, ownerKey, directoryOptions, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
         var retainedIds = collection.Dashboards.Select(item => item.Id).ToArray();
         if (await context.AnalysisDashboardTemplates.AnyAsync(
             item => item.Published && item.UpdatedBy == ownerKey && !retainedIds.Contains(item.Id), cancellationToken))

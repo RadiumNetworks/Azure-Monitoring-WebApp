@@ -194,6 +194,7 @@ internal sealed class AlertRulePersistence(
 
         if (rule.RuleType == AlertRuleTypes.ReplicationInventoryWarning)
         {
+            rule.Enabled = false;
             rule.Priority = 0;
             rule.AlertNameContains = string.Empty;
             rule.QueryResultType = "Replication";

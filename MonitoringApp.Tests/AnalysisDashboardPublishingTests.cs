@@ -22,6 +22,1260 @@ namespace MonitoringApp.Tests;
 
 public sealed class AnalysisDashboardPublishingTests
 {
+    private const string HistoricalAlias = "old-alice@example.com";
+    private const string HistoricalSibling = "admin-alice@example.com";
+
+    [Fact]
+    public async Task HistoricalMainCanEditAndRepublishAliasDashboardsWithoutTransferringOwnership()
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (main, alias, collection) = await SeedHistoricalDashboardsAsync(fixture);
+        var owners = await fixture.Repository.ListOwnersAsync(main.UserName);
+        Assert.Equal(main.UserName, owners[0].OwnerKey);
+        Assert.Equal(new[] { HistoricalAlias, HistoricalSibling }.Order(),
+            owners.Skip(1).Select(owner => owner.OwnerKey).Order());
+        var loaded = await fixture.Repository.LoadForOwnerAsync(main.UserName, alias.UserName);
+        Assert.Equal(collection.ActiveDashboardId, loaded.Collection!.ActiveDashboardId);
+        var originalMain = (await fixture.Repository.LoadAsync(main.UserName)).Collection!.Serialize();
+        loaded.Collection.RenameActive("Recovered <dashboard> &");
+        var saved = await fixture.Repository.SaveForOwnerAsync(main.UserName, alias.UserName, loaded.Collection, loaded.Revision);
+        var publication = await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, saved.Revision, Alice,
+            sourceOwnerKey: alias.UserName);
+        Assert.Equal(alias.UserName, publication.Owner);
+        Assert.Equal(collection.ActiveDashboardId, publication.Id);
+        Assert.Equal(2, publication.Version);
+        Assert.Equal("Recovered <dashboard> &", (await fixture.Publishing.LoadAsync(publication.Id, Operator)).Document.Name);
+        Assert.Equal(originalMain, (await fixture.Repository.LoadAsync(main.UserName)).Collection!.Serialize());
+        await fixture.Publishing.WithdrawAsync(publication.Id, Alice);
+        Assert.DoesNotContain(await fixture.Publishing.ListAsync(Operator), item => item.Id == publication.Id);
+        loaded = await fixture.Repository.LoadForOwnerAsync(main.UserName, alias.UserName);
+        publication = await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, loaded.Revision, Alice,
+            sourceOwnerKey: alias.UserName);
+        Assert.Equal(3, publication.Version);
+        Assert.Equal(alias.UserName, publication.Owner);
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.Equal(3, await context.AnalysisDashboards.CountAsync());
+        Assert.Equal(1, await context.AnalysisDashboardTemplates.CountAsync());
+        Assert.Empty(await context.LegacyUserLinks.ToArrayAsync());
+        Assert.False(await context.DirectoryUsers.AnyAsync(user => user.UsesStableIdentity));
+    }
+
+    [Theory]
+    [InlineData(HistoricalAlias, "alice@example.com")]
+    [InlineData(HistoricalAlias, HistoricalSibling)]
+    [InlineData(HistoricalSibling, HistoricalAlias)]
+    [InlineData("bob@example.com", HistoricalAlias)]
+    [InlineData("bob@example.com", "alice@example.com")]
+    public async Task HistoricalAliasAccessIsMainOnlyAndNeverReciprocal(string actor, string owner)
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (_, _, collection) = await SeedHistoricalDashboardsAsync(fixture);
+        Assert.Equal(actor, Assert.Single(await fixture.Repository.ListOwnersAsync(actor)).OwnerKey);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Repository.LoadForOwnerAsync(actor, owner));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Repository.SaveForOwnerAsync(actor, owner, collection, 1));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 2, User(actor, SqlAuthenticationRoles.Admin),
+                sourceOwnerKey: owner));
+        if (actor != HistoricalAlias)
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                fixture.Publishing.WithdrawAsync(collection.ActiveDashboardId, User(actor, SqlAuthenticationRoles.Admin)));
+    }
+
+    [Fact]
+    public async Task HistoricalMainRetainsRoleAndSourceCollectionChecksAndOptimisticConcurrency()
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (main, alias, collection) = await SeedHistoricalDashboardsAsync(fixture);
+        var loaded = await fixture.Repository.LoadForOwnerAsync(main.UserName, alias.UserName);
+        var reader = User(main.UserName, SqlAuthenticationRoles.Operator);
+        Assert.False(await fixture.Publishing.CanPublishAsync(reader));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Publishing.PublishAsync(collection.ActiveDashboardId, loaded.Revision, reader, sourceOwnerKey: alias.UserName));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Publishing.WithdrawAsync(collection.ActiveDashboardId, reader));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice));
+        var competing = loaded.Collection!.Copy();
+        competing.RenameActive("Alias session update");
+        await fixture.Repository.SaveAsync(alias.UserName, competing, loaded.Revision);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() =>
+            fixture.Repository.SaveForOwnerAsync(main.UserName, alias.UserName, loaded.Collection, loaded.Revision));
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() =>
+            fixture.Publishing.PublishAsync(collection.ActiveDashboardId, loaded.Revision, Alice, sourceOwnerKey: alias.UserName));
+        Assert.Equal("Alias session update", (await fixture.Repository.LoadAsync(alias.UserName)).Collection!.Active.Document.Name);
+        Assert.Equal(1, (await fixture.Publishing.LoadAsync(collection.ActiveDashboardId, Operator)).Publication.Version);
+    }
+
+    [Theory]
+    [InlineData("detach")]
+    [InlineData("main-disabled")]
+    [InlineData("alias-disabled")]
+    [InlineData("main-stable")]
+    [InlineData("alias-stable")]
+    [InlineData("main-entra")]
+    [InlineData("alias-entra")]
+    [InlineData("main-sql")]
+    [InlineData("alias-sql")]
+    [InlineData("alias-confirmed")]
+    [InlineData("main-renamed")]
+    [InlineData("alias-renamed")]
+    public async Task HistoricalAccessIsRecheckedForEveryReadSavePublishAndWithdrawal(string change)
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (main, alias, collection) = await SeedHistoricalDashboardsAsync(fixture);
+        var loaded = await fixture.Repository.LoadForOwnerAsync(main.UserName, alias.UserName);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var targetId = change.StartsWith("main-", StringComparison.Ordinal) ? main.Id : alias.Id;
+            var target = await context.DirectoryUsers.SingleAsync(user => user.Id == targetId);
+            if (change == "detach")
+                context.HistoricalUserAliases.Remove(await context.HistoricalUserAliases.SingleAsync(link => link.AliasUserId == alias.Id));
+            else if (change.EndsWith("-disabled", StringComparison.Ordinal)) target.IsEnabled = false;
+            else if (change.EndsWith("-stable", StringComparison.Ordinal)) target.UsesStableIdentity = true;
+            else if (change.EndsWith("-entra", StringComparison.Ordinal))
+                context.EntraUserIdentities.Add(new() { UserId = targetId, TenantId = Guid.NewGuid(), ObjectId = Guid.NewGuid() });
+            else if (change.EndsWith("-sql", StringComparison.Ordinal))
+                context.AuthenticationUsers.Add(new() { Username = target.UserName, PasswordHash = "not-a-login", Role = SqlAuthenticationRoles.Admin });
+            else if (change == "alias-confirmed")
+                context.LegacyUserLinks.Add(new()
+                {
+                    Alias = alias.UserName, TargetUserId = main.Id, Status = LegacyUserLinkStatuses.Confirmed,
+                    ApprovedByUserId = main.Id, ApprovedAt = DateTimeOffset.UtcNow, VerificationNote = "Verified test assignment"
+                });
+            else target.UserName = "changed-original-key@example.com";
+            await context.SaveChangesAsync();
+        }
+        Assert.DoesNotContain(await fixture.Repository.ListOwnersAsync(main.UserName), owner => owner.OwnerKey == alias.UserName);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Repository.LoadForOwnerAsync(main.UserName, alias.UserName));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Repository.SaveForOwnerAsync(main.UserName, alias.UserName, loaded.Collection!, loaded.Revision));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Publishing.PublishAsync(collection.ActiveDashboardId, loaded.Revision, Alice, sourceOwnerKey: alias.UserName));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Publishing.WithdrawAsync(collection.ActiveDashboardId, Alice));
+        await using var check = fixture.Factory.CreateDbContext();
+        var source = await check.AnalysisDashboards.SingleAsync(row => row.OwnerKey == alias.UserName);
+        Assert.Equal(loaded.Revision, source.Revision);
+        Assert.Equal(loaded.Collection!.Serialize(), source.DocumentJson);
+        Assert.True((await check.AnalysisDashboardTemplates.SingleAsync()).Published);
+    }
+
+    [Theory]
+    [InlineData("open-mode-operator")]
+    [InlineData("open-access")]
+    [InlineData("different-login@example.com")]
+    public async Task SharedOpenActorsAndMatchingDisplayOrContactDataDoNotGrantAliasAccess(string actor)
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (main, alias, _) = await SeedHistoricalDashboardsAsync(fixture);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var profile = await context.DirectoryUsers.SingleAsync(user => user.Id == main.Id);
+            profile.UserName = actor.StartsWith("open-", StringComparison.Ordinal) ? actor : "another-original-key@example.com";
+            profile.LocalDisplayName = actor;
+            profile.Email = actor;
+            await context.SaveChangesAsync();
+        }
+        Assert.Single(await fixture.Repository.ListOwnersAsync(actor));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Repository.LoadForOwnerAsync(actor, alias.UserName));
+    }
+
+    [Fact]
+    public async Task DisabledDirectoryDoesNotEnableHistoricalDashboardAccess()
+    {
+        await using var fixture = await Fixture.CreateAsync(directoryEnabled: true);
+        var (main, alias, _) = await SeedHistoricalDashboardsAsync(fixture);
+        var disabled = new AnalysisDashboardRepository(fixture.Factory, new() { Enabled = false });
+        Assert.Single(await disabled.ListOwnersAsync(main.UserName));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => disabled.LoadForOwnerAsync(main.UserName, alias.UserName));
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task MainAccountCanSelectEditUpdateAndWithdrawAliasPublicationsInMyDashboards(string culture)
+    {
+        using var display = new UiSelection(culture);
+        await using var page = await BrowserPageFixture.CreateAsync(aliases: true);
+        Assert.Contains(page.Text["AnalysisDashboards.Owner"], page.Decoded);
+        Assert.Contains(HistoricalAlias, page.Decoded);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = HistoricalAlias });
+        Assert.Equal(HistoricalAlias, page.Get<string>("dashboardOwnerKey"));
+        Assert.NotNull(page.Get<PublishedAnalysisDashboard?>("OwnPublication"));
+        Assert.Contains(page.Text["AnalysisPublications.Update"], page.Decoded);
+        var id = page.Get<AnalysisDashboardCollection>("dashboardCollection").ActiveDashboardId;
+        await page.Invoke("RenameDashboardAsync", "Recovered alias");
+        await page.Invoke("PublishDashboardAsync");
+        var publication = await page.Storage.Publishing.LoadAsync(id, Operator);
+        Assert.Equal(2, publication.Publication.Version);
+        Assert.Equal(HistoricalAlias, publication.Publication.Owner);
+        Assert.Equal("Recovered alias", publication.Document.Name);
+        await page.Invoke("WithdrawDashboardAsync");
+        Assert.DoesNotContain(await page.Storage.Publishing.ListAsync(Operator), item => item.Id == id);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = "alice@example.com" });
+        Assert.Equal("alice@example.com", page.Get<string>("dashboardOwnerKey"));
+        Assert.Equal("AD dashboard", page.Dashboard.Document.Name);
+        Assert.Equal("Recovered alias", (await page.Storage.Repository.LoadAsync(HistoricalAlias)).Collection!.Active.Document.Name);
+    }
+
+    [Theory]
+    [InlineData("save")]
+    [InlineData("publish")]
+    [InlineData("run")]
+    [InlineData("detail")]
+    public async Task AnOpenAliasEditorCannotSavePublishOrRunAfterDetachingAndCanReturnToItsOwnAccount(string action)
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, queryClient: client, aliases: true);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = HistoricalAlias });
+        var before = await page.Storage.Repository.LoadAsync(HistoricalAlias);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            var aliasId = await context.DirectoryUsers.Where(user => user.UserName == HistoricalAlias).Select(user => user.Id).SingleAsync();
+            context.HistoricalUserAliases.Remove(await context.HistoricalUserAliases.SingleAsync(link => link.AliasUserId == aliasId));
+            await context.SaveChangesAsync();
+        }
+        await page.Set("selectedQueryId", page.Get<IEnumerable<AnalysisQueryDefinition>>("availableQueries").First().Id);
+        await page.Invoke(action switch
+        {
+            "save" => "SaveDashboardAsync", "publish" => "PublishDashboardAsync",
+            "run" => "RunDashboardAsync", _ => "RunAsync"
+        });
+        Assert.Equal(page.Text["AnalysisDashboards.AccessDenied"], page.Get<string>("errorMessage"));
+        Assert.True(page.Get<bool>("dashboardLoadFailed"));
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Equal(0, client.Calls);
+        var after = await page.Storage.Repository.LoadAsync(HistoricalAlias);
+        Assert.Equal(before.Revision, after.Revision);
+        Assert.Equal(before.Collection!.Serialize(), after.Collection!.Serialize());
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = "alice@example.com" });
+        Assert.False(page.Get<bool>("dashboardLoadFailed"));
+        Assert.Equal("alice@example.com", page.Get<string>("dashboardOwnerKey"));
+        Assert.DoesNotContain(page.Get<IReadOnlyList<AnalysisDashboardOwner>>("dashboardOwners"), owner => owner.OwnerKey == HistoricalAlias);
+    }
+
+    private static async Task<(DirectoryUser Main, DirectoryUser Alias, AnalysisDashboardCollection Collection)>
+        SeedHistoricalDashboardsAsync(Fixture fixture)
+    {
+        var main = new DirectoryUser { UserName = "alice@example.com", LocalDisplayName = "Main <display>" };
+        var alias = new DirectoryUser { UserName = HistoricalAlias, LocalDisplayName = "Alias <display>" };
+        var sibling = new DirectoryUser { UserName = HistoricalSibling };
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.DirectoryUsers.AddRange(main, alias, sibling);
+            context.HistoricalUserAliases.AddRange(
+                new() { AliasUserId = alias.Id, MainUserId = main.Id },
+                new() { AliasUserId = sibling.Id, MainUserId = main.Id });
+            await context.SaveChangesAsync();
+        }
+        if ((await fixture.Repository.LoadAsync(main.UserName)).Collection is null)
+            await fixture.Repository.SaveAsync(main.UserName, CreateDashboard(), 0);
+        var collection = CreateDashboard();
+        collection.RenameActive("Historical dashboard");
+        await fixture.Repository.SaveAsync(alias.UserName, collection, 0);
+        await fixture.Repository.SaveAsync(sibling.UserName, CreateDashboard(), 0);
+        await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, User(alias.UserName, SqlAuthenticationRoles.Admin));
+        return (main, alias, collection);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemovingAnAliasDuringAQueryDiscardsTheLateDashboardOrDetailResponse(bool detail)
+    {
+        var client = new DashboardQueryClient { Release = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, queryClient: client, aliases: true);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = HistoricalAlias });
+        await page.Set("selectedQueryId", page.Get<IEnumerable<AnalysisQueryDefinition>>("availableQueries").First().Id);
+        var pending = page.Invoke(detail ? "RunAsync" : "RunDashboardAsync");
+        try
+        {
+            await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await using var context = page.Storage.Factory.CreateDbContext();
+            var aliasId = await context.DirectoryUsers.Where(user => user.UserName == HistoricalAlias).Select(user => user.Id).SingleAsync();
+            context.HistoricalUserAliases.Remove(await context.HistoricalUserAliases.SingleAsync(link => link.AliasUserId == aliasId));
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            client.Release.TrySetResult();
+            await pending;
+        }
+        Assert.Equal(1, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Null(page.Get<AnalysisQueryResponse?>("result"));
+        Assert.Equal(page.Text["AnalysisDashboards.AccessDenied"], page.Get<string>("errorMessage"));
+        Assert.True(page.Get<bool>("dashboardLoadFailed"));
+    }
+
+    [Fact]
+    public async Task RefreshDiscoversNewAliasCollectionsAndKeepsARevokedSelectionExplicitUntilReturningToOwnAccount()
+    {
+        await using var page = await BrowserPageFixture.CreateAsync(aliases: true);
+        const string addedOwner = "another-alice@example.com";
+        var added = new DirectoryUser { UserName = addedOwner };
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            var mainId = await context.DirectoryUsers.Where(user => user.UserName == "alice@example.com").Select(user => user.Id).SingleAsync();
+            context.DirectoryUsers.Add(added);
+            context.HistoricalUserAliases.Add(new() { AliasUserId = added.Id, MainUserId = mainId });
+            await context.SaveChangesAsync();
+        }
+        await page.Storage.Repository.SaveAsync(addedOwner, CreateDashboard(), 0);
+        Assert.DoesNotContain(page.Get<IReadOnlyList<AnalysisDashboardOwner>>("dashboardOwners"), owner => owner.OwnerKey == addedOwner);
+        await page.Invoke("ReloadPublicationsAsync");
+        Assert.Contains(page.Get<IReadOnlyList<AnalysisDashboardOwner>>("dashboardOwners"), owner => owner.OwnerKey == addedOwner);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = addedOwner });
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.HistoricalUserAliases.Remove(await context.HistoricalUserAliases.SingleAsync(link => link.AliasUserId == added.Id));
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("ReloadPublicationsAsync");
+        Assert.True(page.Get<bool>("dashboardLoadFailed"));
+        Assert.Equal(addedOwner, page.Get<string>("dashboardOwnerKey"));
+        Assert.Contains(page.Text.Format("AnalysisDashboards.UnavailableOwner", addedOwner), page.Decoded);
+        await page.Invoke("ChangeDashboardOwnerAsync", new ChangeEventArgs { Value = "alice@example.com" });
+        Assert.False(page.Get<bool>("dashboardLoadFailed"));
+        Assert.Equal("alice@example.com", page.Get<string>("dashboardOwnerKey"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishedRolesCannotBypassLowerQueryTimeLimitsButSessionNarrowingCanRecover(bool workspaceWide)
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, workspaceWide: workspaceWide);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            var query = await context.AnalysisQueryDefinitions.Include(item => item.Versions).SingleAsync();
+            query.MaxTimeRangeMinutes = 60;
+            query.Versions.Single(item => item.Id == query.PublishedVersionId).SnapshotJson =
+                JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query));
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Single(page.Get<Dictionary<string, string>>("errors"));
+        await page.Invoke("ExecutionSettingsChanged", ((int?)60, (int?)30));
+        await page.Invoke("RunAsync");
+        Assert.Equal(2, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, string>>("errors"));
+        Assert.Single(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Null((await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator)).Document.TimeRangeMinutesOverride);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task PrivateRoleRuleCanBePublishedOpenedAndCopiedWithoutMaterializingMembers(string culture)
+    {
+        using var display = new UiSelection(culture);
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, new DashboardQueryClient());
+        await page.Invoke("PublishDashboardAsync");
+        var publication = Assert.Single(await page.Storage.Publishing.ListAsync(Alice));
+        var published = await page.Storage.Publishing.LoadAsync(publication.Id, Operator);
+        Assert.Equal(["Domain Controller", "File Server"], published.Document.InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(published.Document.Systems).Computer);
+        await page.Invoke("OpenPublishedDashboardAsync", publication.Id);
+        Assert.True(page.Get<bool>("publishedUsesInventoryRoles"));
+        var filters = Regex.Match(page.Html, "<section class=\"analysis-controls.*?</section>", RegexOptions.Singleline).Value;
+        Assert.Contains(page.Text["Filters.AllWorkspaces"], filters);
+        Assert.Single(Regex.Matches(filters, @"<select\b"));
+        await page.Invoke("DuplicateDashboardAsync");
+        var copy = (await page.Storage.Repository.LoadAsync("alice@example.com")).Collection!.OpenActive();
+        Assert.Equal(AnalysisDashboardSelectionMode.InventoryRoles, copy.SelectionMode);
+        Assert.Equal(published.Document.InventoryRoles, copy.InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(copy.Systems).Computer);
+        Assert.Equal(1, (await page.Storage.Publishing.LoadAsync(publication.Id, Operator)).Publication.Version);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task PublishedRoleDashboardResolvesOnOpenAndRunWithoutRepublishingOrApplyingLegacyFilters(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        var original = await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator);
+        var savedJson = JsonSerializer.Serialize(original.Document);
+        Assert.Empty(original.Document.Systems);
+        Assert.Equal(3, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+        Assert.Contains("DC02", page.Decoded);
+        Assert.Equal(0, client.Calls);
+        await page.SetParameters(new()
+        {
+            ["Domain"] = "ignored.example", ["Site"] = "ignored-site", ["Role"] = "Other",
+            ["FilteredSystems"] = Array.Empty<ComputerInventoryEntry>()
+        });
+        await page.Invoke("RunAsync");
+        Assert.Equal(["DC01", "DC02"], RoleRequestSystems(client.Requests.Single(request => request.Workspace == "a").Kql));
+        Assert.Equal(["DC01"], RoleRequestSystems(client.Requests.Single(request => request.Workspace == "b").Kql));
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.Remove(await context.ComputerInventory.SingleAsync(system =>
+                system.Computer == "DC01" && system.SubscriptionId == "11111111-1111-1111-1111-111111111111"));
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC03", Role = "Domain Controller"
+            });
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.Equal(4, client.Calls);
+        Assert.Equal(["DC02", "DC03"], RoleRequestSystems(client.Requests.Last(request => request.Workspace == "a").Kql));
+        Assert.Contains("DC02", page.Decoded);
+        Assert.Contains("DC03", page.Decoded);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            (await context.ComputerInventory.SingleAsync(system => system.Computer == "DC02")).Role = "Other";
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.Equal(6, client.Calls);
+        Assert.Equal(["DC03"], RoleRequestSystems(client.Requests.Last(request => request.Workspace == "a").Kql));
+        Assert.DoesNotContain("DC02", page.Decoded);
+        Assert.Contains("DC03", page.Decoded);
+        var current = await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator);
+        Assert.Equal(original.Publication.Version, current.Publication.Version);
+        Assert.Equal(savedJson, JsonSerializer.Serialize(current.Document));
+        Assert.Single(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+    }
+
+    [Theory]
+    [InlineData("en-US", "empty")]
+    [InlineData("de-DE", "empty")]
+    [InlineData("en-US", "inventory")]
+    [InlineData("de-DE", "inventory")]
+    [InlineData("en-US", "routing")]
+    [InlineData("de-DE", "routing")]
+    [InlineData("en-US", "workspace")]
+    [InlineData("de-DE", "workspace")]
+    public async Task PublishedRoleResolutionClearsOldResultsAndNeverFallsBack(string culture, string failure)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        await page.Invoke("RunAsync");
+        Assert.Single(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        if (failure == "inventory")
+            page.Executions.NextFailure = new IOException("PRIVATE_INVENTORY_DETAIL");
+        else if (failure == "workspace")
+            await page.SetParameters(new() { ["WorkspaceKey"] = "unconfigured" });
+        else
+        {
+            await using var context = page.Storage.Factory.CreateDbContext();
+            if (failure == "empty")
+                foreach (var system in await context.ComputerInventory.ToArrayAsync()) system.Role = "Other";
+            else
+                context.ComputerInventory.Add(new() { SubscriptionId = "unconfigured", Computer = "UNROUTED", Role = "Domain Controller" });
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.Equal(2, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.DoesNotContain("PRIVATE_INVENTORY_DETAIL", page.Decoded);
+        if (failure == "empty")
+        {
+            Assert.Equal(AnalysisDashboardInventoryStatus.Empty, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Status);
+            Assert.Contains(page.Text["Analysis.RoleSelection.Empty"], page.Decoded);
+            Assert.Null(page.Get<string?>("errorMessage"));
+        }
+        else
+        {
+            Assert.Null(page.Get<AnalysisDashboardInventorySelection?>("roleSelection"));
+            Assert.Contains(page.Text["Analysis.RoleSelection.CountUnavailable"], page.Decoded);
+            Assert.NotNull(page.Get<string?>("errorMessage"));
+        }
+    }
+
+    [Theory]
+    [InlineData(97, 100, false)]
+    [InlineData(98, 101, true)]
+    public async Task PublishedRoleLimitIsExactAndWorkspaceNarrowingCanRecover(int added, int total, bool exceedsLimit)
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.AddRange(Enumerable.Range(0, added).Select(index => new ComputerInventoryEntry
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = $"ROLE-{index}", Role = "Domain Controller"
+            }));
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        if (exceedsLimit)
+        {
+            Assert.Equal(0, client.Calls);
+            Assert.Contains(page.Text["Analysis.Validation.DashboardSystemsLimitExceeded"], page.Decoded);
+            Assert.Null(page.Get<AnalysisDashboardInventorySelection?>("roleSelection"));
+        }
+        else
+        {
+            Assert.Equal(total, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+            Assert.Equal(total, client.Requests.Sum(request => RoleRequestSystems(request.Kql).Length));
+        }
+        var before = client.Calls;
+        await page.SetParameters(new() { ["WorkspaceKey"] = "b" });
+        await page.Invoke("RunAsync");
+        Assert.Equal(before + 1, client.Calls);
+        Assert.Equal("b", client.Requests.Last().Workspace);
+        Assert.Single(page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems);
+        Assert.Null(page.Get<string?>("errorMessage"));
+    }
+
+    [Theory]
+    [InlineData("en-US", false)]
+    [InlineData("de-DE", false)]
+    [InlineData("en-US", true)]
+    [InlineData("de-DE", true)]
+    public async Task PublishedWorkspaceWideRoleWidgetsAreLabelledAndKeepTheirScope(string culture, bool workspaceWide)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, workspaceWide: workspaceWide);
+        Assert.Equal(workspaceWide, page.Decoded.Contains(page.Text["Analysis.RoleSelection.WorkspaceWide"], StringComparison.Ordinal));
+        await page.Invoke("RunAsync");
+        Assert.Equal(2, client.Calls);
+        Assert.Single(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Equal(workspaceWide, page.Decoded.Contains(page.Text["Analysis.RoleSelection.WorkspaceWide"], StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishedWorkspaceChangesDiscardLateResponsesIncludingReturningToTheOriginalScope(bool returnToOriginal)
+    {
+        var client = new DashboardQueryClient { Release = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, twoWidgets: true);
+        await page.SetParameters(new() { ["WorkspaceKey"] = "a" });
+        var run = page.Invoke("RunAsync");
+        await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await page.SetParameters(new() { ["WorkspaceKey"] = "b" });
+        if (returnToOriginal) await page.SetParameters(new() { ["WorkspaceKey"] = "a" });
+        client.Release.SetResult();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Empty(page.Get<Dictionary<string, string>>("errors"));
+        client.Release = null;
+        await page.Invoke("RunAsync");
+        Assert.Equal(3, client.Calls);
+        Assert.Equal(2, page.Get<Dictionary<string, AnalysisQueryResponse>>("results").Count);
+        Assert.All(client.Requests.Skip(1), request => Assert.Equal(returnToOriginal ? "a" : "b", request.Workspace));
+    }
+
+    [Theory]
+    [InlineData("withdraw")]
+    [InlineData("republish")]
+    [InlineData("reader")]
+    public async Task PublishedRoleBatchesPreserveWithdrawalVersionAndReaderGuards(string change)
+    {
+        var client = new DashboardQueryClient { Release = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, twoWidgets: true);
+        await page.SetParameters(new() { ["WorkspaceKey"] = "a" });
+        var run = page.Invoke("RunAsync");
+        await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (change == "withdraw")
+            await page.Storage.Publishing.WithdrawAsync(page.Component.DashboardId, Alice);
+        else if (change == "reader")
+            page.SetAuthentication(Task.FromResult(new AuthenticationState(Operator)));
+        else
+        {
+            var stored = await page.Storage.Repository.LoadAsync("alice@example.com");
+            stored.Collection!.Active.Document.InventoryRoles = ["File Server"];
+            await page.Storage.Repository.SaveAsync("alice@example.com", stored.Collection, stored.Revision);
+            await page.Storage.Publishing.PublishAsync(page.Component.DashboardId, stored.Revision + 1, Alice);
+        }
+        client.Release.SetResult();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Empty(page.Get<Dictionary<string, string>>("errors"));
+        if (change == "republish")
+        {
+            Assert.Equal(2, page.Get<PublishedAnalysisDashboardSnapshot>("snapshot").Publication.Version);
+            Assert.Equal(["File Server"], page.Get<PublishedAnalysisDashboardSnapshot>("snapshot").Document.InventoryRoles);
+        }
+        else
+            Assert.Null(page.Get<PublishedAnalysisDashboardSnapshot?>("snapshot"));
+    }
+
+    [Fact]
+    public async Task PublishedRoleAutoRefreshUsesNewMembershipAndPausedRefreshStillDetectsWithdrawal()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        page.Set("autoRefresh", false);
+        await page.Invoke("OnAfterRenderAsync", true);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            foreach (var system in await context.ComputerInventory.ToArrayAsync()) system.Role = "Other";
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC03", Role = "Domain Controller"
+            });
+            await context.SaveChangesAsync();
+        }
+        var gate = page.Reads.Block();
+        page.Clock.Advance(TimeSpan.FromSeconds(30));
+        await gate.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        gate.Release.SetResult();
+        await page.Invoke("ReloadAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Equal(3, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+        page.Set("autoRefresh", true);
+        page.Clock.Advance(TimeSpan.FromSeconds(30));
+        await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await page.DrainExecution();
+        Assert.Equal(["DC03"], RoleRequestSystems(Assert.Single(client.Requests).Kql));
+        Assert.Equal(1, page.Get<PublishedAnalysisDashboardSnapshot>("snapshot").Publication.Version);
+        page.Set("autoRefresh", false);
+        await page.Storage.Publishing.WithdrawAsync(page.Component.DashboardId, Alice);
+        gate = page.Reads.Block();
+        page.Clock.Advance(TimeSpan.FromSeconds(30));
+        await gate.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        gate.Release.SetResult();
+        await page.Invoke("ReloadAsync");
+        Assert.Null(page.Get<PublishedAnalysisDashboardSnapshot?>("snapshot"));
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Equal(1, client.Calls);
+    }
+
+    [Fact]
+    public async Task PublishedRoleMembershipIsResolvedOncePerBatchAndChangesOnlyOnTheNextRun()
+    {
+        var client = new DashboardQueryClient { Release = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, twoWidgets: true);
+        await page.SetParameters(new() { ["WorkspaceKey"] = "a" });
+        var reads = page.Executions.Requests;
+        var run = page.Invoke("RunAsync");
+        await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            (await context.ComputerInventory.SingleAsync(system => system.Computer == "DC02")).Role = "Other";
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC03", Role = "Domain Controller"
+            });
+            await context.SaveChangesAsync();
+        }
+        client.Release.SetResult();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(reads + 3, page.Executions.Requests);
+        Assert.Equal(2, client.Calls);
+        Assert.All(client.Requests, request => Assert.Equal(["DC01", "DC02"], RoleRequestSystems(request.Kql)));
+        Assert.Equal(["DC01", "DC02"], page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems
+            .Select(system => system.Computer).Order());
+        client.Release = null;
+        await page.Invoke("RunAsync");
+        Assert.Equal(4, client.Calls);
+        Assert.All(client.Requests.Skip(2), request => Assert.Equal(["DC01", "DC03"], RoleRequestSystems(request.Kql)));
+        Assert.Equal(1, page.Get<PublishedAnalysisDashboardSnapshot>("snapshot").Publication.Version);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task PublishedUnknownRoleWithInactiveFixedSystemsStaysEmptyAndRetainsSessionOverrides(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        var stored = await page.Storage.Repository.LoadAsync("alice@example.com");
+        stored.Collection!.Active.Document.InventoryRoles = ["Future <role> &"];
+        stored.Collection.Active.Document.Systems = [new()
+        {
+            SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "UNSELECTED"
+        }];
+        await page.Storage.Repository.SaveAsync("alice@example.com", stored.Collection, stored.Revision);
+        await page.Storage.Publishing.PublishAsync(page.Component.DashboardId, stored.Revision + 1, Alice);
+        await page.Invoke("ReloadAsync");
+        await page.Invoke("ExecutionSettingsChanged", ((int?)60, (int?)30));
+        await page.Invoke("RunAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Contains("Future <role> &", page.Decoded);
+        Assert.Contains(page.Text["Analysis.RoleSelection.Empty"], page.Decoded);
+        Assert.DoesNotContain("UNSELECTED", page.Decoded);
+        Assert.Null(page.Get<string?>("errorMessage"));
+        Assert.Equal(60, page.Get<PublishedAnalysisDashboardSnapshot>("snapshot").Document.TimeRangeMinutesOverride);
+        var persisted = await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator);
+        Assert.Null(persisted.Document.TimeRangeMinutesOverride);
+        Assert.Equal(["Future <role> &"], persisted.Document.InventoryRoles);
+    }
+
+    [Fact]
+    public async Task PublishedRoleReaderCannotExpandQueryWorkspacePermissions()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client,
+            authentication: Task.FromResult(new AuthenticationState(Operator)));
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            var assignment = await context.AnalysisQueryWorkspaces.SingleAsync(item => item.WorkspaceKey == "b");
+            assignment.Enabled = false;
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Single(page.Get<Dictionary<string, string>>("errors"));
+        await page.SetParameters(new() { ["WorkspaceKey"] = "a" });
+        await page.Invoke("RunAsync");
+        Assert.Equal("a", Assert.Single(client.Requests).Workspace);
+        Assert.Single(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+    }
+
+    [Fact]
+    public async Task PublishedRoleAutoRunWaitsForAnInProgressLoadWithoutLosingTheRequest()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, autoRun: true);
+        var gate = page.Reads.Block();
+        var reload = page.Invoke("ReloadAsync");
+        await gate.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await page.Invoke("OnAfterRenderAsync", true);
+        Assert.False(page.Get<bool>("wasAutoRunEnabled"));
+        Assert.Equal(0, client.Calls);
+        gate.Release.SetResult();
+        await reload.WaitAsync(TimeSpan.FromSeconds(5));
+        await page.Invoke("OnAfterRenderAsync", false);
+        Assert.Equal(2, client.Calls);
+        await page.Invoke("OnAfterRenderAsync", false);
+        Assert.Equal(2, client.Calls);
+        Assert.Equal(1, page.Clock.TimerCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishedRoleDisposalDrainsPendingInventoryResolutionWithoutLateResults(bool noncooperative)
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client);
+        var gate = page.Executions.Block(noncooperative);
+        var run = page.Invoke("RunAsync");
+        await gate.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var disposal = page.DisposePage();
+        if (noncooperative)
+        {
+            Assert.False(disposal.IsCompleted);
+            gate.Release.SetResult();
+        }
+        await Task.WhenAll(disposal, run).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("results"));
+        Assert.Null(page.Get<AnalysisDashboardInventorySelection?>("roleSelection"));
+        Assert.Null(page.Get<string?>("errorMessage"));
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task PrivateRoleDashboardUsesFreshMembershipForWidgetsDetailsAndPreviewsWithoutSaving(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        var original = JsonSerializer.Serialize(page.Dashboard.Document);
+        Assert.Equal(3, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+        Assert.Contains(page.Text["Analysis.RoleSelection.Snapshot"].Split("{0}")[0], page.Decoded);
+        await page.Set("domainFilter", "ignored.example");
+        await page.Set("siteFilter", "ignored-site");
+        await page.Set("roleFilter", "ignored-role");
+        await page.Invoke("RunDashboardAsync");
+        Assert.Equal(2, client.Calls);
+        Assert.Equal(["DC01", "FILE01"], RoleRequestSystems(client.Requests.Single(request => request.Workspace == "a").Kql));
+        Assert.Equal(["DC01"], RoleRequestSystems(client.Requests.Single(request => request.Workspace == "b").Kql));
+        Assert.DoesNotContain("Original <cached>", page.Decoded);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.Remove(await context.ComputerInventory.SingleAsync(system =>
+                system.Computer == "DC01" && system.SubscriptionId == "11111111-1111-1111-1111-111111111111"));
+            (await context.ComputerInventory.SingleAsync(system => system.Computer == "FILE01")).Role = "Other";
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC03", Role = "domaincontrollers"
+            });
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunDashboardAsync");
+        Assert.Equal(["DC03"], RoleRequestSystems(client.Requests.Last(request => request.Workspace == "a").Kql));
+        Assert.Equal(2, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+        Assert.Equal(original, JsonSerializer.Serialize(page.Dashboard.Document));
+        await page.Set("selectedQueryId", page.Dashboard.Document.Widgets.Single().QueryDefinitionId);
+        await page.Invoke("QueryChanged");
+        Assert.Equal(2, page.Get<IReadOnlyList<AnalysisQueryExecutionPreview>>("executionPreviews").Count);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DETAIL-NEW", Role = "Domain Controller"
+            });
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunAsync");
+        Assert.NotNull(page.Get<AnalysisQueryResponse?>("result"));
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Equal(["DC03", "DETAIL-NEW"], RoleRequestSystems(client.Requests.Last(request => request.Workspace == "a").Kql));
+        Assert.Equal(1, (await page.Storage.Repository.LoadAsync("alice@example.com")).Revision);
+        await page.Invoke("SaveDashboardAsync");
+        var stored = (await page.Storage.Repository.LoadAsync("alice@example.com")).Collection!.OpenActive();
+        Assert.Equal(["Domain Controller", "File Server"], stored.InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(stored.Systems).Computer);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task EmptyRoleDraftCannotSaveCopyPublishOrRunButAnUnmatchedRoleCanBeSaved(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        await page.Invoke("InventoryRoleChangedAsync", "Domain Controller", new ChangeEventArgs { Value = false });
+        await page.Invoke("InventoryRoleChangedAsync", "File Server", new ChangeEventArgs { Value = false });
+        Assert.False(page.Get<bool>("CanRun"));
+        Assert.False(page.Get<bool>("CanRunDashboard"));
+        Assert.Contains(page.Text["Analysis.Validation.DashboardRolesRequired"], page.Decoded);
+        await page.Invoke("SaveDashboardAsync");
+        await page.Invoke("DuplicateDashboardAsync");
+        await page.Invoke("RunDashboardAsync");
+        await page.Invoke("PublishDashboardAsync");
+        Assert.Equal(0, client.Calls);
+        var unchanged = await page.Storage.Repository.LoadAsync("alice@example.com");
+        Assert.Equal(1, unchanged.Revision);
+        Assert.Single(unchanged.Collection!.Dashboards);
+        Assert.Contains(page.Text["Analysis.Validation.DashboardRolesRequired"], page.Decoded);
+        Assert.Empty(await page.Storage.Publishing.ListAsync(Alice));
+        await page.Invoke("SelectionModeChangedAsync", new ChangeEventArgs { Value = "FixedSystems" });
+        Assert.Equal(AnalysisDashboardSelectionMode.FixedSystems, page.Dashboard.Document.SelectionMode);
+        await page.Invoke("SelectionModeChangedAsync", new ChangeEventArgs { Value = "InventoryRoles" });
+        Assert.False(page.Get<bool>("CanRunDashboard"));
+        await page.Invoke("InventoryRoleChangedAsync", "Future <role> &", new ChangeEventArgs { Value = true });
+        Assert.Contains("Future &lt;role&gt; &amp;", page.Html);
+        Assert.Equal(AnalysisDashboardInventoryStatus.Empty, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Status);
+        await page.Invoke("SaveDashboardAsync");
+        await page.Invoke("DuplicateDashboardAsync");
+        var copied = (await page.Storage.Repository.LoadAsync("alice@example.com")).Collection!;
+        Assert.Equal(2, copied.Dashboards.Count);
+        Assert.Equal(["Future <role> &"], copied.OpenActive().InventoryRoles);
+        Assert.Equal("FIXED", Assert.Single(copied.OpenActive().Systems).Computer);
+        await page.Invoke("LoadWorkspaceAsync");
+        Assert.Contains("Future <role> &", page.Get<IEnumerable<string>>("AvailableInventoryRoles"));
+        Assert.False(page.Get<bool>("dashboardLoadFailed"));
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task EmptyMembershipAndInventoryFailureClearResultsAndNeverUseTheInactiveFixedList(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            foreach (var system in await context.ComputerInventory.ToArrayAsync())
+                system.Role = "Other";
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunDashboardAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Contains(page.Text["Analysis.RoleSelection.Empty"], page.Decoded);
+        Assert.True(page.Get<bool>("CanRunDashboard"));
+        await page.Invoke("SaveDashboardAsync");
+        await using (var context = page.Storage.Factory.CreateDbContext())
+            await context.Database.ExecuteSqlRawAsync("DROP TABLE \"ComputerInventory\"");
+        await page.Invoke("RunDashboardAsync");
+        Assert.Null(page.Get<AnalysisDashboardInventorySelection?>("roleSelection"));
+        Assert.NotNull(page.Get<string?>("roleSelectionError"));
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Equal(0, client.Calls);
+        Assert.Equal(["Domain Controller", "File Server"],
+            (await page.Storage.Repository.LoadAsync("alice@example.com")).Collection!.OpenActive().InventoryRoles);
+    }
+
+    [Fact]
+    public async Task RoleLimitIsExplicitAndWorkspaceNarrowingCanRecoverWithoutChangingTheRule()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.AddRange(Enumerable.Range(1, 98).Select(index => new ComputerInventoryEntry
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = $"EXTRA{index}", Role = "Domain Controller"
+            }));
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("RunDashboardAsync");
+        Assert.Equal(0, client.Calls);
+        Assert.Contains(page.Text["Analysis.Validation.DashboardSystemsLimitExceeded"], page.Decoded);
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        await page.Set("workspaceFilter", "b");
+        await page.Invoke("WorkspaceChangedAsync");
+        Assert.Equal(1, client.Calls);
+        Assert.Equal("b", Assert.Single(client.Requests).Workspace);
+        Assert.Single(page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems);
+        Assert.Equal(["Domain Controller", "File Server"], page.Dashboard.Document.InventoryRoles);
+        Assert.Equal(1, (await page.Storage.Repository.LoadAsync("alice@example.com")).Revision);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task ModeUndoRedoPreservesFixedSelectionAndWorkspaceWideWidgetsAreLabelled(string culture)
+    {
+        using var display = new UiSelection(culture);
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, new DashboardQueryClient());
+        var query = Assert.Single(page.Get<IReadOnlyList<AnalysisQueryDefinition>>("availableQueries"));
+        query.Scope = AnalysisQueryScopes.Workspace;
+        await page.Set("selectedQueryId", query.Id);
+        await page.Invoke("QueryChanged");
+        Assert.Contains(page.Text["Analysis.RoleSelection.WorkspaceWide"], page.Decoded);
+        Assert.DoesNotContain("<span>" + page.Text["Filters.Domain"] + "</span>", page.Decoded);
+        await page.Invoke("SelectionModeChangedAsync", new ChangeEventArgs { Value = "FixedSystems" });
+        Assert.Equal(AnalysisDashboardSelectionMode.FixedSystems, page.Dashboard.Document.SelectionMode);
+        Assert.Contains(page.Text["Analysis.SelectVisible"], page.Decoded);
+        Assert.Single(page.Get<HashSet<string>>("selectedSystems"));
+        await page.Invoke("UndoDashboard");
+        Assert.Equal(AnalysisDashboardSelectionMode.InventoryRoles, page.Dashboard.Document.SelectionMode);
+        Assert.Equal(3, page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems.Count);
+        await page.Invoke("RedoDashboard");
+        Assert.Equal(AnalysisDashboardSelectionMode.FixedSystems, page.Dashboard.Document.SelectionMode);
+        Assert.Equal("FIXED", Assert.Single(page.Dashboard.Document.Systems).Computer);
+    }
+
+    [Fact]
+    public async Task ResponsesFromAnEarlierRoleScopeAreDiscarded()
+    {
+        var client = new DashboardQueryClient { Release = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        var running = page.Invoke("RunDashboardAsync");
+        try
+        {
+            await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await page.Set("workspaceFilter", "b");
+            await page.Invoke("DashboardFiltersChangedAsync");
+        }
+        finally
+        {
+            client.Release.TrySetResult();
+            await running.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.Empty(page.Get<Dictionary<string, AnalysisQueryResponse>>("widgetResults"));
+        Assert.Null(page.Get<AnalysisQueryResponse?>("result"));
+        Assert.Single(page.Get<AnalysisDashboardInventorySelection>("roleSelection").Systems);
+    }
+
+    [Fact]
+    public async Task AutomaticPrivateRefreshReevaluatesRoleMembershipWithoutSaving()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await BrowserPageFixture.CreateAsync(roles: true, client);
+        page.Dashboard.UpdateWorkspace(document => document.AutoRefreshEnabled = true);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            (await context.ComputerInventory.SingleAsync(system => system.Computer == "FILE01")).Role = "Other";
+            context.ComputerInventory.Add(new()
+            {
+                SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "AUTO-NEW", Role = "Domain Controller"
+            });
+            await context.SaveChangesAsync();
+        }
+        using var cancellation = new CancellationTokenSource();
+        var loop = page.Invoke("RefreshClockAsync", cancellation.Token);
+        try { await client.FirstCall.Task.WaitAsync(TimeSpan.FromSeconds(40)); }
+        finally
+        {
+            await cancellation.CancelAsync();
+            await loop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.Equal(["AUTO-NEW", "DC01"], RoleRequestSystems(client.Requests.Single(request => request.Workspace == "a").Kql));
+        Assert.Equal(1, (await page.Storage.Repository.LoadAsync("alice@example.com")).Revision);
+    }
+
+    private static string[] RoleRequestSystems(string kql) =>
+        JsonSerializer.Deserialize<string[]>(Regex.Match(kql, @"let _SelectedSystems = dynamic\((.*?)\);").Groups[1].Value)!
+            .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+
+    [Fact]
+    public async Task RoleRuleIsPersistedAndPublishedWithoutMaterializingMembersAndFreshResolutionNeedsNoRepublish()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        const string subscription = "11111111-1111-1111-1111-111111111111";
+        var collection = CreateDashboard();
+        collection.Active.Document.SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles;
+        collection.Active.Document.InventoryRoles = ["Domain Controller"];
+        var inactiveFixed = Assert.Single(collection.Active.Document.Systems).Computer;
+        var options = new CrossTenantLogAnalyticsOptions
+        {
+            Workspaces = [new() { Key = "workspace", SubscriptionIds = [subscription] }]
+        };
+        var runner = new AnalysisQueryRunner(options, new DashboardSecret(), new TargetWorkspaceResolver(options));
+        var execution = new AnalysisQueryExecutionService(fixture.Factory, runner);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.AddRange(
+                new() { SubscriptionId = subscription, Computer = "ROLE01", Role = "Domain Controller" },
+                new() { SubscriptionId = subscription, Computer = "ROLE02", Role = "Domain Controller" });
+            await context.SaveChangesAsync();
+        }
+        await fixture.Repository.SaveAsync("alice@example.com", collection, 0);
+        var publication = await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
+        var persisted = (await fixture.Repository.LoadAsync("alice@example.com")).Collection!.OpenActive();
+        var snapshot = await fixture.Publishing.LoadAsync(collection.ActiveDashboardId, Operator);
+        Assert.Equal(AnalysisDashboardSelectionMode.InventoryRoles, persisted.SelectionMode);
+        Assert.Equal(["Domain Controller"], snapshot.Document.InventoryRoles);
+        Assert.Equal(inactiveFixed, Assert.Single(snapshot.Document.Systems).Computer);
+        var first = await execution.ResolveDashboardSelectionAsync(snapshot.Document);
+        Assert.Equal(["ROLE01", "ROLE02"], first.Systems.Select(system => system.Computer).Order());
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.Remove(await context.ComputerInventory.SingleAsync(system => system.Computer == "ROLE01"));
+            context.ComputerInventory.Add(new() { SubscriptionId = subscription, Computer = "ROLE03", Role = "domaincontrollers" });
+            await context.SaveChangesAsync();
+        }
+        var second = await execution.ResolveDashboardSelectionAsync(snapshot.Document, "WORKSPACE");
+        Assert.Equal(["ROLE02", "ROLE03"], second.Systems.Select(system => system.Computer).Order());
+        Assert.Equal(["ROLE01", "ROLE02"], first.Systems.Select(system => system.Computer).Order());
+        var reloaded = await fixture.Publishing.LoadAsync(collection.ActiveDashboardId, Operator);
+        Assert.Equal(publication.Version, reloaded.Publication.Version);
+        Assert.Equal(inactiveFixed, Assert.Single(reloaded.Document.Systems).Computer);
+        Assert.Equal(["Domain Controller"], reloaded.Document.InventoryRoles);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            foreach (var system in await context.ComputerInventory.ToArrayAsync())
+                system.Role = "Other";
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(AnalysisDashboardInventoryStatus.Empty,
+            (await execution.ResolveDashboardSelectionAsync(reloaded.Document)).Status);
+        await fixture.Publishing.WithdrawAsync(collection.ActiveDashboardId, Alice);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => fixture.Publishing.LoadAsync(collection.ActiveDashboardId, Operator));
+    }
+
+    [Fact]
+    public async Task InventoryReadFailureAndCancellationAreNotReportedAsEmptyRoleMembership()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var options = new CrossTenantLogAnalyticsOptions();
+        var runner = new AnalysisQueryRunner(options, new DashboardSecret(), new TargetWorkspaceResolver(options));
+        var execution = new AnalysisQueryExecutionService(fixture.Factory, runner);
+        var document = new AnalysisDashboardDocument
+        {
+            SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles, InventoryRoles = ["Future Role"]
+        };
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            execution.ResolveDashboardSelectionAsync(document, cancellationToken: cancellation.Token));
+        await using (var context = fixture.Factory.CreateDbContext())
+            await context.Database.ExecuteSqlRawAsync("DROP TABLE \"ComputerInventory\"");
+        await Assert.ThrowsAsync<SqliteException>(() => execution.ResolveDashboardSelectionAsync(document));
+    }
+
+    [Theory]
+    [InlineData("en-US", false)]
+    [InlineData("de-DE", false)]
+    [InlineData("en-US", true)]
+    [InlineData("de-DE", true)]
+    public async Task PrivateAndPublishedRoleViewsSupportAnEmptyMembershipWithoutUsingFixedSystems(string culture, bool published)
+    {
+        using var selection = new UiSelection(culture);
+        await using var fixture = await Fixture.CreateAsync();
+        var collection = CreateDashboard();
+        collection.Active.Document.SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles;
+        collection.Active.Document.InventoryRoles = ["Domain Controller"];
+        await fixture.Repository.SaveAsync("alice@example.com", collection, 0);
+        await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
+        var options = new CrossTenantLogAnalyticsOptions { Enabled = true };
+        var client = new DashboardQueryClient();
+        var runner = new AnalysisQueryRunner(options, new DashboardSecret(), new TargetWorkspaceResolver(options), client);
+        var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+            .AddSingleton(fixture.Publishing).AddSingleton(new AnalysisQueryRegistry(fixture.Factory, options, runner))
+            .AddSingleton(new AnalysisQueryExecutionService(fixture.Factory, runner)).AddSingleton(runner)
+            .AddSingleton(new AlertStore(fixture.Factory, new(true, null, new Microsoft.Data.SqlClient.SqlConnectionStringBuilder()),
+                presenter, new(presenter), Microsoft.Extensions.Logging.Abstractions.NullLogger<AlertStore>.Instance))
+            .AddSingleton(new CurrentUserIdentity(new HttpContextAccessor()))
+            .AddSingleton(new AnalysisDashboardState()).AddSingleton(fixture.Repository).AddSingleton(new DashboardFilterOptions())
+            .AddSingleton<IJSRuntime>(new UnusedJavaScript())
+            .AddSingleton(new ApplicationAuthenticationOptions()).AddSingleton(options).AddSingleton(TimeProvider.System)
+            .BuildServiceProvider();
+        await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var root = renderer.BeginRenderingComponent(typeof(CascadingValue<Task<AuthenticationState>>),
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Value"] = Task.FromResult(new AuthenticationState(Alice)),
+                    ["ChildContent"] = (RenderFragment)(builder =>
+                    {
+                        builder.OpenComponent(0, published ? typeof(PublishedAnalysisDashboardView) : typeof(Components.Pages.Analysis));
+                        if (published)
+                        {
+                            builder.AddAttribute(1, "DashboardId", collection.ActiveDashboardId);
+                            builder.AddAttribute(2, "AutoRunOnOpen", true);
+                        }
+                        builder.CloseComponent();
+                    })
+                }));
+            await root.QuiescenceTask;
+            return root;
+        });
+        var html = WebUtility.HtmlDecode(await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
+        var text = services.GetRequiredService<UiText>();
+        Assert.DoesNotContain(text["Analysis.Validation.DashboardSelectionNotAvailable"], html);
+        Assert.Contains(text["Analysis.RoleSelection.Empty"], html);
+        if (!published)
+            Assert.Contains(text["Analysis.RoleSelection.Dynamic"], html);
+        else
+            Assert.Contains("LDAP latency", html);
+        Assert.Equal(0, client.Calls);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(false, 2)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    [InlineData(true, 2)]
+    public async Task PrivateAndPublishedDashboardsSkipRetiredSystemsWithoutChangingSavedSelections(bool published, int remaining)
+    {
+        using var selection = new UiSelection("en-US");
+        await using var fixture = await Fixture.CreateAsync();
+        const string subscription = "11111111-1111-1111-1111-111111111111";
+        var collection = CreateDashboard();
+        var document = collection.Active.Document;
+        document.Systems[0].SubscriptionId = subscription;
+        document.Systems.Add(new() { SubscriptionId = subscription, Computer = "DC02" });
+        var widget = Assert.Single(document.Widgets);
+        var query = new AnalysisQueryDefinition
+        {
+            Id = widget.QueryDefinitionId, Key = "inventory-test", Name = "Inventory test", Category = "Test",
+            VisualizationType = AnalysisQueryVisualizationTypes.Stat,
+            Kql = "print Series = 'DC01', Value = 1 | where Series in~ (_SelectedSystems)"
+        };
+        var version = new AnalysisQueryVersion
+        {
+            Id = Guid.NewGuid(), Version = 1,
+            SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+        };
+        query.Versions.Add(version);
+        query.PublishedVersionId = version.Id;
+        query.Workspaces.Add(new() { WorkspaceKey = "workspace", Enabled = true, LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded });
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.AnalysisQueryDefinitions.Add(query);
+            for (var index = 1; index <= remaining; index++)
+                context.ComputerInventory.Add(new() { SubscriptionId = subscription, Computer = $"DC0{index}" });
+            context.ComputerInventory.Add(new() { SubscriptionId = subscription, Computer = "NOT-SELECTED" });
+            await context.SaveChangesAsync();
+        }
+        await fixture.Repository.SaveAsync("alice@example.com", collection, 0);
+        await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
+        await using var before = fixture.Factory.CreateDbContext();
+        var storedDocument = (await before.AnalysisDashboards.SingleAsync()).DocumentJson;
+        var publishedDocument = (await before.AnalysisDashboardTemplates.SingleAsync()).DocumentJson;
+        var options = new CrossTenantLogAnalyticsOptions
+        {
+            Enabled = true, Workspaces = [new() { Key = "workspace", WorkspaceId = Guid.NewGuid().ToString(), SubscriptionIds = [subscription] }]
+        };
+        var client = new DashboardQueryClient();
+        var runner = new AnalysisQueryRunner(options, new DashboardSecret(), new TargetWorkspaceResolver(options), client);
+        var execution = new AnalysisQueryExecutionService(fixture.Factory, runner);
+        if (remaining < 2)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => execution.ExecuteAsync(
+                document.CreateExecutionRequest(widget, document.Systems.Select(system => new AnalysisQuerySystem(system.SubscriptionId, system.Computer)).ToArray())));
+        Assert.Equal(0, client.Calls);
+        var presenter = new QueryResultPresenter(Path.Combine(AppContext.BaseDirectory, "AlertDefinitions"));
+        var components = new CapturingComponentActivator();
+        await using var services = new ServiceCollection().AddLogging().AddUiLocalization()
+            .AddSingleton<IComponentActivator>(components).AddSingleton(fixture.Publishing)
+            .AddSingleton(new AnalysisQueryRegistry(fixture.Factory, options, runner)).AddSingleton(execution).AddSingleton(runner)
+            .AddSingleton(new AlertStore(fixture.Factory, new(true, null, new Microsoft.Data.SqlClient.SqlConnectionStringBuilder()),
+                presenter, new(presenter), Microsoft.Extensions.Logging.Abstractions.NullLogger<AlertStore>.Instance))
+            .AddSingleton(new ApplicationAuthenticationOptions()).AddSingleton(new CurrentUserIdentity(new HttpContextAccessor()))
+            .AddSingleton(new AnalysisDashboardState()).AddSingleton(fixture.Repository).AddSingleton(new DashboardFilterOptions())
+            .AddSingleton(options).AddSingleton(TimeProvider.System).AddSingleton<IJSRuntime>(new UnusedJavaScript())
+            .BuildServiceProvider();
+        await using var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var root = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var root = renderer.BeginRenderingComponent(typeof(CascadingValue<Task<AuthenticationState>>),
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["Value"] = Task.FromResult(new AuthenticationState(Alice)),
+                    ["ChildContent"] = (RenderFragment)(builder =>
+                    {
+                        builder.OpenComponent(0, published ? typeof(PublishedAnalysisDashboardView) : typeof(Components.Pages.Analysis));
+                        if (published) builder.AddAttribute(1, "DashboardId", collection.ActiveDashboardId);
+                        builder.CloseComponent();
+                    })
+                }));
+            await root.QuiescenceTask;
+            return root;
+        });
+        var component = published ? (IComponent)components.PublishedView! : components.AnalysisPage!;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var cachedResults = (Dictionary<string, AnalysisQueryResponse>)component.GetType()
+            .GetField(published ? "results" : "widgetResults", flags)!.GetValue(component)!;
+        cachedResults[widget.Id] = CachedResult("STALE_BEFORE_RETIREMENT");
+        await renderer.Dispatcher.InvokeAsync(async () =>
+            await (Task)component.GetType().GetMethod(published ? "RunAsync" : "RunDashboardAsync", flags)!.Invoke(component, [])!);
+        Assert.Equal(remaining == 0 ? 0 : 1, client.Calls);
+        var errors = (Dictionary<string, string>)component.GetType().GetField(published ? "errors" : "widgetErrors", flags)!.GetValue(component)!;
+        Assert.Empty(errors);
+        var results = (Dictionary<string, AnalysisQueryResponse>)component.GetType().GetField(published ? "results" : "widgetResults", flags)!.GetValue(component)!;
+        Assert.Equal(remaining == 0 ? 0 : 1, results.Count);
+        var html = WebUtility.HtmlDecode(await renderer.Dispatcher.InvokeAsync(root.ToHtmlString));
+        Assert.DoesNotContain("STALE_BEFORE_RETIREMENT", html);
+        Assert.Equal(remaining < 2, html.Contains("saved selection is unchanged", StringComparison.Ordinal));
+        Assert.Equal(remaining == 0, html.Contains(services.GetRequiredService<UiText>()["Analysis.DashboardAllSystemsMissing"], StringComparison.Ordinal));
+        if (remaining > 0)
+        {
+            var selected = JsonSerializer.Deserialize<string[]>(Regex.Match(client.Kql, @"let _SelectedSystems = dynamic\((.*?)\);").Groups[1].Value)!;
+            Assert.Equal(remaining, selected.Length);
+            Assert.DoesNotContain("NOT-SELECTED", selected);
+        }
+        await using var after = fixture.Factory.CreateDbContext();
+        Assert.Equal(storedDocument, (await after.AnalysisDashboards.SingleAsync()).DocumentJson);
+        Assert.Equal(publishedDocument, (await after.AnalysisDashboardTemplates.SingleAsync()).DocumentJson);
+    }
+
+    private sealed class DashboardSecret : ILogAnalyticsSecretProvider
+    {
+        public Task<string> GetClientSecretAsync(CancellationToken cancellationToken) => Task.FromResult("test-secret");
+    }
+
+    private sealed class DashboardQueryClient : IAnalysisLogAnalyticsQuery
+    {
+        public int Calls { get; private set; }
+        public string Kql { get; private set; } = "";
+        public List<(string Workspace, string Kql)> Requests { get; } = [];
+        public TaskCompletionSource FirstCall { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource? Release { get; set; }
+        public async Task<Azure.Monitor.Query.Logs.Models.LogsQueryResult> QueryAsync(
+            CrossTenantLogAnalyticsWorkspaceOptions workspace, string applicationClientId, string secret,
+            string kql, int timeRangeMinutes, CancellationToken cancellationToken)
+        {
+            Calls++;
+            Kql = kql;
+            Requests.Add((workspace.Key, kql));
+            FirstCall.TrySetResult();
+            if (Release is not null) await Release.Task.WaitAsync(cancellationToken);
+            return System.ClientModel.Primitives.ModelReaderWriter.Read<Azure.Monitor.Query.Logs.Models.LogsQueryResult>(
+                BinaryData.FromString("""{"tables":[{"name":"PrimaryResult","columns":[{"name":"Series","type":"string"},{"name":"Value","type":"real"}],"rows":[["DC01",1]]}]}"""))!;
+        }
+    }
+
     [Theory]
     [InlineData("en-US", false)]
     [InlineData("de-DE", false)]
@@ -344,7 +1598,7 @@ public sealed class AnalysisDashboardPublishingTests
         var busyHtml = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
         var busyFilters = Regex.Match(busyHtml, "<section class=\"analysis-controls\".*?</section>", RegexOptions.Singleline).Value;
         Assert.All(Regex.Matches(busyFilters, "<select[^>]*>"), select => Assert.Contains("disabled", select.Value));
-        var busyHeading = Regex.Match(busyHtml, "<section class=\"query-heading\".*?</section>", RegexOptions.Singleline).Value;
+        var busyHeading = Regex.Match(busyHtml, "<section class=\"query-heading[^\"]*\".*?</section>", RegexOptions.Singleline).Value;
         Assert.Contains("disabled", Regex.Match(busyHeading, "<input[^>]*>").Value);
         var busyPicker = Regex.Match(busyHtml, "<section class=\"analysis-system-picker.*?</section>", RegexOptions.Singleline).Value;
         Assert.All(Regex.Matches(busyPicker, "<input[^>]*>|<button[^>]*>"),
@@ -481,7 +1735,7 @@ public sealed class AnalysisDashboardPublishingTests
             await renderer.Dispatcher.InvokeAsync(() => typeof(ComponentBase).GetMethod("StateHasChanged", flags)!.Invoke(page, []));
             var gridHtml = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
             var heading = WebUtility.HtmlDecode(Regex.Match(gridHtml,
-                "<section class=\"query-heading\".*?</section>", RegexOptions.Singleline).Value);
+                "<section class=\"query-heading[^\"]*\".*?</section>", RegexOptions.Singleline).Value);
             Assert.Equal(editing, heading.Contains(culture == "de-DE" ? "Raster bearbeiten" : "Edit grid"));
             if (editing)
             {
@@ -1852,6 +3106,7 @@ public sealed class AnalysisDashboardPublishingTests
         await fixture.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
         await using (var context = fixture.Factory.CreateDbContext())
         {
+            context.ComputerInventory.Add(new() { SubscriptionId = "sub", Computer = "DC01" });
             foreach (var widget in collection.Active.Document.Widgets)
             {
                 var query = ActiveDirectoryAnalysisQueries.Create().First();
@@ -1956,8 +3211,7 @@ public sealed class AnalysisDashboardPublishingTests
             var errors = (Dictionary<string, string>)component.GetType()
                 .GetField(published ? "errors" : "widgetErrors", flags)!.GetValue(component)!;
             Assert.True(errors.ContainsKey(upper.Id));
-            var failureKey = !published && !timeout
-                ? "Analysis.Validation.DistinctSystemsRequired" : "Analysis.Errors.ExecutionFailed";
+            var failureKey = "Analysis.Errors.ExecutionFailed";
             Assert.Equal(services.GetRequiredService<UiText>()[failureKey], errors[upper.Id]);
             var entries = published ? publishedLog.Entries : personalLog.Entries;
             Assert.Single(entries);
@@ -1990,13 +3244,14 @@ public sealed class AnalysisDashboardPublishingTests
             await refresh.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
-        static AnalysisQueryResponse CachedResult(string marker)
-        {
-            var now = DateTimeOffset.UtcNow;
-            return new(Guid.NewGuid(), marker, 1, "ms", now.AddHours(-1), now, now, 0, [], [],
-                AnalysisQueryVisualizationTypes.Table,
-                [new("Cached workspace", [new("Value", "string")], [[marker]])]);
-        }
+    }
+
+    private static AnalysisQueryResponse CachedResult(string marker)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new(Guid.NewGuid(), marker, 1, "ms", now.AddHours(-1), now, now, 0, [], [],
+            AnalysisQueryVisualizationTypes.Table,
+            [new("Cached workspace", [new("Value", "string")], [[marker]])]);
     }
 
     [Theory]
@@ -2310,6 +3565,8 @@ public sealed class AnalysisDashboardPublishingTests
         public string Decoded => WebUtility.HtmlDecode(Html);
         public T Get<T>(string name) => (T)(Component.GetType().GetField(name, Flags)?.GetValue(Component)
             ?? Component.GetType().GetProperty(name, Flags)?.GetValue(Component))!;
+        public Task Set(string name, object value) => renderer.Dispatcher.InvokeAsync(() =>
+            Component.GetType().GetField(name, Flags)!.SetValue(Component, value));
         public Task Invoke(string name, params object[] arguments) => renderer.Dispatcher.InvokeAsync(async () =>
         {
             var result = Component.GetType().GetMethod(name, Flags)!.Invoke(Component, arguments);
@@ -2328,12 +3585,64 @@ public sealed class AnalysisDashboardPublishingTests
             Assert.Equal(original, JsonSerializer.Serialize(Dashboard.Document));
             Assert.DoesNotContain("data-inbox-drag-handle", Html);
         }
-        public static async Task<BrowserPageFixture> CreateAsync()
+        public static async Task<BrowserPageFixture> CreateAsync(bool roles = false, IAnalysisLogAnalyticsQuery? queryClient = null,
+            bool aliases = false)
         {
-            var storage = await Fixture.CreateAsync();
-            await storage.Repository.SaveAsync("alice@example.com", CreateDashboard(), 0);
-            var options = new CrossTenantLogAnalyticsOptions { Enabled = false };
-            var runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+            var storage = await Fixture.CreateAsync(directoryEnabled: aliases);
+            var collection = CreateDashboard();
+            const string subA = "11111111-1111-1111-1111-111111111111";
+            const string subB = "22222222-2222-2222-2222-222222222222";
+            if (roles)
+            {
+                collection.Active.Document.SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles;
+                collection.Active.Document.InventoryRoles = ["Domain Controller", "File Server"];
+                collection.Active.Document.Systems = [new() { SubscriptionId = subA, Computer = "FIXED" }];
+                var query = new AnalysisQueryDefinition
+                {
+                    Id = collection.Active.Document.Widgets.Single().QueryDefinitionId,
+                    Key = "role-editor-test", Name = "Role query", Category = "Test",
+                    Kql = "print Series = 'DC01', Value = 1 | where Series in~ (_SelectedSystems)",
+                    VisualizationType = AnalysisQueryVisualizationTypes.Stat
+                };
+                var version = new AnalysisQueryVersion
+                {
+                    Id = Guid.NewGuid(), Version = 1,
+                    SnapshotJson = JsonSerializer.Serialize(AnalysisQueryRegistry.CreateSnapshot(query))
+                };
+                query.Versions.Add(version);
+                query.PublishedVersionId = version.Id;
+                query.Workspaces.Add(new() { WorkspaceKey = "a", Enabled = true, LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded });
+                query.Workspaces.Add(new() { WorkspaceKey = "b", Enabled = true, LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded });
+                await using var context = storage.Factory.CreateDbContext();
+                context.AnalysisQueryDefinitions.Add(query);
+                context.ComputerInventory.AddRange(
+                    new() { SubscriptionId = subA, Computer = "DC01", Role = "Domain Controller" },
+                    new() { SubscriptionId = subA, Computer = "FILE01", Role = "File Server" },
+                    new() { SubscriptionId = subA, Computer = "FIXED", Role = "Other" },
+                    new() { SubscriptionId = subB, Computer = "DC01", Role = "domaincontrollers" });
+                await context.SaveChangesAsync();
+            }
+            await storage.Repository.SaveAsync("alice@example.com", collection, 0);
+            if (aliases)
+            {
+                var (_, _, historical) = await SeedHistoricalDashboardsAsync(storage);
+                if (roles)
+                {
+                    historical.Active.Document.Systems = [new() { SubscriptionId = subA, Computer = "DC01" }];
+                    historical.Active.Document.Widgets.Single().QueryDefinitionId = collection.Active.Document.Widgets.Single().QueryDefinitionId;
+                    var stored = await storage.Repository.LoadAsync(HistoricalAlias);
+                    await storage.Repository.SaveAsync(HistoricalAlias, historical, stored.Revision);
+                }
+            }
+            var options = new CrossTenantLogAnalyticsOptions
+            {
+                Enabled = roles,
+                Workspaces = roles ? [
+                    new() { Key = "a", DisplayName = "Workspace A", WorkspaceId = Guid.NewGuid().ToString(), SubscriptionIds = [subA] },
+                    new() { Key = "b", DisplayName = "Workspace B", WorkspaceId = Guid.NewGuid().ToString(), SubscriptionIds = [subB] }] : []
+            };
+            ILogAnalyticsSecretProvider secret = roles ? new DashboardSecret() : new UnusedSecretProvider();
+            var runner = new AnalysisQueryRunner(options, secret, new TargetWorkspaceResolver(options), queryClient);
             var components = new CapturingComponentActivator();
             var browser = new BrowserRuntime();
             var log = new AnalysisLog<MonitoringApp.Components.Pages.Analysis>();
@@ -2352,8 +3661,9 @@ public sealed class AnalysisDashboardPublishingTests
                 .AddSingleton(new CurrentUserIdentity(new HttpContextAccessor()))
                 .AddSingleton(new AnalysisDashboardState())
                 .AddSingleton(storage.Repository)
-                .AddSingleton(new DashboardFilterOptions())
+                .AddSingleton(new DashboardFilterOptions { Workspace = roles ? string.Empty : null })
                 .AddSingleton(options)
+                .AddSingleton(TimeProvider.System)
                 .AddSingleton<IJSRuntime>(browser).BuildServiceProvider();
             var renderer = new StaticPageRenderer(services, services.GetRequiredService<ILoggerFactory>());
             var root = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -2738,7 +4048,7 @@ public sealed class AnalysisDashboardPublishingTests
         Assert.DoesNotContain("Private", page.Decoded);
         await page.Invoke("ReloadViewAsync");
         await page.Invoke("RunAsync");
-        Assert.Equal(1, page.Executions.Requests);
+        Assert.Equal(2, page.Executions.Requests);
         Assert.All(page.Get<Dictionary<string, string>>("errors").Values,
             message => Assert.Equal(page.Text["Analysis.Errors.QueryUnavailableOrDenied"], message));
         Assert.Equal(2, page.Get<Dictionary<string, string>>("errors").Count);
@@ -2776,6 +4086,100 @@ public sealed class AnalysisDashboardPublishingTests
         Assert.Equal(1, page.Clock.TimerCount);
     }
 
+    [Theory]
+    [InlineData("en-US", false)]
+    [InlineData("de-DE", false)]
+    [InlineData("en-US", true)]
+    [InlineData("de-DE", true)]
+    public async Task DirectDashboardRouteShowsOnlyWorkspaceAndWidgetsWithoutChangingTheStoredDocument(string culture, bool roles)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: roles, queryClient: client, direct: true);
+        var stored = JsonSerializer.Serialize((await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator)).Document);
+        Assert.False(page.Component.ShowControls);
+        Assert.False(page.Component.ShowDetails);
+        Assert.True(page.Component.AutoRunOnOpen);
+        Assert.Contains("LDAP latency", page.Decoded);
+        Assert.Single(Regex.Matches(page.Decoded, "<select\\b"));
+        Assert.Contains(page.Text["Filters.Workspace"], page.Decoded);
+        Assert.DoesNotContain(page.Text["Filters.Domain"], page.Decoded);
+        Assert.DoesNotContain(page.Text["Filters.Site"], page.Decoded);
+        Assert.DoesNotContain("alice@example.com", page.Decoded);
+        Assert.DoesNotContain("AD dashboard", page.Decoded);
+        Assert.DoesNotContain(page.Text["AnalysisPublications.SelectedSystems"].Split("{0}")[0], page.Decoded);
+        Assert.DoesNotContain(page.Text["Analysis.RoleSelection.FiltersHelp"], page.Decoded);
+        Assert.DoesNotContain(page.Text["Analysis.RunDashboard"], page.Decoded);
+        Assert.DoesNotContain(page.Text["Analysis.AutoRefresh"], page.Decoded);
+        Assert.DoesNotContain(page.Text["AnalysisExecution.TimeRange"], page.Decoded);
+        Assert.DoesNotContain("analysis-dashboard-tabs", page.Decoded);
+        Assert.DoesNotContain("admin-section-heading", page.Decoded);
+        await page.Invoke("OnAfterRenderAsync", true);
+        Assert.Equal(roles ? 2 : 0, client.Calls);
+        Assert.Equal(stored, JsonSerializer.Serialize((await page.Storage.Publishing.LoadAsync(page.Component.DashboardId, Operator)).Document));
+        if (!roles) Assert.Contains(page.Text["Analysis.Disabled"], page.Decoded);
+    }
+
+    [Fact]
+    public async Task DirectWorkspaceSelectionRecreatesTheReaderAndRunsOnlyTheSelectedWorkspace()
+    {
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, direct: true);
+        await page.Invoke("OnAfterRenderAsync", true);
+        Assert.Equal(2, client.Calls);
+        foreach (var workspace in new[] { "a", "b", "" })
+        {
+            var old = page.Component;
+            await page.SetWorkspace(workspace);
+            Assert.NotSame(old, page.Component);
+            Assert.Equal(workspace, page.Component.WorkspaceKey);
+            Assert.Null(page.Component.Domain);
+            Assert.Null(page.Component.Site);
+            Assert.Null(page.Component.Role);
+            Assert.Null(page.Component.FilteredSystems);
+            var previousCalls = client.Calls;
+            await page.Invoke("OnAfterRenderAsync", true);
+            Assert.Equal(workspace.Length == 0 ? 2 : 1, client.Calls - previousCalls);
+            if (workspace.Length > 0) Assert.Equal(workspace, client.Requests.Last().Workspace);
+        }
+        Assert.Single((await page.Storage.Repository.LoadAsync("alice@example.com")).Collection!.Dashboards);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task DirectReaderKeepsEmptyRoleAndWithdrawalWarningsVisible(string culture)
+    {
+        using var display = new UiSelection(culture);
+        var client = new DashboardQueryClient();
+        await using var page = await PublishedViewFixture.CreateAsync(roles: true, queryClient: client, direct: true);
+        await using (var context = page.Storage.Factory.CreateDbContext())
+        {
+            context.ComputerInventory.RemoveRange(await context.ComputerInventory.ToArrayAsync());
+            await context.SaveChangesAsync();
+        }
+        await page.Invoke("OnAfterRenderAsync", true);
+        Assert.Equal(0, client.Calls);
+        Assert.Contains(page.Text["Analysis.RoleSelection.Empty"], page.Decoded);
+        var id = page.Component.DashboardId;
+        await page.Storage.Publishing.WithdrawAsync(id, Alice);
+        await page.Invoke("ReloadAsync");
+        Assert.Contains(page.Text["Analysis.Errors.PublicationUnavailable"], page.Decoded);
+        Assert.Contains("role=\"alert\"", page.Decoded);
+        Assert.Contains(page.Text["AnalysisPublications.Reload"], page.Decoded);
+        Assert.DoesNotContain("LDAP latency", page.Decoded);
+    }
+
+    [Fact]
+    public void DirectRouteRetainsOperatorAuthorization()
+    {
+        var type = typeof(MonitoringApp.Components.Pages.PublishedDashboard);
+        Assert.Equal("/analysis/published/{DashboardId:guid}",
+            Assert.Single(type.GetCustomAttributes(typeof(RouteAttribute), true).Cast<RouteAttribute>()).Template);
+        Assert.Equal("OperatorAccess",
+            Assert.Single(type.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>()).Policy);
+    }
+
     private sealed class PublishedViewFixture(Fixture storage, ServiceProvider services, StaticPageRenderer renderer,
         CapturingComponentActivator components, Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent root)
         : IAsyncDisposable
@@ -2783,6 +4187,8 @@ public sealed class AnalysisDashboardPublishingTests
         private const System.Reflection.BindingFlags Flags =
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
         public PublishedAnalysisDashboardView Component => components.PublishedView!;
+        public MonitoringApp.Components.Pages.PublishedDashboard Page => components.PublishedDashboardPage!;
+        public Fixture Storage => storage;
         public ControlledPublishedFactory Reads => services.GetRequiredService<ControlledPublishedFactory>();
         public ControlledPublishedFactory Executions { get; init; } = default!;
         public AnalysisLog<PublishedAnalysisDashboardView> Log => services.GetRequiredService<AnalysisLog<PublishedAnalysisDashboardView>>();
@@ -2795,6 +4201,18 @@ public sealed class AnalysisDashboardPublishingTests
             Component.GetType().GetProperty("AuthenticationStateTask", Flags)!.SetValue(Component, authentication);
         public Task SetAutoRun(bool value) => renderer.Dispatcher.InvokeAsync(() =>
             Component.SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?> { ["AutoRunOnOpen"] = value })));
+        public Task SetParameters(Dictionary<string, object?> values) => renderer.Dispatcher.InvokeAsync(() =>
+            Component.SetParametersAsync(ParameterView.FromDictionary(values)));
+        public Task SetWorkspace(string value) => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            typeof(MonitoringApp.Components.Pages.PublishedDashboard).GetField("workspaceKey", Flags)!.SetValue(Page, value);
+            typeof(ComponentBase).GetMethod("StateHasChanged", Flags)!.Invoke(Page, null);
+            await root.QuiescenceTask;
+        });
+        public Task DrainExecution() => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            if (Get<Task?>("executionTask") is { } task) await task;
+        });
         public Task Invoke(string name, params object[] arguments) => renderer.Dispatcher.InvokeAsync(async () =>
         {
             var result = Component.GetType().GetMethod(name, Flags)!.Invoke(Component, arguments);
@@ -2804,23 +4222,46 @@ public sealed class AnalysisDashboardPublishingTests
         public Task DisposePage() => renderer.Dispatcher.InvokeAsync(() => Component.DisposeAsync().AsTask());
         public static async Task<PublishedViewFixture> CreateAsync(Exception? initialFailure = null,
             Task<AuthenticationState>? authentication = null, bool controls = true, bool enabled = false,
-            bool autoRun = false, bool twoWidgets = false)
+            bool autoRun = false, bool twoWidgets = false, bool roles = false,
+            DashboardQueryClient? queryClient = null, bool workspaceWide = false, bool direct = false)
         {
             var storage = await Fixture.CreateAsync();
             var collection = CreateDashboard();
             collection.Active.Document.AutoRefreshEnabled = true;
+            if (roles)
+            {
+                enabled = true;
+                collection.Active.Document.SelectionMode = AnalysisDashboardSelectionMode.InventoryRoles;
+                collection.Active.Document.InventoryRoles = ["Domain Controller"];
+                collection.Active.Document.Systems.Clear();
+            }
             if (twoWidgets) collection.Active.Document.Widgets.Add(new() { QueryDefinitionId = Guid.NewGuid(), Row = 5 });
             await storage.Repository.SaveAsync("alice@example.com", collection, 0);
             var publication = await storage.Publishing.PublishAsync(collection.ActiveDashboardId, 1, Alice);
             if (enabled)
             {
                 await using var context = storage.Factory.CreateDbContext();
+                if (roles)
+                    context.ComputerInventory.AddRange(
+                        new() { SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC01", Role = "Domain Controller" },
+                        new() { SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "DC02", Role = "domaincontrollers" },
+                        new() { SubscriptionId = "22222222-2222-2222-2222-222222222222", Computer = "DC01", Role = "Domain Controller" },
+                        new() { SubscriptionId = "11111111-1111-1111-1111-111111111111", Computer = "UNSELECTED", Role = "Other" });
+                else
+                    context.ComputerInventory.Add(new() { SubscriptionId = "sub", Computer = "DC01" });
                 foreach (var widget in collection.Active.Document.Widgets)
                 {
                     var query = ActiveDirectoryAnalysisQueries.Create().First();
+                    if (roles)
+                    {
+                        query.Kql = "print Series = 'DC01', Value = 1" +
+                            (workspaceWide ? " | where now() >= ago(_TimePeriod)" : " | where Series in~ (_SelectedSystems)");
+                        query.Scope = workspaceWide ? AnalysisQueryScopes.Workspace : AnalysisQueryScopes.SelectedSystems;
+                        query.VisualizationType = AnalysisQueryVisualizationTypes.Stat;
+                    }
                     query.Id = widget.QueryDefinitionId;
                     query.Key = widget.QueryDefinitionId.ToString("N");
-                    query.MinimumRole = SqlAuthenticationRoles.Admin;
+                    query.MinimumRole = roles ? SqlAuthenticationRoles.Operator : SqlAuthenticationRoles.Admin;
                     var version = new AnalysisQueryVersion
                     {
                         Id = Guid.NewGuid(), Version = 1,
@@ -2828,14 +4269,26 @@ public sealed class AnalysisDashboardPublishingTests
                     };
                     query.Versions.Add(version);
                     query.PublishedVersionId = version.Id;
+                    if (roles)
+                    {
+                        query.Workspaces.Add(new() { WorkspaceKey = "a", Enabled = true, LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded });
+                        query.Workspaces.Add(new() { WorkspaceKey = "b", Enabled = true, LastValidationStatus = AnalysisQueryValidationStatuses.Succeeded });
+                    }
                     context.AnalysisQueryDefinitions.Add(query);
                 }
                 await context.SaveChangesAsync();
             }
             var reads = new ControlledPublishedFactory(storage.Factory) { NextFailure = initialFailure };
             var executions = new ControlledPublishedFactory(storage.Factory);
-            var options = new CrossTenantLogAnalyticsOptions { Enabled = enabled };
-            var runner = new AnalysisQueryRunner(options, new UnusedSecretProvider(), new TargetWorkspaceResolver(options));
+            var options = new CrossTenantLogAnalyticsOptions
+            {
+                Enabled = enabled,
+                Workspaces = roles ? [
+                    new() { Key = "a", DisplayName = "Workspace A", WorkspaceId = Guid.NewGuid().ToString(), SubscriptionIds = ["11111111-1111-1111-1111-111111111111"] },
+                    new() { Key = "b", DisplayName = "Workspace B", WorkspaceId = Guid.NewGuid().ToString(), SubscriptionIds = ["22222222-2222-2222-2222-222222222222"] }] : []
+            };
+            ILogAnalyticsSecretProvider secret = roles ? new DashboardSecret() : new UnusedSecretProvider();
+            var runner = new AnalysisQueryRunner(options, secret, new TargetWorkspaceResolver(options), queryClient);
             var components = new CapturingComponentActivator();
             var log = new AnalysisLog<PublishedAnalysisDashboardView>();
             var clock = new AnalysisRefreshLoopTests.ManualTimeProvider();
@@ -2857,10 +4310,13 @@ public sealed class AnalysisDashboardPublishingTests
                         ["Value"] = authentication ?? Task.FromResult(new AuthenticationState(Alice)),
                         ["ChildContent"] = (RenderFragment)(builder =>
                         {
-                            builder.OpenComponent<PublishedAnalysisDashboardView>(0);
+                            builder.OpenComponent(0, direct ? typeof(MonitoringApp.Components.Pages.PublishedDashboard) : typeof(PublishedAnalysisDashboardView));
                             builder.AddAttribute(1, "DashboardId", publication.Id);
-                            builder.AddAttribute(2, "ShowControls", controls);
-                            builder.AddAttribute(3, "AutoRunOnOpen", autoRun);
+                            if (!direct)
+                            {
+                                builder.AddAttribute(2, "ShowControls", controls);
+                                builder.AddAttribute(3, "AutoRunOnOpen", autoRun);
+                            }
                             builder.CloseComponent();
                         })
                     }));
@@ -2985,18 +4441,20 @@ public sealed class AnalysisDashboardPublishingTests
             Func<TState, Exception?, string> formatter) => Entries.Add((level, exception));
     }
 
-    private sealed class Fixture(SqliteConnection connection, ServiceProvider services, TestDbContextFactory factory) : IAsyncDisposable
+    private sealed class Fixture(SqliteConnection connection, ServiceProvider services, TestDbContextFactory factory,
+        bool directoryEnabled) : IAsyncDisposable
     {
         public IDbContextFactory<AlertDbContext> Factory => factory;
-        public AnalysisDashboardRepository Repository { get; } = new(factory);
+        public AnalysisDashboardRepository Repository { get; } = new(factory, new() { Enabled = directoryEnabled });
         public AnalysisDashboardPublishing Publishing { get; } = new(factory,
             services.GetRequiredService<IAuthorizationService>(), new CurrentUserIdentity(new HttpContextAccessor()),
-            services.GetRequiredService<ApplicationAuthenticationOptions>());
+            services.GetRequiredService<ApplicationAuthenticationOptions>(), new() { Enabled = directoryEnabled });
         public AnalysisDashboardPublishing CreatePublishing(IDbContextFactory<AlertDbContext> contextFactory) => new(contextFactory,
             services.GetRequiredService<IAuthorizationService>(), new CurrentUserIdentity(new HttpContextAccessor()),
-            services.GetRequiredService<ApplicationAuthenticationOptions>());
+            services.GetRequiredService<ApplicationAuthenticationOptions>(), new() { Enabled = directoryEnabled });
 
-        public static async Task<Fixture> CreateAsync(bool open = false, SaveChangesInterceptor? interceptor = null)
+        public static async Task<Fixture> CreateAsync(bool open = false, SaveChangesInterceptor? interceptor = null,
+            bool directoryEnabled = false)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -3004,6 +4462,8 @@ public sealed class AnalysisDashboardPublishingTests
             if (interceptor is not null) options.AddInterceptors(interceptor);
             var factory = new TestDbContextFactory(options.Options);
             await using var context = factory.CreateDbContext();
+            string[] identityTables = ["DirectoryUsers", "HistoricalUserAliases", "SqlUserIdentities",
+                "EntraUserIdentities", "ScimUserStates", "ScimConnections", "AuthenticationUsers", "LegacyUserLinks"];
             var statements = context.Database.GenerateCreateScript().Split(';', StringSplitOptions.RemoveEmptyEntries)
                 .Where(statement =>
                     statement.TrimStart().StartsWith("CREATE TABLE \"AnalysisDashboards\" ", StringComparison.Ordinal)
@@ -3012,7 +4472,10 @@ public sealed class AnalysisDashboardPublishingTests
                     || statement.TrimStart().StartsWith("CREATE TABLE \"AnalysisQueryWorkspaces\" ", StringComparison.Ordinal)
                     || statement.TrimStart().StartsWith("CREATE TABLE \"AnalysisQueryVersions\" ", StringComparison.Ordinal)
                     || statement.TrimStart().StartsWith("CREATE TABLE \"ComputerInventory\" ", StringComparison.Ordinal)
-                    || statement.Contains(" ON \"AnalysisDashboardTemplates\" ", StringComparison.Ordinal));
+                    || statement.Contains(" ON \"AnalysisDashboardTemplates\" ", StringComparison.Ordinal)
+                    || directoryEnabled && identityTables.Any(table =>
+                        statement.TrimStart().StartsWith($"CREATE TABLE \"{table}\" ", StringComparison.Ordinal) ||
+                        statement.Contains($" ON \"{table}\" ", StringComparison.Ordinal)));
             foreach (var statement in statements)
                 await context.Database.ExecuteSqlRawAsync(statement
                     .Replace("{}", "{{}}", StringComparison.Ordinal)
@@ -3027,7 +4490,7 @@ public sealed class AnalysisDashboardPublishingTests
                 options.AddPolicy("OperatorAccess", policy => policy.RequireAssertion(context => open
                     || context.User.IsInRole(SqlAuthenticationRoles.Operator) || context.User.IsInRole(SqlAuthenticationRoles.Admin)));
             }).BuildServiceProvider();
-            return new(connection, services, factory);
+            return new(connection, services, factory, directoryEnabled);
         }
 
         public async ValueTask DisposeAsync()
@@ -3047,6 +4510,7 @@ public sealed class AnalysisDashboardPublishingTests
         public AnalysisDashboardExecutionControls? ExecutionControls { get; private set; }
         public MonitoringApp.Components.Pages.Analysis? AnalysisPage { get; private set; }
         public PublishedAnalysisDashboardView? PublishedView { get; private set; }
+        public MonitoringApp.Components.Pages.PublishedDashboard? PublishedDashboardPage { get; private set; }
 
         public IComponent CreateInstance(Type componentType)
         {
@@ -3057,12 +4521,15 @@ public sealed class AnalysisDashboardPublishingTests
                 AnalysisPage = page;
             if (component is PublishedAnalysisDashboardView view)
                 PublishedView = view;
+            if (component is MonitoringApp.Components.Pages.PublishedDashboard publishedPage)
+                PublishedDashboardPage = publishedPage;
             return component;
         }
     }
 
     private sealed class GatedDbContextFactory(IDbContextFactory<AlertDbContext> inner, bool timeoutFirst = false) : IDbContextFactory<AlertDbContext>
     {
+        private int inventoryReads;
         private int requestCount;
         public int RequestCount => Volatile.Read(ref requestCount);
         public TaskCompletionSource[] Started { get; } =
@@ -3074,6 +4541,8 @@ public sealed class AnalysisDashboardPublishingTests
 
         public async Task<AlertDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
+            if (Interlocked.Increment(ref inventoryReads) == 1)
+                return await inner.CreateDbContextAsync(cancellationToken);
             var index = Interlocked.Increment(ref requestCount) - 1;
             Started[index].TrySetResult();
             await Release[index].Task.WaitAsync(cancellationToken);

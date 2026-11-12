@@ -1,0 +1,283 @@
+@inject UiText Text
+@inject FreeKqlQueryService Queries
+@inject ILogger<KqlEditor> Logger
+@inject IJSRuntime JS
+@implements IDisposable
+@using System.Text.Json
+
+<span @ref="editorElement" class="free-kql-editor @Class" data-kql-editor data-kql-version="@version"
+      data-kql-tables="@tableNamesJson" data-kql-catalog-version="@catalogVersion"
+      data-kql-schema-workspace="@schemaWorkspaceKey" data-kql-workspace-count="@workspaceSelection.Length"
+      data-kql-schema-loading="@Text["KqlEditor.SchemaLoading"]" data-kql-schema-failed="@Text["KqlEditor.SchemaFailed"]"
+      data-kql-schema-title="@Text["KqlEditor.SchemaTitle"]" data-kql-schema-empty="@Text["KqlEditor.SchemaEmpty"]"
+      data-kql-diagnostic-messages="@DiagnosticMessages"
+      data-kql-keyword-no-info="@Text["KqlEditor.Keywords.NoInfo"]"
+      data-kql-schema-unavailable="@Text["KqlEditor.SchemaUnavailable"]">
+    <textarea @bind:get="editorValue" @bind:set="ChangeValueAsync" rows="@Rows" maxlength="@MaxLength"
+              required="@Required" disabled="@Disabled" readonly="@ReadOnly"
+              spellcheck="false" autocomplete="off" autocapitalize="off"
+              aria-describedby="@helpId"></textarea>
+    <span class="free-kql-completion" aria-hidden="true"></span>
+    <span class="free-kql-info" data-kql-info-tooltip role="tooltip" hidden></span>
+    <small data-kql-completion-error role="status" hidden>@Text["KqlEditor.CompletionFailed"]</small>
+    <small data-kql-schema-error role="status" hidden="@(!schemaHelpFailed)">@Text["KqlEditor.SchemaFailed"]</small>
+    <span class="kql-editor-hints" data-kql-hints role="status" aria-live="polite" aria-atomic="true" hidden></span>
+    <small data-kql-diagnostics-error role="status" hidden>@Text["KqlEditor.Hints.Failed"]</small>
+    <span class="kql-keyword-browser" data-kql-keywords>
+        <button class="admin-secondary kql-keyword-toggle" type="button" data-kql-keyword-toggle
+                disabled aria-expanded="false" aria-controls="@keywordPanelId">@Text["KqlEditor.Keywords.Title"]</button>
+        <span id="@keywordPanelId" class="kql-keyword-panel" data-kql-keyword-panel hidden>
+            <span class="kql-keyword-list" data-kql-keyword-list role="group" aria-label="@Text["KqlEditor.Keywords.Title"]"></span>
+            <span class="kql-keyword-help" data-kql-keyword-help role="status" aria-live="polite" aria-atomic="true">@Text["KqlEditor.Keywords.Help"]</span>
+        </span>
+    </span>
+</span>
+<small id="@helpId">@Text["KqlEditor.CompletionHelp"]</small>
+@if (workspaceSelection.Length > 1)
+{
+    <small data-kql-multiple-workspaces role="status">@Text["KqlEditor.MultipleWorkspaces"]</small>
+}
+@if (tablesLoading)
+{
+    <small role="status">@Text["KqlEditor.TablesLoading"]</small>
+}
+else if (tablesFailed)
+{
+    <small role="alert">@Text["KqlEditor.TablesFailed"]</small>
+    <button class="admin-secondary" type="button" disabled="@Disabled" @onclick="RetryTables">@Text["KqlEditor.TablesRetry"]</button>
+}
+else if (workspaceSelection.Length > 0)
+{
+    <small role="status">@Text.Format("KqlEditor.TablesLoaded", tableCount)</small>
+    <button class="admin-secondary" type="button" disabled="@Disabled" @onclick="RetryTables">@Text["KqlEditor.TablesRetry"]</button>
+}
+
+@code {
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public int Rows { get; set; } = 12;
+    [Parameter] public int? MaxLength { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public IReadOnlyCollection<string> WorkspaceKeys { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<KqlTableCatalog> TableCatalogChanged { get; set; }
+
+    private readonly string helpId = $"kql-completion-help-{Guid.NewGuid():N}";
+    private readonly string keywordPanelId = $"kql-keyword-panel-{Guid.NewGuid():N}";
+    private string DiagnosticMessages => JsonSerializer.Serialize(new Dictionary<string, string>
+    {
+        ["Title"] = Text["KqlEditor.Hints.Title"], ["Limited"] = Text["KqlEditor.Hints.Limited"],
+        ["Draft"] = Text["KqlEditor.Hints.Draft"], ["Truncated"] = Text["KqlEditor.Hints.Truncated"],
+        ["Location"] = Text["KqlEditor.Hints.Location"],
+        ["error"] = Text["KqlEditor.Hints.Error"], ["warning"] = Text["KqlEditor.Hints.Warning"],
+        ["info"] = Text["KqlEditor.Hints.Info"],
+        ["UnexpectedCloser"] = Text["KqlEditor.Hints.UnexpectedCloser"],
+        ["OpenDelimiter"] = Text["KqlEditor.Hints.OpenDelimiter"],
+        ["OpenLiteral"] = Text["KqlEditor.Hints.OpenLiteral"],
+        ["OpenComment"] = Text["KqlEditor.Hints.OpenComment"],
+        ["UnknownColumn"] = Text["KqlEditor.Hints.UnknownColumn"],
+        ["SchemaReady"] = Text["KqlEditor.Hints.SchemaReady"],
+        ["SchemaPending"] = Text["KqlEditor.Hints.SchemaPending"],
+        ["SchemaFailed"] = Text["KqlEditor.Hints.SchemaFailed"],
+        ["SchemaMultiple"] = Text["KqlEditor.Hints.SchemaMultiple"],
+        ["SchemaLimited"] = Text["KqlEditor.Hints.SchemaLimited"]
+    });
+    private string? previousValue;
+    private string editorValue = string.Empty;
+    private long version;
+    private string[] workspaceSelection = [];
+    private string tableNamesJson = "[]";
+    private int tableCount;
+    private bool tablesPending, tablesLoading, tablesFailed, catalogNotificationPending, disposed;
+    private CancellationTokenSource? tableRequest;
+    private ElementReference editorElement;
+    private DotNetObjectReference<KqlEditor>? schemaReceiver;
+    private bool schemaConnectAttempted, schemaHelpFailed;
+    private long catalogVersion;
+    private string? schemaWorkspaceKey;
+    private readonly HashSet<string> tableNames = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> tablesByWorkspace = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<(string Workspace, string Table), Task<KqlTableSchema?>> schemaCache = [];
+    private readonly HashSet<CancellationTokenSource> schemaRequests = [];
+
+    protected override void OnParametersSet()
+    {
+        if (!string.Equals(previousValue, Value, StringComparison.Ordinal))
+        {
+            previousValue = Value;
+            editorValue = Value;
+            version++;
+        }
+        var ordered = WorkspaceKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var selection = ordered.Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        var firstWorkspaceChanged = !string.Equals(schemaWorkspaceKey, ordered.FirstOrDefault(), StringComparison.OrdinalIgnoreCase);
+        schemaWorkspaceKey = ordered.FirstOrDefault();
+        if (workspaceSelection.SequenceEqual(selection, StringComparer.OrdinalIgnoreCase))
+        {
+            if (firstWorkspaceChanged) ResetSchemas();
+            return;
+        }
+        workspaceSelection = selection;
+        QueueTables();
+    }
+
+    private void QueueTables()
+    {
+        tableRequest?.Cancel();
+        tableRequest = null;
+        tableNamesJson = "[]";
+        tableNames.Clear();
+        tablesByWorkspace.Clear();
+        tableCount = 0;
+        tablesFailed = false;
+        tablesPending = tablesLoading = workspaceSelection.Length > 0;
+        catalogNotificationPending = true;
+        ResetSchemas();
+    }
+
+    private void ResetSchemas()
+    {
+        catalogVersion++;
+        foreach (var request in schemaRequests.ToArray()) request.Cancel();
+        schemaCache.Clear();
+        schemaHelpFailed = false;
+    }
+
+    private void RetryTables()
+    {
+        if (schemaHelpFailed) schemaConnectAttempted = false;
+        QueueTables();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!schemaConnectAttempted && !disposed)
+        {
+            schemaConnectAttempted = true;
+            schemaReceiver ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("kqlCompletion.connect", editorElement, schemaReceiver);
+            }
+            catch (JSException exception)
+            {
+                Logger.LogError(exception, "Could not connect KQL table schema help.");
+                schemaHelpFailed = true;
+                if (!disposed) await InvokeAsync(StateHasChanged);
+            }
+        }
+        if (catalogNotificationPending && !disposed)
+        {
+            catalogNotificationPending = false;
+            await NotifyTableCatalogAsync();
+        }
+        if (!tablesPending || disposed) return;
+        tablesPending = false;
+        using var request = new CancellationTokenSource();
+        tableRequest = request;
+        var selection = workspaceSelection;
+        try
+        {
+            var catalogs = await Queries.GetWorkspaceTablesAsync(selection, request.Token);
+            if (disposed || request.IsCancellationRequested || !ReferenceEquals(tableRequest, request)) return;
+            var names = catalogs.SelectMany(catalog => catalog.TableNames).Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal).ToArray();
+            tableNamesJson = JsonSerializer.Serialize(names);
+            tableCount = names.Length;
+            tableNames.UnionWith(names);
+            foreach (var catalog in catalogs)
+                tablesByWorkspace.Add(catalog.WorkspaceKey, catalog.TableNames.ToHashSet(StringComparer.Ordinal));
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load KQL table names for workspaces {WorkspaceKeys}.", string.Join(", ", selection));
+            if (!disposed && !request.IsCancellationRequested && ReferenceEquals(tableRequest, request)) tablesFailed = true;
+        }
+        finally
+        {
+            if (ReferenceEquals(tableRequest, request))
+            {
+                tableRequest = null;
+                tablesLoading = false;
+            }
+        }
+        if (!disposed && !request.IsCancellationRequested)
+        {
+            await NotifyTableCatalogAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task NotifyTableCatalogAsync() => TableCatalogChanged.HasDelegate
+        ? TableCatalogChanged.InvokeAsync(new KqlTableCatalog(
+            workspaceSelection.ToArray(), tableNames.Order(StringComparer.Ordinal).ToArray(), tablesLoading, tablesFailed))
+        : Task.CompletedTask;
+
+    [JSInvokable]
+    public Task<KqlTableSchema?> GetTableSchemaAsync(string tableName, long requestedVersion)
+    {
+        if (disposed || requestedVersion != catalogVersion || schemaWorkspaceKey is null)
+            return Task.FromResult<KqlTableSchema?>(null);
+        if (!tableNames.Contains(tableName))
+        {
+            Logger.LogWarning("KQL schema request rejected for an unrecognized table {TableName}.", tableName);
+            return Task.FromResult<KqlTableSchema?>(new(schemaWorkspaceKey, tableName, requestedVersion, KqlSchemaStatus.Unavailable, []));
+        }
+        if (!tablesByWorkspace.TryGetValue(schemaWorkspaceKey, out var available) || !available.Contains(tableName))
+            return Task.FromResult<KqlTableSchema?>(new(schemaWorkspaceKey, tableName, requestedVersion, KqlSchemaStatus.Unavailable, []));
+        var key = (schemaWorkspaceKey.ToUpperInvariant(), tableName);
+        if (schemaCache.TryGetValue(key, out var cached)) return cached;
+        var task = LoadSchemaAsync(schemaWorkspaceKey, tableName, requestedVersion);
+        schemaCache.Add(key, task);
+        return task;
+    }
+
+    private async Task<KqlTableSchema?> LoadSchemaAsync(string workspaceKey, string tableName, long requestedVersion)
+    {
+        using var request = new CancellationTokenSource();
+        schemaRequests.Add(request);
+        try
+        {
+            var columns = await Queries.GetTableSchemaAsync(workspaceKey, tableName, request.Token);
+            if (disposed || request.IsCancellationRequested || requestedVersion != catalogVersion) return null;
+            return new(workspaceKey, tableName, requestedVersion,
+                columns.Count == 0 ? KqlSchemaStatus.Empty : KqlSchemaStatus.Ready, columns);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load KQL schema for table {TableName} in workspace {WorkspaceKey}.", tableName, workspaceKey);
+            if (disposed || request.IsCancellationRequested || requestedVersion != catalogVersion) return null;
+            schemaHelpFailed = true;
+            await InvokeAsync(StateHasChanged);
+            return new(workspaceKey, tableName, requestedVersion, KqlSchemaStatus.Failed, []);
+        }
+        finally
+        {
+            schemaRequests.Remove(request);
+        }
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        tableRequest?.Cancel();
+        foreach (var request in schemaRequests.ToArray()) request.Cancel();
+        schemaReceiver?.Dispose();
+    }
+
+    private Task ChangeValueAsync(string? value)
+    {
+        // Parent parameters may arrive after an intermediate render; never replay their old text.
+        editorValue = value ?? string.Empty;
+        return ValueChanged.InvokeAsync(editorValue);
+    }
+}

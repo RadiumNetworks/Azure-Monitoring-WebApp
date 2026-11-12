@@ -16,6 +16,10 @@
             <header class="inbox-widget-header">
                 <div><strong>@widget.Title</strong><small>@AnalysisSelectionLabels.TimeRange(Text, Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) · @((Document.BinMinutesOverride ?? widget.BinMinutes) is int bin ? $"{bin} min" : Text["AnalysisSelections.QueryDefaultInterval"]) · @widget.GroupBy</small></div>
             </header>
+            @if (Document.SelectionMode == AnalysisDashboardSelectionMode.InventoryRoles && WorkspaceWideQueries.Contains(widget.QueryDefinitionId))
+            {
+                <p class="admin-message admin-message-warning" role="status">@Text["Analysis.RoleSelection.WorkspaceWide"]</p>
+            }
             <div class="inbox-widget-body analysis-widget-body">
                 @if (error is not null)
                 {
@@ -35,4 +39,5 @@
     [Parameter, EditorRequired] public AnalysisDashboardDocument Document { get; set; } = default!;
     [Parameter] public IReadOnlyDictionary<string, AnalysisQueryResponse> Results { get; set; } = new Dictionary<string, AnalysisQueryResponse>();
     [Parameter] public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+    [Parameter] public IReadOnlySet<Guid> WorkspaceWideQueries { get; set; } = new HashSet<Guid>();
 }

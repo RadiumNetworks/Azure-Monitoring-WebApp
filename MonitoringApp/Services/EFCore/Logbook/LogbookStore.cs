@@ -5,17 +5,22 @@ namespace MonitoringApp;
 /// <summary>
 /// Reads logbook entries and appends new comments with server-generated audit data.
 /// </summary>
-public sealed class LogbookStore(IDbContextFactory<AlertDbContext> dbContextFactory)
+public sealed class LogbookStore(IDbContextFactory<AlertDbContext> dbContextFactory,
+    IdentityDirectoryOptions? directory = null, ApplicationAuthenticationOptions? authentication = null)
 {
     public async Task<IReadOnlyList<LogbookEntry>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ApplicationTelemetry.StartOperation("LogbookStore.GetAll");
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
-        return await context.LogbookEntries
+        var entries = await context.LogbookEntries
             .AsNoTracking()
             .OrderByDescending(entry => entry.CreatedAt)
             .ThenByDescending(entry => entry.Id)
             .ToArrayAsync(cancellationToken);
+        var labels = await UserReferenceQueries.LabelsAsync(context, entries.Select(entry => entry.User),
+            directory?.Enabled == true, cancellationToken, authentication?.IsOpen != true);
+        foreach (var entry in entries) entry.UserDisplayName = labels.GetValueOrDefault(entry.User);
+        return entries;
     }
 
     public async Task<LogbookEntry> AddAsync(

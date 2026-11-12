@@ -29,7 +29,7 @@
     </div>
 }
 
-<section class="query-heading" data-language-dirty="@((Dashboard.CanUndo || Dashboard.CanRedo) ? "true" : "false")">
+<section class="query-heading analysis-page-heading" data-language-dirty="@((Dashboard.CanUndo || Dashboard.CanRedo || (UsesInventoryRoles && selectedInventoryRoles.Count == 0)) ? "true" : "false")">
     <div>
         <p class="eyebrow">@Text["Analysis.Eyebrow"]</p>
         <h1>@Text["Navigation.Dashboards"]</h1>
@@ -58,7 +58,7 @@
     }
 </section>
 
-<section class="analysis-controls" aria-label="@Text["Analysis.FiltersLabel"]">
+<section class="@(UsesRoleFilters ? "analysis-controls analysis-role-filters" : "analysis-controls")" aria-label="@Text["Analysis.FiltersLabel"]">
     <label>
         <span>@Text["Filters.Workspace"]</span>
         <select disabled="@DashboardBusy" @bind="workspaceFilter" @bind:after="WorkspaceChangedAsync">
@@ -69,6 +69,8 @@
             }
         </select>
     </label>
+    @if (!UsesRoleFilters)
+    {
     <label>
         <span>@Text["Filters.Domain"]</span>
         <select disabled="@DashboardBusy" @bind="domainFilter" @bind:after="DomainChangedAsync">
@@ -99,11 +101,36 @@
             }
         </select>
     </label>
+    }
+    else
+    {
+        <p role="status">@Text["Analysis.RoleSelection.FiltersHelp"]</p>
+    }
 </section>
 
 <section class="analysis-dashboard-tabs" aria-label="@Text["AnalysisPublications.SharedDashboards"]">
     <div class="admin-heading-actions">
         <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ReturnToPersonalDashboard">@Text["AnalysisPublications.MyDashboards"]</button>
+        @if (selectedPublishedDashboard is null &&
+            (dashboardOwners.Count > 1 || !dashboardOwnerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            <label class="analysis-dashboard-owner">
+                <span>@Text["AnalysisDashboards.Owner"]</span>
+                <select value="@dashboardOwnerKey" disabled="@DashboardBusy" @onchange="ChangeDashboardOwnerAsync">
+                    @if (!dashboardOwners.Any(owner => owner.OwnerKey.Equals(dashboardOwnerKey, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <option value="@dashboardOwnerKey" disabled>@Text.Format("AnalysisDashboards.UnavailableOwner", dashboardOwnerKey)</option>
+                    }
+                    @foreach (var owner in dashboardOwners)
+                    {
+                        <option value="@owner.OwnerKey">@(owner.OwnerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase)
+                            ? Text.Format("AnalysisDashboards.OwnCollection", owner.DisplayName ?? owner.OwnerKey)
+                            : owner.DisplayName ?? owner.OwnerKey)</option>
+                    }
+                </select>
+            </label>
+            <p>@Text["AnalysisDashboards.AliasHelp"]</p>
+        }
         <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="DuplicateDashboardAsync">@Text["AnalysisPublications.Duplicate"]</button>
         @if (editMode)
         {
@@ -120,7 +147,7 @@
     @if (editMode && canPublishDashboard && selectedPublishedDashboard is null)
     {
         <div class="admin-heading-actions">
-            <button class="admin-primary" type="button" disabled="@DashboardBusy" @onclick="PublishDashboardAsync">
+            <button class="admin-primary" type="button" disabled="@(DashboardBusy || (UsesInventoryRoles && !HasSelectionRule))" @onclick="PublishDashboardAsync">
                 @(OwnPublication is null ? Text["AnalysisPublications.Publish"] : Text["AnalysisPublications.Update"])
             </button>
             @if (OwnPublication is not null)
@@ -152,9 +179,12 @@
     <PublishedAnalysisDashboardView @key="(publishedId, workspaceFilter, domainFilter, siteFilter, roleFilter)" DashboardId="publishedId"
         WorkspaceKey="@workspaceFilter" Domain="@domainFilter" Site="@siteFilter" Role="@roleFilter"
         FilteredSystems="@VisibleSystems.ToArray()"
+        InventoryRolesChanged="@(usesRoles => PublishedSelectionModeChanged(publishedId, usesRoles))"
         ShowControls="@editMode" AutoRunOnOpen="@(!editMode || runPublishedOnFilterChange)" />
 }
 <div class="analysis-personal-dashboard" hidden="@(selectedPublishedDashboard is not null)">
+<AnalysisDashboardInventoryNotice MissingSystems="missingDashboardSystems"
+    AllMissing="@(missingDashboardSystems.Count > 0 && missingDashboardSystems.Count == Dashboard.Document.Systems.Count)" />
 @if (editMode)
 {
     <p class="inbox-save-status" role="status"><i></i>@(dashboardStatus ?? Text["AnalysisStatus.NotSaved"])</p>
@@ -220,7 +250,7 @@
     @if (SelectedQuery?.Scope == AnalysisQueryScopes.Workspace)
     {
         <div class="admin-message admin-message-warning" role="status">
-            @Text["Analysis.WorkspaceQueryHelp"]
+            @Text[UsesInventoryRoles ? "Analysis.RoleSelection.WorkspaceWide" : "Analysis.WorkspaceQueryHelp"]
         </div>
     }
     <AnalysisExecutionSelections @bind-TimeRangeMinutes="timeRangeMinutes" @bind-BinMinutes="binMinutes"
@@ -242,12 +272,74 @@
 <section class="analysis-system-picker analysis-resizable-panel" aria-labelledby="analysis-systems"
          data-analysis-panel="systems" style="@PanelStyle(Dashboard.Document.SystemsPanel)">
     <div class="admin-section-heading">
-        <div><h2 id="analysis-systems">@Text["Analysis.Systems"]</h2><span>@Text.Format("Analysis.SelectedSystems", selectedSystems.Count)</span></div>
+        <div><h2 id="analysis-systems">@Text["Analysis.Systems"]</h2><span>@(UsesInventoryRoles && roleSelection is null
+            ? Text["Analysis.RoleSelection.CountUnavailable"]
+            : Text.Format("Analysis.SelectedSystems", UsesInventoryRoles ? roleSelection?.Systems.Count ?? 0 : selectedSystems.Count))</span></div>
+        @if (!UsesInventoryRoles)
+        {
         <div class="admin-card-actions">
             <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="SelectVisibleAsync">@Text["Analysis.SelectVisible"]</button>
             <button class="admin-secondary" type="button" disabled="@DashboardBusy" @onclick="ClearSelectionAsync">@Text["Common.Clear"]</button>
         </div>
+        }
     </div>
+    <label class="analysis-selection-mode">
+        <span>@Text["Analysis.RoleSelection.Mode"]</span>
+        <select value="@selectionMode" disabled="@(DashboardBusy || PersonalActionsBlocked)" @onchange="SelectionModeChangedAsync">
+            <option value="@AnalysisDashboardSelectionMode.FixedSystems">@Text["Analysis.RoleSelection.Fixed"]</option>
+            <option value="@AnalysisDashboardSelectionMode.InventoryRoles">@Text["Analysis.RoleSelection.Dynamic"]</option>
+        </select>
+    </label>
+    @if (UsesInventoryRoles)
+    {
+        <div class="analysis-role-selection" tabindex="0" role="region" aria-label="@Text["Analysis.RoleSelection.Roles"]">
+        <fieldset disabled="@(DashboardBusy || PersonalActionsBlocked)">
+            <legend>@Text["Analysis.RoleSelection.Roles"]</legend>
+            <div class="analysis-system-grid">
+                @foreach (var role in AvailableInventoryRoles)
+                {
+                    <label class="admin-check">
+                        <input type="checkbox" checked="@selectedInventoryRoles.Contains(role)"
+                               @onchange="args => InventoryRoleChangedAsync(role, args)" />
+                        <span>@role</span>
+                    </label>
+                }
+            </div>
+        </fieldset>
+        <button class="admin-secondary" type="button" disabled="@(DashboardBusy || PersonalActionsBlocked)"
+                @onclick="RefreshRolePreviewAsync">@Text["Analysis.RoleSelection.Refresh"]</button>
+        <p>@Text["Analysis.RoleSelection.Help"]</p>
+        <div aria-live="polite">
+            @if (isRefreshingSelection)
+            {
+                <p role="status">@Text["Analysis.RoleSelection.Loading"]</p>
+            }
+            else if (roleSelectionError is not null)
+            {
+                <div class="admin-message admin-message-error" role="alert">@roleSelectionError</div>
+            }
+            else if (roleSelection is not null && inventoryLoadedAt is { } snapshotAt)
+            {
+                <p>@Text.Format("Analysis.RoleSelection.Snapshot", snapshotAt.ToString("u"))</p>
+                @if (roleSelection.Systems.Count == 0)
+                {
+                    <p role="status">@Text["Analysis.RoleSelection.Empty"]</p>
+                }
+                else
+                {
+                    <ul>
+                        @foreach (var system in roleSelection.Systems)
+                        {
+                            <li><strong>@system.Computer</strong> <small>@system.SubscriptionId</small></li>
+                        }
+                    </ul>
+                }
+            }
+        </div>
+        </div>
+    }
+    else
+    {
     <div class="analysis-system-grid">
         @foreach (var system in VisibleSystems)
         {
@@ -260,6 +352,7 @@
             </label>
         }
     </div>
+    }
     @if (editMode)
     {
     <button class="analysis-panel-resize-handle" type="button" data-analysis-panel-resize
@@ -370,6 +463,10 @@
                         </div>
                     }
                     <div class="inbox-widget-body analysis-widget-body">
+                        @if (UsesInventoryRoles && availableQueries.Any(query => query.Id == widget.QueryDefinitionId && query.Scope == AnalysisQueryScopes.Workspace))
+                        {
+                            <p class="admin-message admin-message-warning" role="status">@Text["Analysis.RoleSelection.WorkspaceWide"]</p>
+                        }
                         @if (!string.IsNullOrWhiteSpace(widgetError))
                         {
                             <div class="admin-message admin-message-error">@widgetError</div>
@@ -407,7 +504,7 @@
         }
         else if (executionPreviews.Count == 0)
         {
-            <p class="admin-empty">@Text["Analysis.PreviewEmpty"]</p>
+            <p class="admin-empty">@Text[UsesInventoryRoles ? "Analysis.RoleSelection.Empty" : "Analysis.PreviewEmpty"]</p>
         }
         else
         {
@@ -456,6 +553,24 @@
     private IReadOnlyList<AnalysisQueryCategoryNode> LibraryCategories => AnalysisQueryCategories.Build(VisibleLibraryQueries);
     private bool isRefreshingLibrary;
     private readonly HashSet<string> selectedSystems = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedInventoryRoles = new(StringComparer.OrdinalIgnoreCase);
+    private AnalysisDashboardSelectionMode selectionMode;
+    private AnalysisDashboardInventorySelection? roleSelection;
+    private string? roleSelectionFingerprint;
+    private string? roleSelectionError;
+    private DateTimeOffset? inventoryLoadedAt;
+    private bool isRefreshingSelection;
+    private long selectionGeneration;
+    private bool UsesInventoryRoles => selectionMode == AnalysisDashboardSelectionMode.InventoryRoles;
+    private bool UsesPersonalRoles => selectedPublishedDashboard is null && UsesInventoryRoles;
+    private bool publishedUsesInventoryRoles;
+    private bool UsesRoleFilters => selectedPublishedDashboard is null ? UsesInventoryRoles : publishedUsesInventoryRoles;
+    private bool HasSelectionRule => UsesInventoryRoles ? selectedInventoryRoles.Count > 0 : selectedSystems.Count > 0;
+    private IEnumerable<string> AvailableInventoryRoles => inventory
+        .Select(system => InventoryRoleRuleMatcher.NormalizeRole(system.Role?.Trim()))
+        .OfType<string>().Where(role => !string.IsNullOrWhiteSpace(role))
+        .Concat(selectedInventoryRoles).Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase);
     private string domainFilter = string.Empty;
     private string siteFilter = string.Empty;
     private string roleFilter = string.Empty;
@@ -475,6 +590,8 @@
     private IReadOnlyList<AnalysisQueryExecutionPreview> executionPreviews = [];
     private string? previewError;
     private string dashboardOwnerKey = "open-access";
+    private string dashboardActorKey = "open-access";
+    private IReadOnlyList<AnalysisDashboardOwner> dashboardOwners = [];
     private int dashboardRevision;
     private AnalysisDashboardCollection dashboardCollection = AnalysisDashboardCollection.Create();
     private bool isChangingDashboard;
@@ -489,11 +606,12 @@
     private string? publicationError;
     private string? publicationLoadError;
     private string? publicationMessage;
-    private bool DashboardBusy => isRunning || isDashboardRunning || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard;
+    private bool DashboardBusy => isRunning || isDashboardRunning || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || isRefreshingSelection;
     private bool PersonalActionsBlocked => selectedPublishedDashboard is not null || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || dashboardLoadFailed;
     private PublishedAnalysisDashboard? OwnPublication => publishedDashboards.FirstOrDefault(item =>
         item.Id == dashboardCollection.ActiveDashboardId && item.Owner.Equals(dashboardOwnerKey, StringComparison.OrdinalIgnoreCase));
     private string? dashboardStatus;
+    private IReadOnlyList<AnalysisDashboardSystem> missingDashboardSystems = [];
     private readonly Dictionary<string, AnalysisQueryResponse> widgetResults = [];
     private readonly Dictionary<string, string> widgetErrors = [];
     private bool dashboardEditMode = true;
@@ -533,16 +651,17 @@
         availableQueries.Where(query => !Dashboard.Document.HiddenQueryIds.Contains(query.Id));
     private IEnumerable<AnalysisQueryDefinition> HiddenLibraryQueries =>
         availableQueries.Where(query => Dashboard.Document.HiddenQueryIds.Contains(query.Id));
-    private bool CanRun => Options.Enabled && !isRunning && !isDashboardRunning && !PersonalActionsBlocked &&
-        !refreshCancellation.IsCancellationRequested && SelectedQuery is not null && selectedSystems.Count > 0;
+    private bool CanRun => Options.Enabled && !isRunning && !isDashboardRunning && !isRefreshingSelection && !PersonalActionsBlocked &&
+        !disposed && !refreshCancellation.IsCancellationRequested && SelectedQuery is not null && HasSelectionRule;
     private bool CanRunDashboard =>
         Options.Enabled &&
         !isDashboardRunning &&
         !isRunning &&
+        !isRefreshingSelection &&
         !PersonalActionsBlocked &&
         !refreshCancellation.IsCancellationRequested &&
         Dashboard.Document.Widgets.Count > 0 &&
-        selectedSystems.Count > 0;
+        !disposed && HasSelectionRule;
 
     private async Task LoadLibraryAsync()
     {
@@ -574,7 +693,7 @@
         siteFilter = FilterDefaults.Site?.Trim() ?? string.Empty;
         roleFilter = FilterDefaults.Role?.Trim() ?? string.Empty;
         var user = (await AuthenticationStateTask).User;
-        dashboardOwnerKey = CurrentUserIdentity.GetActor(user, AuthenticationOptions.IsOpen);
+        dashboardActorKey = dashboardOwnerKey = await CurrentUserIdentity.GetActorAsync(user, AuthenticationOptions.IsOpen);
         canPublishDashboard = await Publishing.CanPublishAsync(user);
         await ReloadPublicationsAsync();
         await RefreshLibraryAsync();
@@ -588,25 +707,91 @@
         isLoadingDashboard = true;
         try
         {
-            var stored = await DashboardRepository.LoadAsync(dashboardOwnerKey);
-            var loadedInventory = await AlertStore.GetComputerInventoryAsync();
-            var collection = stored.Collection ?? AnalysisDashboardCollection.Create();
-            var document = collection.OpenActive();
-            Dashboard.Load(document);
-            inventory = loadedInventory;
-            dashboardRevision = stored.Revision;
-            dashboardCollection = collection;
-            RestoreDashboardSystems();
-            dashboardLoadFailed = false;
-            dashboardStatus = stored.Collection is null ? null : Text.Format("AnalysisStatus.Restored", dashboardRevision);
+            await LoadDashboardOwnerAsync(dashboardOwnerKey);
         }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Could not load the analysis workspace data.");
+            errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ChangeFailed");
             dashboardLoadFailed = true;
             editMode = false;
         }
         finally { isLoadingDashboard = false; }
+    }
+
+    private async Task LoadDashboardOwnerAsync(string ownerKey)
+    {
+        var owners = await DashboardRepository.ListOwnersAsync(dashboardActorKey, refreshCancellation.Token);
+        var stored = await DashboardRepository.LoadForOwnerAsync(dashboardActorKey, ownerKey, refreshCancellation.Token);
+        if (stored.Collection is null && !ownerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase))
+            throw new KeyNotFoundException("The historical dashboard collection is no longer available.");
+        var loadedInventory = await AlertStore.GetComputerInventoryAsync(refreshCancellation.Token);
+        if (!ownerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase))
+            await DashboardRepository.RequireAccessAsync(dashboardActorKey, ownerKey, refreshCancellation.Token);
+        var collection = stored.Collection ?? AnalysisDashboardCollection.Create();
+        collection.OpenActive().ValidateSelection();
+        InvalidateSelection();
+        inventory = loadedInventory;
+        inventoryLoadedAt = DateTimeOffset.UtcNow;
+        dashboardOwnerKey = ownerKey;
+        dashboardOwners = owners;
+        ActivatePersonalDashboard(collection, stored.Revision);
+        dashboardLoadFailed = false;
+        dashboardStatus = stored.Collection is null ? null : Text.Format("AnalysisStatus.Restored", dashboardRevision);
+    }
+
+    private async Task ChangeDashboardOwnerAsync(ChangeEventArgs args)
+    {
+        if (DashboardBusy || selectedPublishedDashboard is not null)
+            return;
+        var ownerKey = args.Value?.ToString();
+        if (ownerKey is null || !dashboardOwners.Any(owner => owner.OwnerKey.Equals(ownerKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            Logger.LogWarning("An unavailable analysis dashboard owner was selected.");
+            errorMessage = Text["AnalysisDashboards.AccessDenied"];
+            return;
+        }
+        isChangingDashboard = true;
+        try
+        {
+            if (!dashboardLoadFailed && !await TrySaveDashboardAsync() && !dashboardLoadFailed)
+                return;
+            await LoadDashboardOwnerAsync(ownerKey);
+            errorMessage = publicationError = publicationMessage = null;
+        }
+        catch (UnauthorizedAccessException exception) { DashboardAccessDenied(exception); }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not switch the analysis dashboard owner.");
+            errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ChangeFailed");
+        }
+        finally { isChangingDashboard = false; }
+        if (!editMode && !dashboardLoadFailed && errorMessage is null)
+            await RunDashboardAsync();
+    }
+
+    private void DashboardAccessDenied(UnauthorizedAccessException exception)
+    {
+        Logger.LogWarning(exception, "Historical alias dashboard access is no longer available.");
+        InvalidateSelection();
+        dashboardLoadFailed = true;
+        errorMessage = Text["AnalysisDashboards.AccessDenied"];
+    }
+
+    private async Task<bool> CheckDashboardAccessAsync()
+    {
+        if (dashboardOwnerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase))
+            return true;
+        try
+        {
+            await DashboardRepository.RequireAccessAsync(dashboardActorKey, dashboardOwnerKey, refreshCancellation.Token);
+            return true;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            DashboardAccessDenied(exception);
+            return false;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -679,11 +864,20 @@
 
     private async Task DashboardFiltersChangedAsync()
     {
+        selectionGeneration++;
         widgetResults.Clear();
         widgetErrors.Clear();
         result = null;
         errorMessage = null;
         hasDetailRequest = false;
+        if (UsesPersonalRoles)
+        {
+            if (CanRunDashboard)
+                await RunDashboardAsync();
+            else
+                await RefreshRoleInventoryAsync();
+            return;
+        }
         RefreshExecutionPreview();
         runPublishedOnFilterChange = selectedPublishedDashboard is not null;
         if (selectedPublishedDashboard is null)
@@ -775,9 +969,158 @@
         RefreshExecutionPreview();
     }
 
+    private void ValidateSelectionDraft()
+    {
+        if (UsesInventoryRoles && selectedInventoryRoles.Count == 0)
+            throw new AnalysisValidationException(AnalysisValidationCode.DashboardRolesRequired, "Select at least one inventory role.");
+        Dashboard.Document.ValidateSelection();
+    }
+
+    private void InvalidateSelection()
+    {
+        selectionGeneration++;
+        result = null;
+        hasDetailRequest = false;
+        widgetResults.Clear();
+        widgetErrors.Clear();
+        executionPreviews = [];
+        previewError = null;
+        roleSelection = null;
+        roleSelectionFingerprint = null;
+        roleSelectionError = null;
+    }
+
+    private bool IsCurrentSelection(long generation) =>
+        !disposed && generation == selectionGeneration && selectedPublishedDashboard is null;
+
+    private async Task SelectionModeChangedAsync(ChangeEventArgs args)
+    {
+        if (DashboardBusy || PersonalActionsBlocked)
+            return;
+        if (!Enum.TryParse<AnalysisDashboardSelectionMode>(args.Value?.ToString(), out var mode) || !Enum.IsDefined(mode))
+        {
+            Logger.LogWarning("Invalid dashboard selection mode.");
+            errorMessage = Text["Analysis.Validation.DashboardSelectionInvalid"];
+            return;
+        }
+        selectionMode = mode;
+        await ApplySystemSelectionAsync();
+    }
+
+    private async Task InventoryRoleChangedAsync(string role, ChangeEventArgs args)
+    {
+        if (DashboardBusy || PersonalActionsBlocked || !UsesInventoryRoles)
+            return;
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            Logger.LogWarning("An empty dashboard inventory role was submitted.");
+            errorMessage = Text["Analysis.Validation.DashboardSelectionInvalid"];
+            return;
+        }
+        role = InventoryRoleRuleMatcher.NormalizeRole(role.Trim());
+        if (args.Value is true)
+            selectedInventoryRoles.Add(role);
+        else
+            selectedInventoryRoles.Remove(role);
+        await ApplySystemSelectionAsync();
+    }
+
+    private async Task ApplySystemSelectionAsync()
+    {
+        InvalidateSelection();
+        errorMessage = null;
+        if (!UsesInventoryRoles || selectedInventoryRoles.Count > 0)
+            Dashboard.SetSystemSelection(selectionMode, selectedInventoryRoles);
+        missingDashboardSystems = UsesInventoryRoles ? [] :
+            AnalysisDashboardInventorySelection.Resolve(Dashboard.Document.Systems, inventory).MissingSystems;
+        if (UsesInventoryRoles)
+            await RefreshRoleInventoryAsync();
+        else
+            RefreshExecutionPreview();
+        dashboardStatus = Text["Analysis.RoleSelection.Changes"];
+        if (!editMode)
+            await RunDashboardAsync();
+    }
+
+    private void UpdateRoleSelectionPreview()
+    {
+        ValidateSelectionDraft();
+        roleSelection = AnalysisDashboardInventorySelection.Resolve(
+            Dashboard.Document, inventory, QueryRunner.WorkspaceResolver, workspaceFilter);
+        var keys = roleSelection.Systems.Select(system => $"{system.SubscriptionId}\u001f{system.Computer}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var fingerprint = System.Text.Json.JsonSerializer.Serialize(inventory.Where(system => keys.Contains(SystemKey(system)))
+            .DistinctBy(SystemKey, StringComparer.OrdinalIgnoreCase).OrderBy(SystemKey, StringComparer.OrdinalIgnoreCase)
+            .Select(system => new { Key = SystemKey(system).ToUpperInvariant(),
+                Domain = CrossTenantLogAnalyticsOptions.NormalizeDomain(system.Domain) }));
+        if (roleSelectionFingerprint is not null && roleSelectionFingerprint != fingerprint)
+        {
+            result = null;
+            widgetResults.Clear();
+            widgetErrors.Clear();
+        }
+        roleSelectionFingerprint = fingerprint;
+        roleSelectionError = null;
+    }
+
+    private void RoleSelectionFailed(Exception exception)
+    {
+        roleSelection = null;
+        roleSelectionFingerprint = null;
+        roleSelectionError = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+        previewError = roleSelectionError;
+        executionPreviews = [];
+        result = null;
+        widgetResults.Clear();
+        widgetErrors.Clear();
+    }
+
+    private async Task<bool> LoadRoleSelectionAsync()
+    {
+        var generation = selectionGeneration;
+        isRefreshingSelection = true;
+        roleSelection = null;
+        roleSelectionError = null;
+        try
+        {
+            var currentInventory = await AlertStore.GetComputerInventoryAsync(refreshCancellation.Token);
+            if (!IsCurrentSelection(generation))
+                return false;
+            inventory = currentInventory;
+            inventoryLoadedAt = DateTimeOffset.UtcNow;
+            UpdateRoleSelectionPreview();
+            RefreshExecutionPreview();
+            return true;
+        }
+        finally { isRefreshingSelection = false; }
+    }
+
+    private async Task RefreshRoleInventoryAsync()
+    {
+        if (disposed || !UsesInventoryRoles)
+            return;
+        InvalidateSelection();
+        var generation = selectionGeneration;
+        try { await LoadRoleSelectionAsync(); }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not refresh the dashboard inventory-role selection.");
+            if (IsCurrentSelection(generation))
+                RoleSelectionFailed(exception);
+        }
+    }
+
+    private async Task RefreshRolePreviewAsync()
+    {
+        if (DashboardBusy || PersonalActionsBlocked)
+            return;
+        await RefreshRoleInventoryAsync();
+    }
+
     private async Task SelectVisibleAsync()
     {
-        if (PersonalActionsBlocked || DashboardBusy)
+        if (PersonalActionsBlocked || DashboardBusy || UsesInventoryRoles)
             return;
         var additional = VisibleSystems.Select(SystemKey).Where(key => !selectedSystems.Contains(key)).ToArray();
         var capacity = Math.Max(0, 100 - selectedSystems.Count);
@@ -791,7 +1134,7 @@
 
     private async Task ClearSelectionAsync()
     {
-        if (PersonalActionsBlocked || DashboardBusy)
+        if (PersonalActionsBlocked || DashboardBusy || UsesInventoryRoles)
             return;
         selectedSystems.Clear();
         await RefreshSelectedSystemsAsync();
@@ -799,7 +1142,7 @@
 
     private async Task ToggleSystemAsync(string key, ChangeEventArgs eventArgs)
     {
-        if (PersonalActionsBlocked || DashboardBusy)
+        if (PersonalActionsBlocked || DashboardBusy || UsesInventoryRoles)
             return;
         if (eventArgs.Value is true)
         {
@@ -846,19 +1189,24 @@
 
     private void SyncDashboardSystems()
     {
+        if (UsesInventoryRoles)
+            return;
+        selectionGeneration++;
         result = null;
         hasDetailRequest = false;
         widgetResults.Clear();
         widgetErrors.Clear();
-        var systems = inventory
-            .Where(item => selectedSystems.Contains(SystemKey(item)))
-            .Select(item => new AnalysisDashboardSystem
+        var systems = Dashboard.Document.Systems
+            .Concat(inventory.Select(item => new AnalysisDashboardSystem
             {
                 SubscriptionId = item.SubscriptionId,
                 Computer = item.Computer
-            })
+            }))
+            .Where(item => selectedSystems.Contains($"{item.SubscriptionId}\u001f{item.Computer}"))
+            .DistinctBy(item => $"{item.SubscriptionId}\u001f{item.Computer}", StringComparer.OrdinalIgnoreCase)
             .ToList();
         Dashboard.UpdateWorkspace(document => document.Systems = systems);
+        missingDashboardSystems = AnalysisDashboardInventorySelection.Resolve(systems, inventory).MissingSystems;
     }
 
     [JSInvokable]
@@ -974,26 +1322,55 @@
         errorMessage = null;
         StateHasChanged();
         var cancellationToken = refreshCancellation.Token;
+        var generation = selectionGeneration;
         try
         {
-            var systems = inventory
-                .Where(item => selectedSystems.Contains(SystemKey(item)))
-                .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
-                .ToArray();
+            if (!await CheckDashboardAccessAsync())
+                return;
+            AnalysisDashboardInventorySelection selection;
+            if (UsesInventoryRoles)
+            {
+                widgetResults.Clear();
+                widgetErrors.Clear();
+                result = null;
+                if (!await LoadRoleSelectionAsync())
+                    return;
+                selection = roleSelection ?? throw new InvalidOperationException("The role selection snapshot is missing.");
+            }
+            else
+                selection = await Execution.ResolveDashboardSystemsAsync(Dashboard.Document.Systems, cancellationToken);
+            if (!IsCurrentSelection(generation))
+                return;
+            missingDashboardSystems = selection.MissingSystems;
+            var systems = selection.Systems;
+            if (systems.Count == 0)
+            {
+                widgetResults.Clear();
+                widgetErrors.Clear();
+                dashboardStatus = Text[UsesInventoryRoles ? "Analysis.RoleSelection.Empty" : "Analysis.DashboardAllSystemsMissing"];
+                return;
+            }
             var batch = new AnalysisDashboardQueryBatch(Execution.ExecuteAsync, cancellationToken);
             var widgets = Dashboard.Document.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column).ToArray();
             var failedWidgets = 0;
             foreach (var widget in widgets)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!await CheckDashboardAccessAsync())
+                    return;
                 try
                 {
                     var query = availableQueries.FirstOrDefault(item => item.Id == widget.QueryDefinitionId)
                         ?? throw new KeyNotFoundException("The published query is no longer available.");
                     var request = Dashboard.Document.CreateExecutionRequest(widget, systems)
-                        with { WorkspaceKey = workspaceFilter, Domain = domainFilter, Site = siteFilter, Role = roleFilter };
+                        with { WorkspaceKey = workspaceFilter, Domain = UsesInventoryRoles ? null : domainFilter,
+                            Site = UsesInventoryRoles ? null : siteFilter, Role = UsesInventoryRoles ? null : roleFilter };
                     var response = await batch.ExecuteAsync(query, request);
-                    if (Dashboard.Document.Widgets.Any(current => current.Id == widget.Id))
+                    if (!await CheckDashboardAccessAsync())
+                        return;
+                    if (!IsCurrentSelection(generation))
+                        return;
+                    if (IsCurrentSelection(generation) && Dashboard.Document.Widgets.Any(current => current.Id == widget.Id))
                     {
                         widgetResults[widget.Id] = response;
                         widgetErrors.Remove(widget.Id);
@@ -1011,6 +1388,8 @@
                             : AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
                     }
                 }
+                if (!IsCurrentSelection(generation))
+                    return;
                 StateHasChanged();
                 await Task.Yield();
             }
@@ -1026,42 +1405,63 @@
         catch (Exception exception)
         {
             Logger.LogError(exception, "Analysis dashboard refresh failed.");
-            errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+            if (IsCurrentSelection(generation))
+            {
+                if (UsesInventoryRoles) RoleSelectionFailed(exception);
+                errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+            }
         }
         finally
         {
             isDashboardRunning = false;
-            if (!cancellationToken.IsCancellationRequested)
+            if (!disposed && !cancellationToken.IsCancellationRequested)
                 StateHasChanged();
         }
     }
 
-    private void UndoDashboard()
+    private async Task UndoDashboard()
     {
-        if (PersonalActionsBlocked)
+        if (PersonalActionsBlocked || DashboardBusy)
             return;
         Dashboard.Undo();
         RestoreDashboardSystems();
+        if (UsesInventoryRoles) await RefreshRoleInventoryAsync();
         dashboardStatus = Text["AnalysisStatus.Undo"];
     }
 
-    private void RedoDashboard()
+    private async Task RedoDashboard()
     {
-        if (PersonalActionsBlocked)
+        if (PersonalActionsBlocked || DashboardBusy)
             return;
         Dashboard.Redo();
         RestoreDashboardSystems();
+        if (UsesInventoryRoles) await RefreshRoleInventoryAsync();
         dashboardStatus = Text["AnalysisStatus.Redo"];
     }
 
     private void RestoreDashboardSystems()
     {
+        InvalidateSelection();
+        selectionMode = Dashboard.Document.SelectionMode;
+        selectedInventoryRoles.Clear();
+        selectedInventoryRoles.UnionWith(Dashboard.Document.InventoryRoles);
         widgetResults.Clear();
         widgetErrors.Clear();
         hasDetailRequest = false;
         selectedSystems.Clear();
         foreach (var saved in Dashboard.Document.Systems)
             selectedSystems.Add($"{saved.SubscriptionId}\u001f{saved.Computer}");
+        missingDashboardSystems = UsesInventoryRoles ? [] :
+            AnalysisDashboardInventorySelection.Resolve(Dashboard.Document.Systems, inventory).MissingSystems;
+        if (UsesInventoryRoles)
+        {
+            try { UpdateRoleSelectionPreview(); }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not restore the dashboard inventory-role preview.");
+                RoleSelectionFailed(exception);
+            }
+        }
         var opened = Dashboard.Document.Widgets.FirstOrDefault(widget => widget.Id == openedWidgetId);
         if (opened is not null)
             OpenWidget(opened);
@@ -1078,6 +1478,10 @@
         try
         {
             publishedDashboards = await Publishing.ListAsync((await AuthenticationStateTask).User, refreshCancellation.Token);
+            dashboardOwners = await DashboardRepository.ListOwnersAsync(dashboardActorKey, refreshCancellation.Token);
+            if (!dashboardOwnerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase) &&
+                !dashboardOwners.Any(owner => owner.OwnerKey.Equals(dashboardOwnerKey, StringComparison.OrdinalIgnoreCase)))
+                DashboardAccessDenied(new UnauthorizedAccessException("The selected historical dashboard owner is no longer available."));
             publicationLoadError = null;
         }
         catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
@@ -1110,6 +1514,8 @@
         if (!DashboardBusy)
         {
             selectedPublishedDashboard = null;
+            if (!await CheckDashboardAccessAsync())
+                return;
             if (!editMode)
                 await RunDashboardAsync();
         }
@@ -1126,7 +1532,7 @@
             if (!await TrySaveDashboardAsync())
                 return;
             var publication = await Publishing.PublishAsync(dashboardCollection.ActiveDashboardId, dashboardRevision,
-                (await AuthenticationStateTask).User, refreshCancellation.Token);
+                (await AuthenticationStateTask).User, refreshCancellation.Token, sourceOwnerKey: dashboardOwnerKey);
             dashboardRevision++;
             dashboardStatus = Text.Format("AnalysisStatus.Saved", dashboardRevision);
             publicationMessage = Text.Format("AnalysisStatus.Published", publication.Name, publication.Version);
@@ -1152,6 +1558,12 @@
         {
             isPublishingDashboard = false;
         }
+    }
+
+    private void PublishedSelectionModeChanged(Guid id, bool usesRoles)
+    {
+        if (selectedPublishedDashboard == id)
+            publishedUsesInventoryRoles = usesRoles;
     }
 
     private async Task WithdrawDashboardAsync()
@@ -1213,11 +1625,13 @@
                     return;
                 source = Dashboard.Document;
             }
+            source.ValidateSelection();
             var candidate = dashboardCollection.Copy();
             candidate.AddCopy(source);
-            var saved = await DashboardRepository.SaveAsync(
-                dashboardOwnerKey, candidate, dashboardRevision, refreshCancellation.Token);
+            var saved = await DashboardRepository.SaveForOwnerAsync(
+                dashboardActorKey, dashboardOwnerKey, candidate, dashboardRevision, refreshCancellation.Token);
             ActivatePersonalDashboard(candidate, saved.Revision);
+            if (UsesInventoryRoles) await RefreshRoleInventoryAsync();
             editMode = dashboardEditMode = true;
             publicationMessage = Text.Format("AnalysisStatus.CopyCreated", Dashboard.Document.Name);
         }
@@ -1250,11 +1664,13 @@
 
     private void ActivatePersonalDashboard(AnalysisDashboardCollection collection, int revision)
     {
+        var document = collection.OpenActive();
+        document.ValidateSelection();
         dashboardRevision = revision;
         dashboardCollection = collection;
         selectedPublishedDashboard = null;
         runPublishedOnFilterChange = false;
-        Dashboard.Load(collection.OpenActive());
+        Dashboard.Load(document);
         confirmWithdrawDashboard = false;
         selectedQueryId = Guid.Empty;
         openedWidgetId = null;
@@ -1274,8 +1690,10 @@
                 return;
             var candidate = dashboardCollection.Copy();
             change(candidate);
-            var saved = await DashboardRepository.SaveAsync(dashboardOwnerKey, candidate, dashboardRevision);
+            candidate.Active.Document.ValidateSelection();
+            var saved = await DashboardRepository.SaveForOwnerAsync(dashboardActorKey, dashboardOwnerKey, candidate, dashboardRevision);
             ActivatePersonalDashboard(candidate, saved.Revision);
+            if (UsesInventoryRoles) await RefreshRoleInventoryAsync();
         }
         catch (DbUpdateConcurrencyException exception)
         {
@@ -1297,6 +1715,13 @@
 
     private async Task<bool> TrySaveDashboardAsync()
     {
+        try { ValidateSelectionDraft(); }
+        catch (AnalysisValidationException exception)
+        {
+            Logger.LogWarning(exception, "Cannot save an invalid dashboard selection draft.");
+            errorMessage = AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.SaveUnconfirmed");
+            return false;
+        }
         if (dashboardLoadFailed || isLoadingDashboard)
         {
             Logger.LogWarning("Analysis dashboard save is blocked until workspace loading succeeds.");
@@ -1320,14 +1745,19 @@
         {
             dashboardCollection.CaptureActive(Dashboard.Document);
             var snapshot = dashboardCollection.Copy();
-            var saved = await DashboardRepository.SaveAsync(
-                dashboardOwnerKey,
+            var saved = await DashboardRepository.SaveForOwnerAsync(
+                dashboardActorKey, dashboardOwnerKey,
                 snapshot,
                 dashboardRevision);
             dashboardRevision = saved.Revision;
             errorMessage = null;
             dashboardStatus = Text.Format("AnalysisStatus.Saved", dashboardRevision);
             return true;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            DashboardAccessDenied(exception);
+            return false;
         }
         catch (DbUpdateConcurrencyException exception)
         {
@@ -1379,16 +1809,32 @@
         errorMessage = null;
         result = null;
         StateHasChanged();
+        var generation = selectionGeneration;
         try
         {
-            var systems = inventory
-                .Where(item => selectedSystems.Contains(SystemKey(item)))
-                .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
-                .ToArray();
+            if (!await CheckDashboardAccessAsync())
+                return;
+            IReadOnlyList<AnalysisQuerySystem> systems;
+            if (UsesInventoryRoles)
+            {
+                if (!await LoadRoleSelectionAsync())
+                    return;
+                systems = roleSelection?.Systems ?? throw new InvalidOperationException("The role selection snapshot is missing.");
+                if (systems.Count == 0)
+                    return;
+            }
+            else
+                systems = inventory
+                    .Where(item => selectedSystems.Contains(SystemKey(item)))
+                    .Select(item => new AnalysisQuerySystem(item.SubscriptionId, item.Computer))
+                    .ToArray();
             var request = new AnalysisQueryRequest(selectedQueryId, systems, timeRangeMinutes, binMinutes, groupBy,
-                workspaceFilter, domainFilter, siteFilter, roleFilter);
+                workspaceFilter, UsesInventoryRoles ? null : domainFilter, UsesInventoryRoles ? null : siteFilter,
+                UsesInventoryRoles ? null : roleFilter);
             var response = await Execution.ExecuteAsync(request, refreshCancellation.Token);
-            if (hasDetailRequest && request.QueryDefinitionId == selectedQueryId &&
+            if (!await CheckDashboardAccessAsync())
+                return;
+            if (IsCurrentSelection(generation) && hasDetailRequest && request.QueryDefinitionId == selectedQueryId &&
                 request.TimeRangeMinutes == timeRangeMinutes && request.BinMinutes == binMinutes && request.GroupBy == groupBy)
                 result = response;
         }
@@ -1396,9 +1842,13 @@
         catch (Exception exception)
         {
             Logger.LogError(exception, "Analysis detail query execution failed.");
-            errorMessage = exception is KeyNotFoundException
-                ? Text["Analysis.Errors.QueryUnavailable"]
-                : AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+            if (IsCurrentSelection(generation))
+            {
+                if (UsesInventoryRoles && roleSelection is null) RoleSelectionFailed(exception);
+                errorMessage = exception is KeyNotFoundException
+                    ? Text["Analysis.Errors.QueryUnavailable"]
+                    : AnalysisErrorPresentation.Message(exception, Text, "Analysis.Errors.ExecutionFailed");
+            }
         }
         finally
         {
@@ -1412,13 +1862,19 @@
     {
         previewError = null;
         executionPreviews = [];
-        if (SelectedQuery is null || selectedSystems.Count == 0)
+        if (UsesInventoryRoles && roleSelectionError is not null)
+            previewError = roleSelectionError;
+        if (SelectedQuery is null || (UsesInventoryRoles ? roleSelection?.Systems.Count is not > 0 : selectedSystems.Count == 0))
             return;
         try
         {
-            var systems = inventory.Where(item => selectedSystems.Contains(SystemKey(item))).ToArray();
+            var roleKeys = roleSelection?.Systems.Select(system => $"{system.SubscriptionId}\u001f{system.Computer}")
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var systems = inventory.Where(item => UsesInventoryRoles
+                ? roleKeys?.Contains(SystemKey(item)) == true : selectedSystems.Contains(SystemKey(item))).ToArray();
             executionPreviews = QueryRunner.CreateExecutionPreviews(SelectedQuery, systems, timeRangeMinutes, binMinutes, groupBy,
-                workspaceFilter, domainFilter, siteFilter, roleFilter);
+                workspaceFilter, UsesInventoryRoles ? null : domainFilter, UsesInventoryRoles ? null : siteFilter,
+                UsesInventoryRoles ? null : roleFilter);
         }
         catch (Exception exception)
         {

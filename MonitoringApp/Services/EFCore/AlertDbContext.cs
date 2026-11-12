@@ -16,6 +16,21 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<ComputerInventoryEntry> ComputerInventory => Set<ComputerInventoryEntry>();
     public DbSet<SqlAuthenticationUser> AuthenticationUsers => Set<SqlAuthenticationUser>();
+    public DbSet<DirectoryUser> DirectoryUsers => Set<DirectoryUser>();
+    public DbSet<HistoricalUserAlias> HistoricalUserAliases => Set<HistoricalUserAlias>();
+    public DbSet<SqlUserIdentity> SqlUserIdentities => Set<SqlUserIdentity>();
+    public DbSet<EntraUserIdentity> EntraUserIdentities => Set<EntraUserIdentity>();
+    public DbSet<ScimConnection> ScimConnections => Set<ScimConnection>();
+    public DbSet<ScimUserState> ScimUserStates => Set<ScimUserState>();
+    public DbSet<ScimGroup> ScimGroups => Set<ScimGroup>();
+    public DbSet<ScimGroupMember> ScimGroupMembers => Set<ScimGroupMember>();
+    public DbSet<UserTeam> UserTeams => Set<UserTeam>();
+    public DbSet<UserTeamInventoryRole> UserTeamInventoryRoles => Set<UserTeamInventoryRole>();
+    public DbSet<UserTeamGroupMapping> UserTeamGroupMappings => Set<UserTeamGroupMapping>();
+    public DbSet<UserTeamMembership> UserTeamMemberships => Set<UserTeamMembership>();
+    public DbSet<LegacyUserLink> LegacyUserLinks => Set<LegacyUserLink>();
+    public DbSet<IdentityMigrationRecord> IdentityMigrationRecords => Set<IdentityMigrationRecord>();
+    public DbSet<IdentityAdministrationRecord> IdentityAdministrationRecords => Set<IdentityAdministrationRecord>();
     public DbSet<DatabaseSetting> Settings => Set<DatabaseSetting>();
     public DbSet<ParsedAlertRecord> ParsedAlerts => Set<ParsedAlertRecord>();
     public DbSet<LogbookEntry> LogbookEntries => Set<LogbookEntry>();
@@ -37,6 +52,7 @@ public sealed class AlertDbContext(DbContextOptions<AlertDbContext> options) : D
     /// </summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        IdentityModelConfiguration.Configure(modelBuilder, Database.IsSqlServer());
         var scheduled = modelBuilder.Entity<ScheduledQueryRule>();
         scheduled.ToTable("ScheduledQueryRules");
         scheduled.HasKey(entry => entry.Id);

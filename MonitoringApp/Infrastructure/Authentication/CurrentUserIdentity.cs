@@ -8,9 +8,11 @@ namespace MonitoringApp;
 /// <summary>
 /// Resolves the interactive user's display name from ASP.NET or Azure App Service Authentication.
 /// </summary>
-public sealed class CurrentUserIdentity(IHttpContextAccessor httpContextAccessor)
+public sealed class CurrentUserIdentity(IHttpContextAccessor httpContextAccessor, IdentityDirectoryService? directory = null)
 {
     private string? cachedDisplayName;
+
+    public bool DirectoryEnabled => directory?.Enabled == true;
 
     private static readonly string[] PreferredClaimTypes =
     [
@@ -57,10 +59,16 @@ public sealed class CurrentUserIdentity(IHttpContextAccessor httpContextAccessor
     }
 
     public string GetActor(ClaimsPrincipal principal, bool openAuthentication) =>
-        GetDisplayName(principal) ??
+        DirectoryIdentity.Actor(principal) ?? GetDisplayName(principal) ??
         (openAuthentication
             ? "open-mode-operator"
             : throw new InvalidOperationException("The authenticated user has no display name."));
+
+    public async Task<string> GetActorAsync(ClaimsPrincipal principal, bool openAuthentication, CancellationToken cancellationToken = default)
+    {
+        var resolved = directory is null ? principal : await directory.ResolveAsync(principal, cancellationToken);
+        return GetActor(resolved, openAuthentication);
+    }
 
     public static ClaimsPrincipal? CreateAppServicePrincipal(IHeaderDictionary headers)
     {

@@ -44,6 +44,7 @@ public sealed class LocalizationBaselineTests
         using var culture = new CultureScope("en-US");
         var testCase = Assert.Single(Cases.UserInterface, item => item.Id == id);
         var authentication = new ApplicationAuthenticationOptions { Type = testCase.Mode };
+        await using var navigationStore = await MainNavigationTests.NavigationStore.CreateAsync();
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -51,6 +52,8 @@ public sealed class LocalizationBaselineTests
         builder.Services.AddCascadingAuthenticationState();
         builder.Services.AddUiLocalization();
         builder.Services.AddSingleton(authentication);
+        builder.Services.AddSingleton<Microsoft.EntityFrameworkCore.IDbContextFactory<AlertDbContext>>(navigationStore);
+        builder.Services.AddScoped<AnalysisDashboardPublishing>();
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<CurrentUserIdentity>();
         builder.Services.AddScoped<NavigationManager, BaselineNavigation>();
@@ -71,6 +74,9 @@ public sealed class LocalizationBaselineTests
         html = Regex.Replace(html, @"<section\b[^>]*\bdata-language-selector\b.*?</section>", "", RegexOptions.Singleline);
         if (testCase.Component == "Navigation")
         {
+            // Direct publication links are covered independently; retain the frozen surrounding navigation baseline.
+            html = Regex.Replace(html, @"<details class=""navigation-dashboard-group"">.*?</details>",
+                "<a href=\"/analysis\">Dashboards</a>", RegexOptions.Singleline);
             Assert.Equal(authentication.IsOpen || testCase.Role is SqlAuthenticationRoles.Operator or SqlAuthenticationRoles.Admin,
                 html.Contains("href=\"/kql\"", StringComparison.Ordinal));
             html = Regex.Replace(html, @"<a\b[^>]*href=""/kql""[^>]*>.*?</a>", "", RegexOptions.Singleline);

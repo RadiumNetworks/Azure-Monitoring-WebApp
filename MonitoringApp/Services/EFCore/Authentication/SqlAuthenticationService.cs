@@ -7,7 +7,8 @@ namespace MonitoringApp;
 /// </summary>
 public sealed class SqlAuthenticationService(
     IDbContextFactory<AlertDbContext> contextFactory,
-    SqlPasswordHasher passwordHasher)
+    SqlPasswordHasher passwordHasher,
+    IdentityDirectoryOptions? directoryOptions = null)
 {
     // A valid hash used when a username is unknown, reducing username-dependent timing differences.
     private const string DummyHash = "PBKDF2-SHA256$600000$MDEyMzQ1Njc4OUFCQ0RFRg==$xKPYhItL4ZykbLDQKl7QVpmF5O5oYJJq5P2OMfrI8JQ=";
@@ -55,6 +56,15 @@ public sealed class SqlAuthenticationService(
         ValidatePassword(password);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await CreateInContextAsync(context, normalizedUsername, password, normalizedRole, cancellationToken);
+    }
+
+    internal async Task<string> CreateInContextAsync(
+        AlertDbContext context, string username, string password, string role, CancellationToken cancellationToken)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        var normalizedRole = NormalizeRole(role);
+        ValidatePassword(password);
         if (await context.AuthenticationUsers.AnyAsync(
             user => user.Username == normalizedUsername,
             cancellationToken))
@@ -92,7 +102,14 @@ public sealed class SqlAuthenticationService(
         var normalizedUsername = NormalizeUsername(username);
         var normalizedRole = NormalizeRole(role);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await SetRoleInContextAsync(context, normalizedUsername, normalizedRole, cancellationToken);
+    }
 
+    internal async Task SetRoleInContextAsync(
+        AlertDbContext context, string username, string role, CancellationToken cancellationToken)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        var normalizedRole = NormalizeRole(role);
         var existingRole = await context.AuthenticationUsers
             .Where(user => user.Username == normalizedUsername)
             .Select(user => user.Role)
@@ -136,6 +153,14 @@ public sealed class SqlAuthenticationService(
         ValidatePassword(password);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await SetPasswordInContextAsync(context, normalizedUsername, password, cancellationToken);
+    }
+
+    internal async Task SetPasswordInContextAsync(
+        AlertDbContext context, string username, string password, CancellationToken cancellationToken)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        ValidatePassword(password);
         var user = await context.AuthenticationUsers.FindAsync([normalizedUsername], cancellationToken);
         if (user is null)
         {
@@ -158,13 +183,36 @@ public sealed class SqlAuthenticationService(
         CancellationToken cancellationToken = default)
     {
         var normalizedUsername = NormalizeUsername(username);
+        if (directoryOptions?.Enabled == true)
+            return await DatabaseTransactions.ExecuteAsync(contextFactory,
+                context => DeleteCoreAsync(context, normalizedUsername, cancellationToken),
+                cancellationToken, System.Data.IsolationLevel.Serializable);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await DeleteCoreAsync(context, normalizedUsername, cancellationToken);
+    }
+
+    internal async Task<bool> DeleteCoreAsync(AlertDbContext context, string normalizedUsername, CancellationToken cancellationToken)
+    {
         var userExists = await context.AuthenticationUsers.AnyAsync(
             user => user.Username == normalizedUsername,
             cancellationToken);
         if (!userExists)
         {
             return false;
+        }
+
+        if (directoryOptions?.Enabled == true)
+        {
+            var link = await context.SqlUserIdentities.SingleOrDefaultAsync(identity => identity.Username == normalizedUsername, cancellationToken);
+            if (link is not null)
+            {
+                var user = await context.DirectoryUsers.SingleAsync(entry => entry.Id == link.UserId, cancellationToken);
+                user.IsEnabled = false;
+                user.Revision++;
+                user.UpdatedAt = DateTimeOffset.UtcNow;
+                context.SqlUserIdentities.Remove(link);
+                await context.SaveChangesAsync(cancellationToken);
+            }
         }
 
         int deletedRows;

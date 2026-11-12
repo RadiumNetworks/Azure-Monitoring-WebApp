@@ -1,0 +1,21 @@
+{
+  "type": "ScheduledKqlInventoryTarget",
+  "label": "Unknown inventory target",
+  "labelKey": "QueryResults.UnknownInventoryTarget",
+  "identity": {
+    "targetColumns": ["Target"],
+    "siteColumns": []
+  },
+  "summary": [
+    { "operation": "row-count", "label": "systems", "labelKey": "QueryResults.Systems", "singularLabel": "system", "tone": "info" }
+  ],
+  "row": {
+    "title": "{Target}",
+    "facts": [
+      { "column": "count_", "label": "Observations", "labelKey": "QueryResults.TargetObservations" },
+      { "column": "Comparison", "label": "Comparison", "labelKey": "QueryResults.Comparison" },
+      { "column": "Threshold", "label": "Threshold", "labelKey": "QueryResults.Threshold" },
+      { "column": "WindowMinutes", "label": "Window (minutes)", "labelKey": "QueryResults.WindowMinutes" }
+    ]
+  }
+}

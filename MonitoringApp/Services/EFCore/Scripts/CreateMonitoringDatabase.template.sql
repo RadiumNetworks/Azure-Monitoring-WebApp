@@ -22,6 +22,26 @@
     seed INSERTs in SECTION 2 receive trusted metadata. Original names, KQL
     and version snapshots are not translated or backfilled.
     When using sqlcmd, pass -I (QUOTED_IDENTIFIER ON) for the existing indexes.
+
+    Identity directory (SCIM-AP2): SECTION 2 includes the additive directory
+    schema. For a database already at AddInventoryLastBootTime, the packaged
+    UpgradeIdentityDirectory.sql applies only that schema. Neither path links
+    existing users, rewrites dashboard owners, or enables SCIM provisioning.
+    Identity activation (SCIM-AP3): SECTION 2 also includes
+    UpgradeIdentityActivation.sql. Stable ownership remains disabled until
+    explicitly enabled and administratively approved for each user.
+    SCIM user lifecycle (SCIM-AP4): SECTION 2 includes
+    UpgradeScimUserLifecycle.sql. It adds a deletion tombstone only;
+    no provisioning connection or user is enabled by this schema upgrade.
+    User/team administration (SCIM-AP5): SECTION 2 includes
+    UpgradeIdentityAdministration.sql. It adds identity administration audit
+    history only, without modifying existing users, teams or ownership.
+    Group lifecycle (SCIM-AP6): UpgradeScimGroupLifecycle.sql adds tombstones
+    for source groups and member references. Existing memberships remain intact.
+    Open administration and team server roles (SCIM-AP9): SECTION 2 includes
+    UpgradeOpenAdministrationAndTeamInventoryRoles.sql. Existing audit actors
+    remain unchanged; Open writes explicitly have no verified user actor.
+    Team role mappings start empty and do not enable filtering or provisioning.
 */
 
 /* ========================================================================== */
@@ -2249,6 +2269,7 @@ END;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM [dbo].[AlertRules] WHERE [RuleType] = N'ReplicationInventoryWarning')
+    AND NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'20261111120000_RetireReplicationInventoryWarning')
 BEGIN
     INSERT INTO [dbo].[AlertRules]
         ([Id], [Name], [Enabled], [Priority], [RuleType], [AlertNameContains],
@@ -2292,6 +2313,568 @@ BEGIN
 END;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [DirectoryUsers] (
+        [Id] uniqueidentifier NOT NULL,
+        [UserName] nvarchar(256) NOT NULL,
+        [DisplayName] nvarchar(256) NOT NULL,
+        [LocalDisplayName] nvarchar(256) NULL,
+        [GivenName] nvarchar(256) NULL,
+        [FamilyName] nvarchar(256) NULL,
+        [Email] nvarchar(320) NULL,
+        [Origin] nvarchar(16) NOT NULL,
+        [IsEnabled] bit NOT NULL,
+        [Revision] int NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        CONSTRAINT [PK_DirectoryUsers] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_DirectoryUsers_Id] CHECK ([Id] <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT [CK_DirectoryUsers_Origin] CHECK ([Origin] IN ('Sql', 'EntraLogin', 'Scim', 'Legacy')),
+        CONSTRAINT [CK_DirectoryUsers_Revision] CHECK ([Revision] > 0)
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [ScimConnections] (
+        [Id] uniqueidentifier NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [TenantId] uniqueidentifier NOT NULL,
+        [IsEnabled] bit NOT NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_ScimConnections] PRIMARY KEY ([Id]),
+        CONSTRAINT [AK_ScimConnections_Id_TenantId] UNIQUE ([Id], [TenantId]),
+        CONSTRAINT [CK_ScimConnections_Name] CHECK (LTRIM(RTRIM([Name])) <> ''),
+        CONSTRAINT [CK_ScimConnections_Revision] CHECK ([Revision] > 0),
+        CONSTRAINT [CK_ScimConnections_Tenant] CHECK ([TenantId] <> '00000000-0000-0000-0000-000000000000')
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [UserTeams] (
+        [Id] uniqueidentifier NOT NULL,
+        [Name] nvarchar(256) NOT NULL,
+        [IsEnabled] bit NOT NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_UserTeams] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_UserTeams_Name] CHECK (LTRIM(RTRIM([Name])) <> ''),
+        CONSTRAINT [CK_UserTeams_Revision] CHECK ([Revision] > 0)
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [EntraUserIdentities] (
+        [UserId] uniqueidentifier NOT NULL,
+        [TenantId] uniqueidentifier NOT NULL,
+        [ObjectId] uniqueidentifier NOT NULL,
+        CONSTRAINT [PK_EntraUserIdentities] PRIMARY KEY ([UserId]),
+        CONSTRAINT [AK_EntraUserIdentities_UserId_TenantId_ObjectId] UNIQUE ([UserId], [TenantId], [ObjectId]),
+        CONSTRAINT [CK_EntraUserIdentities_Object] CHECK ([ObjectId] <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT [CK_EntraUserIdentities_Tenant] CHECK ([TenantId] <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT [FK_EntraUserIdentities_DirectoryUsers_UserId] FOREIGN KEY ([UserId]) REFERENCES [DirectoryUsers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [LegacyUserLinks] (
+        [Id] uniqueidentifier NOT NULL,
+        [Alias] nvarchar(256) NOT NULL,
+        [TenantId] uniqueidentifier NULL,
+        [TargetUserId] uniqueidentifier NULL,
+        [Status] nvarchar(16) NOT NULL,
+        [ApprovedByUserId] uniqueidentifier NULL,
+        [ApprovedAt] datetimeoffset NULL,
+        [VerificationNote] nvarchar(2000) NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_LegacyUserLinks] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_LegacyUserLinks_Alias] CHECK (LTRIM(RTRIM([Alias])) <> ''),
+        CONSTRAINT [CK_LegacyUserLinks_Approval] CHECK ([Status] <> 'Confirmed' OR ([TargetUserId] IS NOT NULL AND [ApprovedByUserId] IS NOT NULL AND [ApprovedAt] IS NOT NULL AND [VerificationNote] IS NOT NULL AND LTRIM(RTRIM([VerificationNote])) <> '')),
+        CONSTRAINT [CK_LegacyUserLinks_Revision] CHECK ([Revision] > 0),
+        CONSTRAINT [CK_LegacyUserLinks_Status] CHECK ([Status] IN ('Pending', 'Confirmed', 'Conflict', 'Rejected')),
+        CONSTRAINT [FK_LegacyUserLinks_DirectoryUsers_ApprovedByUserId] FOREIGN KEY ([ApprovedByUserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_LegacyUserLinks_DirectoryUsers_TargetUserId] FOREIGN KEY ([TargetUserId]) REFERENCES [DirectoryUsers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [SqlUserIdentities] (
+        [UserId] uniqueidentifier NOT NULL,
+        [Username] nvarchar(128) NOT NULL,
+        CONSTRAINT [PK_SqlUserIdentities] PRIMARY KEY ([UserId]),
+        CONSTRAINT [FK_SqlUserIdentities_AuthenticationUsers_Username] FOREIGN KEY ([Username]) REFERENCES [AuthenticationUsers] ([Username]),
+        CONSTRAINT [FK_SqlUserIdentities_DirectoryUsers_UserId] FOREIGN KEY ([UserId]) REFERENCES [DirectoryUsers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [ScimGroups] (
+        [Id] uniqueidentifier NOT NULL,
+        [ConnectionId] uniqueidentifier NOT NULL,
+        [ExternalId] uniqueidentifier NOT NULL,
+        [DisplayName] nvarchar(256) NOT NULL,
+        [IsActive] bit NOT NULL,
+        [SyncStatus] nvarchar(16) NOT NULL,
+        [LastSyncedAt] datetimeoffset NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_ScimGroups] PRIMARY KEY ([Id]),
+        CONSTRAINT [AK_ScimGroups_Id_ConnectionId] UNIQUE ([Id], [ConnectionId]),
+        CONSTRAINT [CK_ScimGroups_ExternalId] CHECK ([ExternalId] <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT [CK_ScimGroups_Revision] CHECK ([Revision] > 0),
+        CONSTRAINT [CK_ScimGroups_Status] CHECK ([SyncStatus] IN ('Pending', 'Succeeded', 'Failed')),
+        CONSTRAINT [FK_ScimGroups_ScimConnections_ConnectionId] FOREIGN KEY ([ConnectionId]) REFERENCES [ScimConnections] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [ScimUserStates] (
+        [UserId] uniqueidentifier NOT NULL,
+        [ConnectionId] uniqueidentifier NOT NULL,
+        [TenantId] uniqueidentifier NOT NULL,
+        [ExternalId] uniqueidentifier NOT NULL,
+        [IsActive] bit NOT NULL,
+        [SyncStatus] nvarchar(16) NOT NULL,
+        [LastSyncedAt] datetimeoffset NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_ScimUserStates] PRIMARY KEY ([UserId]),
+        CONSTRAINT [AK_ScimUserStates_UserId_ConnectionId] UNIQUE ([UserId], [ConnectionId]),
+        CONSTRAINT [CK_ScimUserStates_Revision] CHECK ([Revision] > 0),
+        CONSTRAINT [CK_ScimUserStates_Status] CHECK ([SyncStatus] IN ('Pending', 'Succeeded', 'Failed')),
+        CONSTRAINT [FK_ScimUserStates_EntraUserIdentities_UserId_TenantId_ExternalId] FOREIGN KEY ([UserId], [TenantId], [ExternalId]) REFERENCES [EntraUserIdentities] ([UserId], [TenantId], [ObjectId]),
+        CONSTRAINT [FK_ScimUserStates_ScimConnections_ConnectionId_TenantId] FOREIGN KEY ([ConnectionId], [TenantId]) REFERENCES [ScimConnections] ([Id], [TenantId])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [UserTeamGroupMappings] (
+        [Id] uniqueidentifier NOT NULL,
+        [TeamId] uniqueidentifier NOT NULL,
+        [GroupId] uniqueidentifier NOT NULL,
+        [IsEnabled] bit NOT NULL,
+        [Revision] int NOT NULL,
+        CONSTRAINT [PK_UserTeamGroupMappings] PRIMARY KEY ([Id]),
+        CONSTRAINT [AK_UserTeamGroupMappings_Id_TeamId_GroupId] UNIQUE ([Id], [TeamId], [GroupId]),
+        CONSTRAINT [CK_UserTeamGroupMappings_Revision] CHECK ([Revision] > 0),
+        CONSTRAINT [FK_UserTeamGroupMappings_ScimGroups_GroupId] FOREIGN KEY ([GroupId]) REFERENCES [ScimGroups] ([Id]),
+        CONSTRAINT [FK_UserTeamGroupMappings_UserTeams_TeamId] FOREIGN KEY ([TeamId]) REFERENCES [UserTeams] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [ScimGroupMembers] (
+        [GroupId] uniqueidentifier NOT NULL,
+        [UserId] uniqueidentifier NOT NULL,
+        [ConnectionId] uniqueidentifier NOT NULL,
+        CONSTRAINT [PK_ScimGroupMembers] PRIMARY KEY ([GroupId], [UserId]),
+        CONSTRAINT [FK_ScimGroupMembers_ScimGroups_GroupId_ConnectionId] FOREIGN KEY ([GroupId], [ConnectionId]) REFERENCES [ScimGroups] ([Id], [ConnectionId]),
+        CONSTRAINT [FK_ScimGroupMembers_ScimUserStates_UserId_ConnectionId] FOREIGN KEY ([UserId], [ConnectionId]) REFERENCES [ScimUserStates] ([UserId], [ConnectionId])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE TABLE [UserTeamMemberships] (
+        [Id] uniqueidentifier NOT NULL,
+        [UserId] uniqueidentifier NOT NULL,
+        [TeamId] uniqueidentifier NOT NULL,
+        [GroupMappingId] uniqueidentifier NULL,
+        [SourceGroupId] uniqueidentifier NULL,
+        CONSTRAINT [PK_UserTeamMemberships] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_UserTeamMemberships_Source] CHECK (([GroupMappingId] IS NULL AND [SourceGroupId] IS NULL) OR ([GroupMappingId] IS NOT NULL AND [SourceGroupId] IS NOT NULL)),
+        CONSTRAINT [FK_UserTeamMemberships_DirectoryUsers_UserId] FOREIGN KEY ([UserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_UserTeamMemberships_ScimGroupMembers_SourceGroupId_UserId] FOREIGN KEY ([SourceGroupId], [UserId]) REFERENCES [ScimGroupMembers] ([GroupId], [UserId]),
+        CONSTRAINT [FK_UserTeamMemberships_UserTeamGroupMappings_GroupMappingId_TeamId_SourceGroupId] FOREIGN KEY ([GroupMappingId], [TeamId], [SourceGroupId]) REFERENCES [UserTeamGroupMappings] ([Id], [TeamId], [GroupId]),
+        CONSTRAINT [FK_UserTeamMemberships_UserTeams_TeamId] FOREIGN KEY ([TeamId]) REFERENCES [UserTeams] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_EntraUserIdentities_TenantId_ObjectId] ON [EntraUserIdentities] ([TenantId], [ObjectId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_LegacyUserLinks_Alias] ON [LegacyUserLinks] ([Alias]) WHERE [TenantId] IS NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_LegacyUserLinks_Alias_TenantId] ON [LegacyUserLinks] ([Alias], [TenantId]) WHERE [TenantId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_LegacyUserLinks_ApprovedByUserId] ON [LegacyUserLinks] ([ApprovedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_LegacyUserLinks_TargetUserId] ON [LegacyUserLinks] ([TargetUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_ScimGroupMembers_GroupId_ConnectionId] ON [ScimGroupMembers] ([GroupId], [ConnectionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_ScimGroupMembers_UserId_ConnectionId] ON [ScimGroupMembers] ([UserId], [ConnectionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ScimGroups_ConnectionId_ExternalId] ON [ScimGroups] ([ConnectionId], [ExternalId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ScimUserStates_ConnectionId_ExternalId] ON [ScimUserStates] ([ConnectionId], [ExternalId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_ScimUserStates_ConnectionId_TenantId] ON [ScimUserStates] ([ConnectionId], [TenantId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_ScimUserStates_UserId_TenantId_ExternalId] ON [ScimUserStates] ([UserId], [TenantId], [ExternalId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_SqlUserIdentities_Username] ON [SqlUserIdentities] ([Username]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_UserTeamGroupMappings_GroupId] ON [UserTeamGroupMappings] ([GroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_UserTeamGroupMappings_TeamId_GroupId] ON [UserTeamGroupMappings] ([TeamId], [GroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_UserTeamMemberships_GroupMappingId_TeamId_SourceGroupId] ON [UserTeamMemberships] ([GroupMappingId], [TeamId], [SourceGroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_UserTeamMemberships_SourceGroupId_UserId] ON [UserTeamMemberships] ([SourceGroupId], [UserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE INDEX [IX_UserTeamMemberships_TeamId] ON [UserTeamMemberships] ([TeamId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_UserTeamMemberships_UserId_TeamId] ON [UserTeamMemberships] ([UserId], [TeamId]) WHERE [GroupMappingId] IS NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_UserTeamMemberships_UserId_TeamId_GroupMappingId] ON [UserTeamMemberships] ([UserId], [TeamId], [GroupMappingId]) WHERE [GroupMappingId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_UserTeams_Name] ON [UserTeams] ([Name]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110112945_AddIdentityDirectory'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110112945_AddIdentityDirectory', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110184457_AddIdentityActivation'
+)
+BEGIN
+    ALTER TABLE [DirectoryUsers] ADD [UsesStableIdentity] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110184457_AddIdentityActivation'
+)
+BEGIN
+    CREATE TABLE [IdentityMigrationRecords] (
+        [Id] uniqueidentifier NOT NULL,
+        [UserId] uniqueidentifier NOT NULL,
+        [ApprovedByUserId] uniqueidentifier NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [Fingerprint] nvarchar(64) NOT NULL,
+        [VerificationNote] nvarchar(2000) NOT NULL,
+        [OriginalStateJson] nvarchar(max) NOT NULL,
+        CONSTRAINT [PK_IdentityMigrationRecords] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_IdentityMigrationRecords_DirectoryUsers_ApprovedByUserId] FOREIGN KEY ([ApprovedByUserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_IdentityMigrationRecords_DirectoryUsers_UserId] FOREIGN KEY ([UserId]) REFERENCES [DirectoryUsers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110184457_AddIdentityActivation'
+)
+BEGIN
+    CREATE INDEX [IX_IdentityMigrationRecords_ApprovedByUserId] ON [IdentityMigrationRecords] ([ApprovedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110184457_AddIdentityActivation'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_IdentityMigrationRecords_UserId_Fingerprint] ON [IdentityMigrationRecords] ([UserId], [Fingerprint]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110184457_AddIdentityActivation'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110184457_AddIdentityActivation', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110192113_AddScimUserLifecycle'
+)
+BEGIN
+    ALTER TABLE [ScimUserStates] ADD [IsDeleted] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110192113_AddScimUserLifecycle'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110192113_AddScimUserLifecycle', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+/*
+    User/team administration (SCIM-AP5): the following additive audit table
+    preserves identity administration history. No users are backfilled or rekeyed.
+*/
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110200132_AddIdentityAdministration'
+)
+BEGIN
+    CREATE TABLE [IdentityAdministrationRecords] (
+        [Id] uniqueidentifier NOT NULL,
+        [ActorUserId] uniqueidentifier NOT NULL,
+        [TargetUserId] uniqueidentifier NULL,
+        [TargetTeamId] uniqueidentifier NULL,
+        [Action] nvarchar(64) NOT NULL,
+        [OccurredAt] datetimeoffset NOT NULL,
+        [BeforeJson] nvarchar(max) NOT NULL,
+        [AfterJson] nvarchar(max) NOT NULL,
+        CONSTRAINT [PK_IdentityAdministrationRecords] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_IdentityAdministrationRecords_Target] CHECK (([TargetUserId] IS NOT NULL AND [TargetTeamId] IS NULL) OR ([TargetUserId] IS NULL AND [TargetTeamId] IS NOT NULL)),
+        CONSTRAINT [FK_IdentityAdministrationRecords_DirectoryUsers_ActorUserId] FOREIGN KEY ([ActorUserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_IdentityAdministrationRecords_DirectoryUsers_TargetUserId] FOREIGN KEY ([TargetUserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_IdentityAdministrationRecords_UserTeams_TargetTeamId] FOREIGN KEY ([TargetTeamId]) REFERENCES [UserTeams] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110200132_AddIdentityAdministration'
+)
+BEGIN
+    CREATE INDEX [IX_IdentityAdministrationRecords_ActorUserId] ON [IdentityAdministrationRecords] ([ActorUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110200132_AddIdentityAdministration'
+)
+BEGIN
+    CREATE INDEX [IX_IdentityAdministrationRecords_TargetTeamId_OccurredAt] ON [IdentityAdministrationRecords] ([TargetTeamId], [OccurredAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110200132_AddIdentityAdministration'
+)
+BEGIN
+    CREATE INDEX [IX_IdentityAdministrationRecords_TargetUserId_OccurredAt] ON [IdentityAdministrationRecords] ([TargetUserId], [OccurredAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110200132_AddIdentityAdministration'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110200132_AddIdentityAdministration', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+/*
+    Group lifecycle (SCIM-AP6).
+*/
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111050629_AddScimGroupLifecycle'
+)
+BEGIN
+    ALTER TABLE [ScimGroups] ADD [IsDeleted] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111050629_AddScimGroupLifecycle'
+)
+BEGIN
+    ALTER TABLE [ScimGroupMembers] ADD [IsDeleted] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111050629_AddScimGroupLifecycle'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261111050629_AddScimGroupLifecycle', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
 /*
     Optional: grant the App Service user-assigned managed identity runtime access.
     Replace <managed-identity-name>, remove the comment markers, and execute
@@ -2301,6 +2884,124 @@ CREATE USER [<managed-identity-name>] FROM EXTERNAL PROVIDER;
 ALTER ROLE [db_datareader] ADD MEMBER [<managed-identity-name>];
 ALTER ROLE [db_datawriter] ADD MEMBER [<managed-identity-name>];
 */
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles'
+)
+BEGIN
+    DECLARE @var nvarchar(max);
+    SELECT @var = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[IdentityAdministrationRecords]') AND [c].[name] = N'ActorUserId');
+    IF @var IS NOT NULL EXEC(N'ALTER TABLE [IdentityAdministrationRecords] DROP CONSTRAINT ' + @var + ';');
+    ALTER TABLE [IdentityAdministrationRecords] ALTER COLUMN [ActorUserId] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles'
+)
+BEGIN
+    ALTER TABLE [IdentityAdministrationRecords] ADD [IsOpenAuthentication] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles'
+)
+BEGIN
+    CREATE TABLE [UserTeamInventoryRoles] (
+        [TeamId] uniqueidentifier NOT NULL,
+        [RoleKey] nvarchar(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
+        CONSTRAINT [PK_UserTeamInventoryRoles] PRIMARY KEY ([TeamId], [RoleKey]),
+        CONSTRAINT [CK_UserTeamInventoryRoles_RoleKey] CHECK (LTRIM(RTRIM([RoleKey])) <> ''),
+        CONSTRAINT [FK_UserTeamInventoryRoles_UserTeams_TeamId] FOREIGN KEY ([TeamId]) REFERENCES [UserTeams] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [IdentityAdministrationRecords] ADD CONSTRAINT [CK_IdentityAdministrationRecords_Actor] CHECK (([IsOpenAuthentication] = 1 AND [ActorUserId] IS NULL) OR ([IsOpenAuthentication] = 0 AND [ActorUserId] IS NOT NULL))');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261111080329_AddOpenAdministrationAndTeamInventoryRoles', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+-- Retire only the ingestion-time replication inventory warning; retain its alerts.
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111120000_RetireReplicationInventoryWarning'
+)
+BEGIN
+    UPDATE [AlertRules] SET [Enabled] = 0 WHERE [RuleType] = N'ReplicationInventoryWarning';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111120000_RetireReplicationInventoryWarning'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261111120000_RetireReplicationInventoryWarning', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+-- Display-only historical aliases; no login or ownership links are created.
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111131740_AddHistoricalUserAliases'
+)
+BEGIN
+    CREATE TABLE [HistoricalUserAliases] (
+        [AliasUserId] uniqueidentifier NOT NULL,
+        [MainUserId] uniqueidentifier NOT NULL,
+        CONSTRAINT [PK_HistoricalUserAliases] PRIMARY KEY ([AliasUserId]),
+        CONSTRAINT [CK_HistoricalUserAliases_DistinctUsers] CHECK ([AliasUserId] <> [MainUserId]),
+        CONSTRAINT [FK_HistoricalUserAliases_DirectoryUsers_AliasUserId] FOREIGN KEY ([AliasUserId]) REFERENCES [DirectoryUsers] ([Id]),
+        CONSTRAINT [FK_HistoricalUserAliases_DirectoryUsers_MainUserId] FOREIGN KEY ([MainUserId]) REFERENCES [DirectoryUsers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111131740_AddHistoricalUserAliases'
+)
+BEGIN
+    CREATE INDEX [IX_HistoricalUserAliases_MainUserId] ON [HistoricalUserAliases] ([MainUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111131740_AddHistoricalUserAliases'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261111131740_AddHistoricalUserAliases', N'10.0.11');
+END;
+
+COMMIT;
+GO
 
 SELECT
     DB_NAME() AS [DatabaseName],

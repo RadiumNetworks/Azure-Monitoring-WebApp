@@ -16,9 +16,9 @@ public sealed class KqlInfrastructureTests
     {
         var options = CrossTenantLogAnalyticsOptionsTests.CreateValid();
         var registrations = new ServiceCollection().AddKqlServices(options);
-        Assert.Equal(9, registrations.Count);
+        Assert.Equal(10, registrations.Count);
         Assert.All(registrations, descriptor => Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime));
-        Assert.Equal(9, registrations.Select(descriptor => descriptor.ServiceType).Distinct().Count());
+        Assert.Equal(10, registrations.Select(descriptor => descriptor.ServiceType).Distinct().Count());
         using var provider = registrations.BuildServiceProvider(
             new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         using var first = provider.CreateScope();
@@ -30,6 +30,7 @@ public sealed class KqlInfrastructureTests
         Assert.IsType<KeyVaultLogAnalyticsSecretProvider>(provider.GetRequiredService<ILogAnalyticsSecretProvider>());
         Assert.IsType<AzureLogAnalyticsWorkspaceProbe>(provider.GetRequiredService<ILogAnalyticsWorkspaceProbe>());
         Assert.IsType<AzureAnalysisLogAnalyticsQuery>(provider.GetRequiredService<IAnalysisLogAnalyticsQuery>());
+        Assert.IsType<LockoutQueryService>(provider.GetRequiredService<LockoutQueryService>());
         Assert.Same(provider.GetRequiredService<TargetWorkspaceResolver>(),
             provider.GetRequiredService<AnalysisQueryRunner>().WorkspaceResolver);
     }

@@ -1,0 +1,17 @@
+@inject UiText Text
+
+@if (MissingSystems.Count > 0)
+{
+    <div class="admin-message admin-message-warning" role="status">
+        @Text.Format("Analysis.DashboardMissingSystems", string.Join(", ", MissingSystems.Select(system => $"{system.Computer} ({system.SubscriptionId})")))
+        @if (AllMissing)
+        {
+            <span>@Text["Analysis.DashboardAllSystemsMissing"]</span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<AnalysisDashboardSystem> MissingSystems { get; set; } = [];
+    [Parameter] public bool AllMissing { get; set; }
+}
