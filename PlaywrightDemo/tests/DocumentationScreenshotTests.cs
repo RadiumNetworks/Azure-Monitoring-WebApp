@@ -9,13 +9,16 @@ namespace PlaywrightDemo.Tests;
 [NonParallelizable]
 public sealed class DocumentationScreenshotTests : PageTest
 {
-    [Test]
-    public async Task CaptureCurrentLocalApplication()
+    private string directory = "";
+    private string baseUrl = "";
+
+    [SetUp]
+    public async Task ConfigureCapture()
     {
-        var directory = Environment.GetEnvironmentVariable("ALERT_CONSOLE_SCREENSHOT_DIRECTORY");
+        directory = Environment.GetEnvironmentVariable("ALERT_CONSOLE_SCREENSHOT_DIRECTORY") ?? "";
         if (string.IsNullOrWhiteSpace(directory))
             Assert.Ignore("Set ALERT_CONSOLE_SCREENSHOT_DIRECTORY to explicitly regenerate documentation images.");
-        var baseUrl = AlertConsoleUrlResolver.Resolve().TrimEnd('/');
+        baseUrl = AlertConsoleUrlResolver.Resolve().TrimEnd('/');
         Assert.That(new Uri(baseUrl).IsLoopback, Is.True, "Documentation captures must use the local instance.");
         directory = Path.GetFullPath(directory!);
         Assert.That(Directory.Exists(directory), Is.True);
@@ -24,7 +27,11 @@ public sealed class DocumentationScreenshotTests : PageTest
         {
             Name = ".MonitoringApp.UiCulture", Value = Uri.EscapeDataString("c=en-US|uic=en-US"), Url = baseUrl
         }]);
+    }
 
+    [Test]
+    public async Task CaptureCurrentLocalApplication()
+    {
         await Open("/");
         await Capture("Inbox.png");
         await Page.Locator(".inbox-results-widget").ScreenshotAsync(new()
@@ -32,7 +39,7 @@ public sealed class DocumentationScreenshotTests : PageTest
             Path = Path.Combine(directory, "InboxDetails.png"), Animations = ScreenshotAnimations.Disabled
         });
         await Open("/graph");
-        await Capture("Graph.png");
+        await CaptureGraph();
         await Open("/admin/inventory");
         await Capture("Inventory.png");
         await Open("/analysis");
@@ -83,22 +90,51 @@ public sealed class DocumentationScreenshotTests : PageTest
         });
         await Open("/");
         TestContext.WriteLine("Captured 17 current local UI images. No queries executed, settings saved, demo data inserted or results simulated.");
+    }
 
-        async Task Open(string path)
-        {
-            await Page.GotoAsync(baseUrl + path);
-            await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-            await Expect(Page.Locator("[data-language-selector]")).ToHaveAttributeAsync("data-current-culture", "en-US");
-            await Expect(Page.Locator("#blazor-error-ui")).Not.ToBeVisibleAsync();
-        }
+    [Test]
+    public async Task CaptureAlertGraphWithoutEasterEggs()
+    {
+        await Open("/graph");
+        await CaptureGraph();
+    }
 
-        async Task Capture(string file)
+    private async Task CaptureGraph()
+    {
+        const string decorations = ".graph-easter-preview, .graph-offworld-sites, .graph-earth-easter-site, " +
+            ".graph-easter-orbit, .graph-moon-panel, .graph-mars-panel, .easter-egg-icon";
+        var style = await Page.AddStyleTagAsync(new()
         {
-            await Page.ScreenshotAsync(new()
-            {
-                Path = Path.Combine(directory, file), FullPage = false, Animations = ScreenshotAnimations.Disabled
-            });
-            TestContext.WriteLine($"Captured {file}: {await Page.TitleAsync()}");
+            Content = decorations + " { display: none !important; } " +
+                ".graph-site-map-bodies { grid-template-columns: minmax(0, 1fr) !important; " +
+                "gap: 0 !important; padding: 0 !important; background: transparent !important; }"
+        });
+        try
+        {
+            foreach (var decoration in await Page.Locator(decorations).AllAsync())
+                await Expect(decoration).Not.ToBeVisibleAsync();
+            await Expect(Page.Locator(".graph-site-map-svg")).ToBeVisibleAsync();
+            foreach (var marker in await Page.Locator(".graph-site-marker").AllAsync())
+                await Expect(marker).ToBeVisibleAsync();
+            await Capture("Graph.png");
         }
+        finally { await style.EvaluateAsync("element => element.remove()"); }
+    }
+
+    private async Task Open(string path)
+    {
+        await Page.GotoAsync(baseUrl + path);
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+        await Expect(Page.Locator("[data-language-selector]")).ToHaveAttributeAsync("data-current-culture", "en-US");
+        await Expect(Page.Locator("#blazor-error-ui")).Not.ToBeVisibleAsync();
+    }
+
+    private async Task Capture(string file)
+    {
+        await Page.ScreenshotAsync(new()
+        {
+            Path = Path.Combine(directory, file), FullPage = false, Animations = ScreenshotAnimations.Disabled
+        });
+        TestContext.WriteLine($"Captured {file}: {await Page.TitleAsync()}");
     }
 }
