@@ -31,8 +31,10 @@ public sealed class MainNavigationTests
     [InlineData(ApplicationAuthenticationOptions.Entra, SqlAuthenticationRoles.Operator, true, false, "de-DE")]
     [InlineData(ApplicationAuthenticationOptions.Entra, SqlAuthenticationRoles.Admin, true, true, "de-DE")]
     [InlineData(ApplicationAuthenticationOptions.Open, "", true, true, "de-DE")]
+    [InlineData(ApplicationAuthenticationOptions.Sql, SqlAuthenticationRoles.Operator, true, false, "en-US", "/admin/rules/queries")]
+    [InlineData(ApplicationAuthenticationOptions.Sql, SqlAuthenticationRoles.Operator, true, false, "de-DE", "/admin/rules/queries")]
     public async Task GroupsOverviewAndAnalysisWithoutChangingRoleRestrictedNavigation(
-        string mode, string role, bool configurationVisible, bool adminVisible, string culture = "en-US")
+        string mode, string role, bool configurationVisible, bool adminVisible, string culture = "en-US", string path = "/")
     {
         using var selection = new UiSelection(culture);
         await using var store = await NavigationStore.CreateAsync(seed: true);
@@ -46,7 +48,7 @@ public sealed class MainNavigationTests
             .AddSingleton<IDbContextFactory<AlertDbContext>>(store)
             .AddSingleton<AnalysisDashboardPublishing>()
             .AddSingleton(new CurrentUserIdentity(new HttpContextAccessor()))
-            .AddSingleton<NavigationManager>(new TestNavigationManager())
+            .AddSingleton<NavigationManager>(new TestNavigationManager(path))
             .AddSingleton<AuthenticationStateProvider>(new TestAuthenticationState(role))
             .BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -62,17 +64,17 @@ public sealed class MainNavigationTests
                 match => match.Groups["links"].Value);
         var overview = groups[german ? "Übersicht" : "Overview"];
         Assert.Equal(configurationVisible
-            ? new[] { german ? "Posteingang" : "Inbox", "Graph", german ? "Meine Dashboards" : "My dashboards", "Published dashboard" }
-            : new[] { german ? "Posteingang" : "Inbox", "Graph", german ? "Meine Dashboards" : "My dashboards" },
+            ? new[] { german ? "Posteingang" : "Inbox", "Graph", "Published dashboard" }
+            : new[] { german ? "Posteingang" : "Inbox", "Graph" },
             Regex.Matches(overview, "<a\\b[^>]*>([^<]+)</a>").Select(match => match.Groups[1].Value));
-        Assert.Contains("<summary>Dashboards</summary>", overview);
-        Assert.Contains("class=\"navigation-dashboard-links\"", overview);
+        Assert.Equal(configurationVisible, overview.Contains("<summary>Dashboards</summary>"));
+        Assert.Equal(configurationVisible, overview.Contains("class=\"navigation-dashboard-links\""));
         Assert.Equal(configurationVisible, overview.Contains($"/analysis/published/{NavigationStore.PublishedId:D}"));
         Assert.DoesNotContain("Private dashboard", html);
         Assert.DoesNotContain("original-owner@example.com", html);
         Assert.Contains("href=\"/\"", overview);
         Assert.Contains("href=\"/graph\"", overview);
-        Assert.Contains("href=\"/analysis\"", overview);
+        Assert.DoesNotContain("href=\"/analysis\"", overview);
         var support = groups["Support"];
         Assert.Contains("href=\"/support/lockouts\"", support);
         Assert.Equal(new[] { "Lockouts" },
@@ -80,12 +82,33 @@ public sealed class MainNavigationTests
         Assert.Equal(new[] { german ? "Übersicht" : "Overview", "Support" }, groups.Keys.Take(2));
 
         var analyze = groups[german ? "Analysieren" : "Analyze"];
-        Assert.Equal(german
-            ? new[] { "Abfragen", "Logbuch", "Ursachenanalyse", "Analysearbeitsbereich" }
-            : new[] { "Queries", "Logbook", "Root cause analysis", "Analysis workspace" },
+        Assert.Equal((german
+            ? new[] { "Request API", "Logbuch", "Ursachenanalyse", "Analysearbeitsbereich" }
+            : new[] { "Request API", "Logbook", "Root cause analysis", "Analysis workspace" })
+                .Concat(configurationVisible ? new[] { services.GetRequiredService<UiText>()["FreeKql.Title"] } : []),
             Regex.Matches(analyze, "<a\\b[^>]*>([^<]+)</a>").Select(match => match.Groups[1].Value));
         Assert.Equal(configurationVisible, groups.ContainsKey(german ? "Konfiguration" : "Configuration"));
         Assert.Equal(adminVisible, groups.ContainsKey("Admin"));
+        if (configurationVisible)
+        {
+            var configuration = groups[german ? "Konfiguration" : "Configuration"];
+            Assert.Equal(new[] { "/admin/rules", "/admin/inventory", "/analysis", "/admin/analysis-queries", "/admin/rules/queries" },
+                Regex.Matches(configuration, "href=\"([^\"]+)\"").Select(match => match.Groups[1].Value));
+            Assert.Contains(german ? "KQL-Dashboard-Abfragen" : "KQL Dashboard queries", configuration);
+            Assert.Contains(german ? ">Dashboard-Editor</a>" : ">Dashboard editor</a>", configuration);
+            Assert.Contains(german ? ">Alarmregeln</a>" : ">Alert rules</a>", configuration);
+            Assert.DoesNotContain(german ? "Meine Dashboards" : "My dashboards", configuration);
+            Assert.DoesNotContain("href=\"/kql\"", configuration);
+            if (path == "/admin/rules/queries")
+            {
+                var rules = Regex.Match(configuration, """<a(?=[^>]*href="/admin/rules")[^>]*>""").Value;
+                var scheduled = Regex.Match(configuration, """<a(?=[^>]*href="/admin/rules/queries")[^>]*>""").Value;
+                Assert.DoesNotContain("class=\"active\"", rules);
+                Assert.Contains("class=\"active\"", scheduled);
+            }
+        }
+        if (adminVisible)
+            Assert.DoesNotContain("/admin/analysis-queries", groups["Admin"]);
         Assert.DoesNotContain("Live analysis", html);
         Assert.Equal(authentication.IsSql, html.Contains("action=\"/auth/logout\"", StringComparison.Ordinal));
         Assert.Equal(authentication.IsEntra, html.Contains("/.auth/logout?", StringComparison.Ordinal));
@@ -162,7 +185,7 @@ public sealed class MainNavigationTests
 
     private sealed class TestNavigationManager : NavigationManager
     {
-        public TestNavigationManager() => Initialize("http://localhost/", "http://localhost/");
+        public TestNavigationManager(string path = "/") => Initialize("http://localhost/", "http://localhost" + path);
     }
 
     private sealed class TestAuthenticationState(string role) : AuthenticationStateProvider

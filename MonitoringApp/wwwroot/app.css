@@ -702,7 +702,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .kql-keyword-list { display: block; min-width: 0; max-height: 240px; overflow-y: auto; }
 .kql-keyword-list button { display: block; width: 100%; padding: 5px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: .75rem; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .kql-keyword-list button:hover, .kql-keyword-list button:focus-visible, .kql-keyword-list .kql-keyword-active { color: var(--accent-dark); background: #dff1eb; }
-.kql-keyword-help { display: block; min-width: 0; max-height: 240px; overflow-y: auto; color: var(--ink); font-size: .8rem; font-weight: 400; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kql-keyword-help { display: block; min-width: 0; max-height: min(60vh, 480px); overflow-y: auto; color: var(--ink); font-size: .8rem; font-weight: 400; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kql-keyword-section { display: block; margin-top: 12px; }
+.kql-keyword-section > strong, .kql-keyword-section > span { display: block; }
+.kql-keyword-section > code { display: block; margin: 4px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-family: "IBM Plex Mono", monospace; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 480px) {
     .kql-keyword-panel:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
     .kql-keyword-list { max-height: 160px; }
@@ -1226,7 +1229,9 @@ pre { max-height: 360px; margin: 0; overflow: auto; color: #d9e7e2; font-size: .
     .agent-handoff { flex-wrap: wrap; }
     .agent-copy-status { flex-basis: 100%; }
     .agent-scope-summary dl, .agent-job-metadata { grid-template-columns: 1fr; }
-    .admin-heading { align-items: start; }
+    .admin-heading { align-items: start; flex-wrap: wrap; gap: 16px; }
+    .admin-heading > div { min-width: 0; max-width: 100%; }
+    .admin-heading h1 { overflow-wrap: anywhere; }
     .kql-admin-heading { flex-wrap: wrap; gap: 16px; }
     .kql-admin-heading .admin-heading-actions { flex-wrap: wrap; }
     .admin-form, .admin-fieldset { grid-template-columns: 1fr; }

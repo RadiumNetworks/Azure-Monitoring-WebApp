@@ -1,6 +1,6 @@
 (() => {
     const editors = new Map();
-    const dictionaryUrl = new URL("kql-completion.json?v=20261112-2", document.currentScript.src);
+    const dictionaryUrl = new URL("kql-completion.json?v=20261112-3", document.currentScript.src);
     let dictionary;
     let tooltipId = 0;
     const language = globalThis.kqlLanguage;
@@ -22,14 +22,15 @@
         input.setSelectionRange(start, end);
     };
 
-    const infoText = entry => {
-        if (typeof entry?.info === "string") return entry.info;
+    const infoText = (entry, field = "info") => {
+        if (typeof entry?.[field] === "string") return entry[field];
         const language = document.documentElement.lang.toLowerCase();
-        const variants = Object.entries(entry?.info ?? {});
+        const variants = Object.entries(entry?.[field] ?? {});
         return variants.find(([key]) => key.toLowerCase() === language)?.[1] ??
             variants.find(([key]) => key.toLowerCase() === language.split("-")[0])?.[1] ??
             variants.find(([key]) => key.toLowerCase() === "en")?.[1] ?? "";
     };
+    const tooltipText = entry => [...new Set([infoText(entry), infoText(entry, "syntax")].filter(Boolean))].join("\n");
 
     const attach = root => {
         const input = root.querySelector("textarea");
@@ -211,7 +212,7 @@
                     const entry = suggestion && token.end === input.selectionStart ? suggestion.entry : wordIndex.get(token.text);
                     const info = tableNames.has(name)
                         ? schemaInfo(name)
-                        : infoText(entry);
+                        : tooltipText(entry);
                     if (info) element.dataset.kqlInfo = info;
                     fragment.append(element);
                     position = token.end;
@@ -235,7 +236,7 @@
                 const ghost = document.createElement("span");
                 ghost.className = "free-kql-completion-ghost";
                 ghost.textContent = suggestion.suffix;
-                const info = infoText(suggestion.entry) || infoText(wordIndex.get(suggestion.entry.word));
+                const info = tooltipText(suggestion.entry) || tooltipText(wordIndex.get(suggestion.entry.word));
                 if (info) ghost.dataset.kqlInfo = info;
                 preview.append(ghost);
                 fragment.append(preview);
@@ -357,7 +358,25 @@
                     item.classList.remove("kql-keyword-active");
                 }
                 button.classList.add("kql-keyword-active");
-                keywordHelp.textContent = `${entry.word}\n${infoText(entry) || root.dataset.kqlKeywordNoInfo}`;
+                const summary = infoText(entry);
+                const sections = [
+                    ["syntax", root.dataset.kqlKeywordSyntax, true],
+                    ["details", root.dataset.kqlKeywordDetails, false],
+                    ["example", root.dataset.kqlKeywordExample, true]
+                ].map(([field, label, code]) => ({ text: infoText(entry, field), label, code }))
+                    .filter(section => section.text);
+                keywordHelp.textContent = entry.word + (summary ? `\n${summary}` :
+                    sections.length ? "" : `\n${root.dataset.kqlKeywordNoInfo}`);
+                for (const { text, label, code } of sections) {
+                    const section = document.createElement("span");
+                    section.className = "kql-keyword-section";
+                    const heading = document.createElement("strong");
+                    heading.textContent = label;
+                    const content = document.createElement(code ? "code" : "span");
+                    content.textContent = text;
+                    section.append(heading, content);
+                    keywordHelp.append(section);
+                }
             };
             keywordButtons = words.map((entry, index) => {
                 const button = document.createElement("button");

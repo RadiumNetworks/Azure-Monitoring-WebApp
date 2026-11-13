@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+    <Content Update="Localization\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Remove="doc\**" />
     <Content Remove="Services\KQL\Templates\ActiveDirectory\**\*.json" />
     <Content Include="Services\KQL\Templates\ActiveDirectory\**\*.json"

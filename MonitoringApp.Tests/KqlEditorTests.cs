@@ -59,6 +59,11 @@ public sealed class KqlEditorTests
             Assert.Contains(text["KqlEditor.Keywords.Title"], WebUtility.HtmlDecode(html));
             Assert.Contains(text["KqlEditor.Keywords.Help"], WebUtility.HtmlDecode(html));
             Assert.Contains(text["KqlEditor.Keywords.NoInfo"], WebUtility.HtmlDecode(html));
+            foreach (var (attribute, key) in new[]
+            {
+                ("syntax", "Syntax"), ("details", "Details"), ("example", "Example")
+            })
+                Assert.Contains($"data-kql-keyword-{attribute}=\"{WebUtility.HtmlEncode(text[$"KqlEditor.Keywords.{key}"])}\"", html);
             Assert.Contains("data-kql-keyword-list", html);
             Assert.Contains("aria-expanded=\"false\"", html);
             var keywordPanelId = Regex.Match(html, "aria-controls=\"([^\"]+)\"").Groups[1].Value;

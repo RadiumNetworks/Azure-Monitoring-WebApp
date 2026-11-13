@@ -329,10 +329,10 @@ public sealed class AnalysisQueryExportTests
 
     [Theory]
     [InlineData(null, HttpStatusCode.Unauthorized)]
-    [InlineData(SqlAuthenticationRoles.Operator, HttpStatusCode.Forbidden)]
+    [InlineData(SqlAuthenticationRoles.Operator, HttpStatusCode.OK)]
     [InlineData(SqlAuthenticationRoles.Reader, HttpStatusCode.Forbidden)]
     [InlineData(SqlAuthenticationRoles.Admin, HttpStatusCode.OK)]
-    public async Task ExportEndpointRequiresAdminAndReturnsAnAttachment(string? role, HttpStatusCode expected)
+    public async Task ExportEndpointRequiresOperatorAndReturnsAnAttachment(string? role, HttpStatusCode expected)
     {
         var exporter = new StubExporter();
         await using var endpoint = await EndpointFixture.CreateAsync(exporter);
@@ -340,7 +340,7 @@ public sealed class AnalysisQueryExportTests
             endpoint.Client.DefaultRequestHeaders.Add("X-Test-Role", role);
         using var response = await endpoint.Client.GetAsync("/api/admin/analysis-queries/export");
         Assert.Equal(expected, response.StatusCode);
-        Assert.Equal(role == SqlAuthenticationRoles.Admin ? 1 : 0, exporter.Calls);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, exporter.Calls);
         if (expected == HttpStatusCode.OK)
         {
             Assert.Equal("application/zip", response.Content.Headers.ContentType!.MediaType);
@@ -443,8 +443,8 @@ public sealed class AnalysisQueryExportTests
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Services.AddSingleton(exporter);
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderAuthenticationHandler>("Test", _ => { });
-            builder.Services.AddAuthorization(options => options.AddPolicy("AdminAccess",
-                policy => policy.RequireAuthenticatedUser().RequireRole(SqlAuthenticationRoles.Admin)));
+            builder.Services.AddAuthorization(options => options.AddPolicy("OperatorAccess",
+                policy => policy.RequireAuthenticatedUser().RequireRole(SqlAuthenticationRoles.Operator, SqlAuthenticationRoles.Admin)));
             var app = builder.Build();
             app.UseAuthentication();
             app.UseAuthorization();

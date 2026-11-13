@@ -1,5 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="LanguageAdmin.Title" xml:space="preserve"><value>Sprachen</value></data>
+  <data name="LanguageAdmin.Description" xml:space="preserve"><value>UI-Sprachpakete unabhängig von den SQL-Einstellungen darunter verwalten. Uploads bleiben zunächst im Arbeitsspeicher; die Prüfung ändert keine Dateien.</value></data>
+  <data name="LanguageAdmin.ReloadHint" xml:space="preserve"><value>Aktivierte Sprachänderungen gelten nach vollständigem Neuladen der Seite, ohne Anwendungsneustart. Speichern Sie vorher andere offene Formulare. Bestehende Circuits behalten ihren bisherigen Sprachstand.</value></data>
+  <data name="LanguageAdmin.OpenWarning" xml:space="preserve"><value>Offener Modus: Jeder mit Zugriff auf Admin Settings kann Sprachen verwalten. Die konfigurierte Anwendungsrichtlinie verlangt keine verifizierte Administratoridentität.</value></data>
+  <data name="LanguageAdmin.Load" xml:space="preserve"><value>Sprachen neu laden / Sprachentwurf verwerfen</value></data>
+  <data name="LanguageAdmin.DownloadRegistry" xml:space="preserve"><value>Aktuelles Sprachregister herunterladen</value></data>
+  <data name="LanguageAdmin.Languages" xml:space="preserve"><value>Verfügbare Sprachen</value></data>
+  <data name="LanguageAdmin.Default" xml:space="preserve"><value>Standardsprache</value></data>
+  <data name="LanguageAdmin.Culture" xml:space="preserve"><value>Kulturkennung</value></data>
+  <data name="LanguageAdmin.Name" xml:space="preserve"><value>Anzeigename</value></data>
+  <data name="LanguageAdmin.File" xml:space="preserve"><value>JSON-Datei im Sprachverzeichnis</value></data>
+  <data name="LanguageAdmin.Enabled" xml:space="preserve"><value>Zur Auswahl aktiviert</value></data>
+  <data name="LanguageAdmin.Upload" xml:space="preserve"><value>JSON-Paket hochladen / ersetzen</value></data>
+  <data name="LanguageAdmin.UploadHint" xml:space="preserve"><value>Maximal 2 MiB. Der Upload erhält einen sicheren, versionierten Dateinamen; vorherige Dateien werden nicht überschrieben. Prüfen Sie die vorgeschlagene Zuordnung vor der Aktivierung.</value></data>
+  <data name="LanguageAdmin.DownloadActive" xml:space="preserve"><value>Download des aktiven Pakets vorbereiten</value></data>
+  <data name="LanguageAdmin.Remove" xml:space="preserve"><value>Spracheintrag entfernen</value></data>
+  <data name="LanguageAdmin.Add" xml:space="preserve"><value>Sprache hinzufügen</value></data>
+  <data name="LanguageAdmin.Check" xml:space="preserve"><value>Sprachentwurf prüfen</value></data>
+  <data name="LanguageAdmin.CheckPrevious" xml:space="preserve"><value>Vorherige Konfiguration zur Rücknahme prüfen</value></data>
+  <data name="LanguageAdmin.DownloadFile" xml:space="preserve"><value>{0} herunterladen</value></data>
+  <data name="LanguageAdmin.Preview" xml:space="preserve"><value>Vorschau der Sprachprüfung</value></data>
+  <data name="LanguageAdmin.PreviousPreview" xml:space="preserve"><value>Vorschau der vorherigen Sprachkonfiguration</value></data>
+  <data name="LanguageAdmin.PreviewDefault" xml:space="preserve"><value>Vorgeschlagene Standardsprache: {0}</value></data>
+  <data name="LanguageAdmin.DownloadReport" xml:space="preserve"><value>Vollständigen Prüfbericht herunterladen</value></data>
+  <data name="LanguageAdmin.ReportSummary" xml:space="preserve"><value>{0} — {1}; fehlende Texte: {2}; Fehler: {3}</value></data>
+  <data name="LanguageAdmin.MissingHint" xml:space="preserve"><value>Fehlende nichtenglische Texte verwenden das aktuelle englische Paket. Englisch muss vollständig sein.</value></data>
+  <data name="LanguageAdmin.FullReportHint" xml:space="preserve"><value>Hier werden die ersten 50 Einträge angezeigt. Die vollständigen Listen stehen im herunterladbaren Prüfbericht.</value></data>
+  <data name="LanguageAdmin.InvalidPreview" xml:space="preserve"><value>Der Entwurf enthält Fehler und kann nicht aktiviert werden. Korrigieren Sie die gemeldeten Felder oder das Paket und prüfen Sie erneut.</value></data>
+  <data name="LanguageAdmin.Confirm" xml:space="preserve"><value>Ich habe Standard, Dateizuordnungen und Prüfergebnis geprüft und möchte diese Konfiguration aktivieren.</value></data>
+  <data name="LanguageAdmin.Activate" xml:space="preserve"><value>Geprüfte Konfiguration aktivieren</value></data>
+  <data name="LanguageAdmin.Activated" xml:space="preserve"><value>Sprachkonfiguration aktiviert. Laden Sie die Seite nach dem Speichern anderer offener Formulare neu, um die neuen Sprachen und Texte zu verwenden. SQL-Einstellungen wurden weder gespeichert noch geändert.</value></data>
+  <data name="LanguageAdmin.Errors.AccessDenied" xml:space="preserve"><value>Das aktuelle Konto darf keine Sprachen verwalten.</value></data>
+  <data name="LanguageAdmin.Errors.Configuration" xml:space="preserve"><value>Prüfen Sie Kulturkennungen, Anzeigenamen, eindeutige JSON-Dateinamen und die aktivierte Standardsprache. Behalten Sie den vollständigen en-US-Fallbackeintrag. Technische Details stehen im Anwendungsprotokoll.</value></data>
+  <data name="LanguageAdmin.Errors.Conflict" xml:space="preserve"><value>Sprachdateien wurden geändert oder ein anderer Administrator speichert gerade. Laden Sie die Spracheinstellungen neu, prüfen Sie Ihre Änderungen und prüfen Sie erneut. Es erfolgt keine automatische Wiederholung.</value></data>
+  <data name="LanguageAdmin.Errors.Storage" xml:space="preserve"><value>Das Sprachverzeichnis konnte nicht gelesen oder beschrieben werden. Prüfen Sie Dateirechte und Anwendungsprotokoll und laden Sie die Spracheinstellungen vor einem weiteren Versuch neu.</value></data>
+  <data name="LanguageAdmin.Errors.Unhealthy" xml:space="preserve"><value>Die Dateien auf dem Datenträger sind ungültig oder nicht verfügbar. Die Anwendung verwendet möglicherweise noch die zuletzt geprüften Texte. Reparieren Sie die Dateien anhand des Anwendungsprotokolls und laden Sie die Spracheinstellungen anschließend ausdrücklich neu.</value></data>
+  <data name="LanguageAdmin.Errors.TooLarge" xml:space="preserve"><value>Upload oder Sprachkonfiguration überschreiten die erlaubte Größe.</value></data>
+  <data name="LanguageAdmin.Errors.ReviewRequired" xml:space="preserve"><value>Prüfen Sie den Sprachentwurf und bestätigen Sie seine aktuelle Vorschau vor der Aktivierung ausdrücklich.</value></data>
+  <data name="LanguageAdmin.Errors.NoChanges" xml:space="preserve"><value>Diese geprüfte Konfiguration ist bereits aktiv. Es gibt keine Änderungen zu aktivieren.</value></data>
+  <data name="LanguageAdmin.Errors.NoPrevious" xml:space="preserve"><value>Für diese aktive Revision ist keine vorherige Konfiguration verfügbar.</value></data>
+  <data name="LanguageAdmin.Errors.Unconfirmed" xml:space="preserve"><value>Die Aktivierung konnte nicht bestätigt werden. Dateien könnten bereits geändert sein. Prüfen Sie das Protokoll und laden Sie die Spracheinstellungen vor weiteren Aktionen neu; wiederholen Sie nicht automatisch.</value></data>
+  <data name="LanguageAdmin.Issue.Json" xml:space="preserve"><value>Das Paket ist kein gültiges UTF-8-JSON-Textwörterbuch.</value></data>
+  <data name="LanguageAdmin.Issue.DuplicateKey" xml:space="preserve"><value>Doppelter Ressourcenschlüssel:</value></data>
+  <data name="LanguageAdmin.Issue.UnknownKey" xml:space="preserve"><value>Unbekannter Ressourcenschlüssel:</value></data>
+  <data name="LanguageAdmin.Issue.ValueType" xml:space="preserve"><value>Der Wert muss Text sein:</value></data>
+  <data name="LanguageAdmin.Issue.TextLength" xml:space="preserve"><value>Der Text überschreitet die Längengrenze:</value></data>
+  <data name="LanguageAdmin.Issue.EmptyEnglish" xml:space="preserve"><value>Englischer Text darf nicht leer sein:</value></data>
+  <data name="LanguageAdmin.Issue.Parameters" xml:space="preserve"><value>Ungültige oder inkompatible Formatparameter:</value></data>
+  <data name="LanguageAdmin.Issue.MissingEnglish" xml:space="preserve"><value>Erforderlicher englischer Text fehlt oder ist ungültig:</value></data>
   <data name="UserDirectory.OpenWarning" xml:space="preserve"><value>Open-Modus: Alle Personen mit Zugang zur Anwendung können Benutzer und Teams verwalten. Die Anwendung prüft weder vorgeschaltete Entra-Anmeldung noch Anwendungsrollen. Lokale Benutzersperren entziehen im Open-Modus keinen Zugang. Änderungen werden als Open-Modus ohne verifizierte Person protokolliert. Die Besitzmigration benötigt SQL- oder Entra-Anmeldung in der Anwendung.</value></data>
   <data name="UserDirectory.InventoryRoles" xml:space="preserve"><value>Inventory-Serverrollen</value></data>
   <data name="UserDirectory.InventoryRolesHint" xml:space="preserve"><value>Keine, eine oder mehrere beobachtete Inventory-Rollen auswählen. Rollen dürfen mehreren Teams zugeordnet sein und vergeben keine Anwendungsrechte. Äußere Leerzeichen und Groß-/Kleinschreibung werden ignoriert. Umbenennungen sind neue Rollen; nicht mehr beobachtete Zuordnungen bleiben bis zur ausdrücklichen Entfernung erhalten. Keine Rollen bedeutet nicht alle Server. Ansichten werden noch nicht gefiltert.</value></data>
@@ -243,6 +292,7 @@
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <data name="Language.Title" xml:space="preserve"><value>Sprache</value></data>
+  <data name="Language.ResourceReloadFailed" xml:space="preserve"><value>Die geänderten Sprachdateien konnten nicht geladen werden. Die zuletzt geprüften Texte werden weiterverwendet. Bitten Sie einen Administrator, Anwendungsprotokoll und Sprachdateien zu prüfen, und laden Sie die Seite danach neu.</value></data>
   <data name="Language.Apply" xml:space="preserve"><value>Sprache wechseln</value></data>
   <data name="Language.English" xml:space="preserve"><value>English</value></data>
   <data name="Language.German" xml:space="preserve"><value>Deutsch</value></data>
@@ -262,17 +312,18 @@
   <data name="Navigation.Dashboards" xml:space="preserve"><value>Dashboards</value></data>
   <data name="Navigation.DashboardListFailed" xml:space="preserve"><value>Veröffentlichte Dashboards konnten nicht geladen werden. Öffnen Sie Meine Dashboards, um es erneut zu versuchen.</value></data>
   <data name="Navigation.Analyze" xml:space="preserve"><value>Analysieren</value></data>
-  <data name="Navigation.Queries" xml:space="preserve"><value>Abfragen</value></data>
+  <data name="Navigation.Queries" xml:space="preserve"><value>Request API</value></data>
   <data name="Navigation.Logbook" xml:space="preserve"><value>Logbuch</value></data>
   <data name="Navigation.RootCauseAnalysis" xml:space="preserve"><value>Ursachenanalyse</value></data>
   <data name="Navigation.AnalysisWorkspace" xml:space="preserve"><value>Analysearbeitsbereich</value></data>
   <data name="Navigation.Configuration" xml:space="preserve"><value>Konfiguration</value></data>
-  <data name="Navigation.Rules" xml:space="preserve"><value>Regeln</value></data>
+  <data name="Navigation.Rules" xml:space="preserve"><value>Alarmregeln</value></data>
+  <data name="Navigation.DashboardEditor" xml:space="preserve"><value>Dashboard-Editor</value></data>
   <data name="Navigation.Inventory" xml:space="preserve"><value>Inventar</value></data>
   <data name="Navigation.Admin" xml:space="preserve"><value>Admin</value></data>
   <data name="Navigation.Settings" xml:space="preserve"><value>Einstellungen</value></data>
   <data name="Navigation.AlertAuthentication" xml:space="preserve"><value>Alarmauthentifizierung</value></data>
-  <data name="Navigation.AnalysisQueries" xml:space="preserve"><value>Analyseabfragen</value></data>
+  <data name="Navigation.AnalysisQueries" xml:space="preserve"><value>KQL-Dashboard-Abfragen</value></data>
   <data name="Navigation.Users" xml:space="preserve"><value>Benutzer</value></data>
   <data name="Authentication.SignedIn" xml:space="preserve"><value>Angemeldet</value></data>
   <data name="Authentication.SignOut" xml:space="preserve"><value>Abmelden</value></data>
@@ -1190,7 +1241,7 @@
   <data name="QueryExamples.Last120Minutes" xml:space="preserve"><value>Letzte 120 Minuten</value></data>
   <data name="QueryExamples.AlertEvents" xml:space="preserve"><value>Alarmereignisse</value></data>
   <data name="QueryExamples.Last2Hours" xml:space="preserve"><value>Letzte 2 Stunden</value></data>
-  <data name="AdminAnalysisQueries.PageTitle" xml:space="preserve"><value>Verwaltung von Analyseabfragen</value></data>
+  <data name="AdminAnalysisQueries.PageTitle" xml:space="preserve"><value>KQL-Dashboard-Abfragen</value></data>
   <data name="AdminAnalysisQueries.Description" xml:space="preserve"><value>Die für Operatoren verfügbare KQL erstellen, validieren, versionieren und veröffentlichen.</value></data>
   <data name="AdminAnalysisQueries.Export" xml:space="preserve"><value>Abfragen exportieren (ZIP)</value></data>
   <data name="AdminAnalysisQueries.ExportHelp" xml:space="preserve"><value>Exportiert alle gespeicherten Entwürfe, einschließlich deaktivierter Abfragen. Nicht gespeicherte Editoränderungen sind nicht enthalten.</value></data>
@@ -1290,7 +1341,7 @@
   <data name="AdminAnalysisQueries.Status.Withdrawn" xml:space="preserve"><value>Veröffentlichung für alle zurückgezogen. Der Entwurf und der Versionsverlauf bleiben erhalten. Zum erneuten Freigeben validieren und veröffentlichen.</value></data>
   <data name="AdminAnalysisQueries.Status.Disabled" xml:space="preserve"><value>Abfrage deaktiviert.</value></data>
   <data name="AdminScheduledQueries.Title" xml:space="preserve"><value>Geplante KQL-Alarmregeln</value></data>
-  <data name="AdminScheduledQueries.Eyebrow" xml:space="preserve"><value>Konfiguration / Alarmregeln</value></data>
+  <data name="AdminScheduledQueries.Eyebrow" xml:space="preserve"><value>Konfiguration</value></data>
   <data name="AdminScheduledQueries.Description" xml:space="preserve"><value>Eigene KQL nach Zeitplan ausführen und einen Alarmlebenszyklus je Regel und System oder Workspace erstellen.</value></data>
   <data name="AdminScheduledQueries.OtherRules" xml:space="preserve"><value>Andere Alarmregeln</value></data>
   <data name="AdminScheduledQueries.ExecutionHelp" xml:space="preserve"><value>Prüfungen laufen auf dem Server, auch ohne geöffnetes Dashboard. Die WebApp muss weiterlaufen (App Service: Always On). Fehlende Daten oder fehlgeschlagene Abfragen werden niemals als 0 gewertet und lösen niemals einen bestehenden Alarm auf.</value></data>
@@ -1979,6 +2030,9 @@
   <data name="KqlEditor.Keywords.Title" xml:space="preserve"><value>KQL-Schlüsselworthilfe</value></data>
   <data name="KqlEditor.Keywords.Help" xml:space="preserve"><value>Zeigen Sie mit der Maus auf ein Schlüsselwort, fokussieren Sie es oder tippen Sie darauf, um seine Hilfe zu lesen. Pfeiltasten, Pos1 und Ende navigieren in der Liste; Escape schließt sie. Diese Hilfe verändert Ihre Abfrage nicht.</value></data>
   <data name="KqlEditor.Keywords.NoInfo" xml:space="preserve"><value>Für dieses Schlüsselwort ist keine Hilfe im JSON-Wörterbuch hinterlegt.</value></data>
+  <data name="KqlEditor.Keywords.Syntax" xml:space="preserve"><value>Syntax / Vorlage</value></data>
+  <data name="KqlEditor.Keywords.Details" xml:space="preserve"><value>Details</value></data>
+  <data name="KqlEditor.Keywords.Example" xml:space="preserve"><value>Beispiel</value></data>
   <data name="KqlEditor.TablesLoading" xml:space="preserve"><value>Tabellennamen aus den ausgewählten Workspaces werden geladen…</value></data>
   <data name="KqlEditor.TablesLoaded" xml:space="preserve"><value>{0} Tabellennamen geladen. Vollständige Tabellennamen erscheinen schwarz und fett.</value></data>
   <data name="KqlEditor.TablesFailed" xml:space="preserve"><value>Tabellennamen konnten nicht aus allen ausgewählten Workspaces geladen werden. Prüfen Sie die Konfiguration für Live-Abfragen und die Workspace-Berechtigungen. Die Schlüsselwort-Vervollständigung bleibt verfügbar.</value></data>
@@ -2112,4 +2166,31 @@
   <data name="KqlEditor.Hints.SchemaMultiple" xml:space="preserve"><value>Mehrere Workspaces: keine workspaceübergreifende Spaltenprüfung.</value></data>
   <data name="KqlEditor.Hints.SchemaLimited" xml:space="preserve"><value>Schema oder Querykontext ist nicht vollständig bekannt; daraus werden keine ungültigen Spalten abgeleitet.</value></data>
   <data name="KqlEditor.Hints.Failed" xml:space="preserve"><value>Lokale Editorhinweise sind nicht verfügbar. Sie können die Query weiterhin bearbeiten, ausführen und speichern.</value></data>
+  <data name="DashboardSetup.Title" xml:space="preserve"><value>Dashboard-Setup als JSON</value></data>
+  <data name="DashboardSetup.Help" xml:space="preserve"><value>Aktuelles Layout, Widget-Query-Keys, Systemauswahl, Filter und Aktualisierungseinstellungen übertragen. Abfragedefinitionen, Ergebnisse, Zugangsdaten, Besitzer und Veröffentlichungen sind nicht enthalten. Maximale Dateigröße: 64 KiB.</value></data>
+  <data name="DashboardSetup.Export" xml:space="preserve"><value>Export des aktuellen Setups vorbereiten</value></data>
+  <data name="DashboardSetup.Download" xml:space="preserve"><value>JSON-Datei herunterladen</value></data>
+  <data name="DashboardSetup.File" xml:space="preserve"><value>Dashboard-Setup-JSON-Datei öffnen</value></data>
+  <data name="DashboardSetup.Json" xml:space="preserve"><value>Oder Dashboard-Setup-JSON einfügen</value></data>
+  <data name="DashboardSetup.Preview" xml:space="preserve"><value>Import prüfen</value></data>
+  <data name="DashboardSetup.Summary" xml:space="preserve"><value>{0}: {1} Widgets, {2} Spalten × {3} Zeilen</value></data>
+  <data name="DashboardSetup.TargetWorkspace" xml:space="preserve"><value>Workspace für das importierte Dashboard</value></data>
+  <data name="DashboardSetup.SelectWorkspace" xml:space="preserve"><value>Konfigurierten Workspace oder alle Workspaces auswählen</value></data>
+  <data name="DashboardSetup.PrivateImport" xml:space="preserve"><value>Der Import erstellt ein neues privates Dashboard in Ihrer eigenen Sammlung. Bestehende Dashboards bleiben unverändert. Abfragen werden weder ausgeführt noch veröffentlicht. Ausgeblendete Bibliothekseinträge werden nicht übertragen.</value></data>
+  <data name="DashboardSetup.WorkspaceUnavailable" xml:space="preserve"><value>Der Quell-Workspace „{0}“ ist nicht verfügbar. Wählen Sie ausdrücklich einen Ziel-Workspace.</value></data>
+  <data name="DashboardSetup.UnavailableQueries" xml:space="preserve"><value>Diese Query-Keys fehlen, sind deaktiviert, nicht veröffentlicht oder für Ihre Rolle beziehungsweise die ausgewählten Workspaces nicht verfügbar. Der Import bleibt gesperrt, bis sie verfügbar sind.</value></data>
+  <data name="DashboardSetup.InventoryWarnings" xml:space="preserve"><value>Diese Systeme fehlen im Inventar oder diese Rollen haben aktuell keine passenden Systeme. Die Auswahl bleibt erhalten und wird nicht stillschweigend entfernt.</value></data>
+  <data name="DashboardSetup.AcknowledgeInventory" xml:space="preserve"><value>Ich möchte diese Auswahl trotz der Inventarhinweise beibehalten.</value></data>
+  <data name="DashboardSetup.UnsavedChanges" xml:space="preserve"><value>Speichern Sie vor dem Import Ihre aktuellen Dashboard-Änderungen. Der Import speichert oder verwirft diese Änderungen nicht.</value></data>
+  <data name="DashboardSetup.Import" xml:space="preserve"><value>Als neues privates Dashboard importieren</value></data>
+  <data name="DashboardSetup.Imported" xml:space="preserve"><value>Dashboard „{0}“ wurde importiert und privat gespeichert. Es wurden keine Abfragen ausgeführt.</value></data>
+  <data name="DashboardSetup.ExecutionPending" xml:space="preserve"><value>Die gespeicherte Auto-Refresh-Einstellung bleibt erhalten. Die automatische Ausführung ist in dieser Sitzung jedoch ausgesetzt, bis Sie das Dashboard starten oder Auto-Refresh ausdrücklich ändern.</value></data>
+  <data name="DashboardSetup.Errors.Required" xml:space="preserve"><value>Öffnen Sie zuerst eine Dashboard-Setup-JSON-Datei oder fügen Sie deren Inhalt ein.</value></data>
+  <data name="DashboardSetup.Errors.TooLarge" xml:space="preserve"><value>Das Dashboard-Setup überschreitet die Größenbegrenzung von 64 KiB.</value></data>
+  <data name="DashboardSetup.Errors.InvalidJson" xml:space="preserve"><value>Das Dashboard-Setup-JSON ist ungültig. Pflichtfelder müssen vorhanden sein; doppelte oder unbekannte Felder einschließlich eingebetteter Abfragen werden nicht akzeptiert.</value></data>
+  <data name="DashboardSetup.Errors.UnsupportedVersion" xml:space="preserve"><value>Verwenden Sie das Format „alert-console.dashboard-setup“, Version 1.</value></data>
+  <data name="DashboardSetup.Errors.InvalidSettings" xml:space="preserve"><value>Das Setup enthält ungültige Einstellungen, Identitäten, Widgetgrößen oder überlappende Positionen. Korrigieren Sie das Dokument; Einstellungen werden nicht stillschweigend verändert.</value></data>
+  <data name="DashboardSetup.Errors.QueryUnavailable" xml:space="preserve"><value>Die Abfrage eines Widgets ist nicht verfügbar. Stellen Sie vor dem Export deren Veröffentlichung wieder her.</value></data>
+  <data name="DashboardSetup.Errors.DependenciesUnavailable" xml:space="preserve"><value>Prüfen Sie den Import, beheben Sie nicht verfügbare Abhängigkeiten und bestätigen Sie aktuelle Inventarhinweise vor dem Import.</value></data>
+  <data name="DashboardSetup.Errors.Failed" xml:space="preserve"><value>Das Dashboard-Setup konnte nicht übertragen werden. Ein Import wurde nicht bestätigt. Versuchen Sie es erneut.</value></data>
 </root>

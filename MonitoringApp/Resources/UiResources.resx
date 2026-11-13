@@ -1,5 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="LanguageAdmin.Title" xml:space="preserve"><value>Languages</value></data>
+  <data name="LanguageAdmin.Description" xml:space="preserve"><value>Manage UI language packages independently of the SQL settings below. Uploads are staged in memory; checking does not change any files.</value></data>
+  <data name="LanguageAdmin.ReloadHint" xml:space="preserve"><value>Activated language changes apply after a full page reload, without an application restart. Save other open forms before reloading. Existing circuits retain their current language snapshot.</value></data>
+  <data name="LanguageAdmin.OpenWarning" xml:space="preserve"><value>Open mode: everyone who can reach Admin Settings can manage languages. No verified administrator identity is required by the configured application policy.</value></data>
+  <data name="LanguageAdmin.Load" xml:space="preserve"><value>Reload language settings / discard language draft</value></data>
+  <data name="LanguageAdmin.DownloadRegistry" xml:space="preserve"><value>Download current language registry</value></data>
+  <data name="LanguageAdmin.Languages" xml:space="preserve"><value>Available languages</value></data>
+  <data name="LanguageAdmin.Default" xml:space="preserve"><value>Default language</value></data>
+  <data name="LanguageAdmin.Culture" xml:space="preserve"><value>Culture code</value></data>
+  <data name="LanguageAdmin.Name" xml:space="preserve"><value>Display name</value></data>
+  <data name="LanguageAdmin.File" xml:space="preserve"><value>JSON file in the language directory</value></data>
+  <data name="LanguageAdmin.Enabled" xml:space="preserve"><value>Enabled for selection</value></data>
+  <data name="LanguageAdmin.Upload" xml:space="preserve"><value>Upload / replace JSON package</value></data>
+  <data name="LanguageAdmin.UploadHint" xml:space="preserve"><value>Maximum 2 MiB. A safe, versioned filename is assigned to the upload; previous files are not overwritten. Check the proposed mapping before activation.</value></data>
+  <data name="LanguageAdmin.DownloadActive" xml:space="preserve"><value>Prepare active package download</value></data>
+  <data name="LanguageAdmin.Remove" xml:space="preserve"><value>Remove language entry</value></data>
+  <data name="LanguageAdmin.Add" xml:space="preserve"><value>Add language</value></data>
+  <data name="LanguageAdmin.Check" xml:space="preserve"><value>Check language draft</value></data>
+  <data name="LanguageAdmin.CheckPrevious" xml:space="preserve"><value>Check previous configuration for restore</value></data>
+  <data name="LanguageAdmin.DownloadFile" xml:space="preserve"><value>Download {0}</value></data>
+  <data name="LanguageAdmin.Preview" xml:space="preserve"><value>Language validation preview</value></data>
+  <data name="LanguageAdmin.PreviousPreview" xml:space="preserve"><value>Previous language configuration preview</value></data>
+  <data name="LanguageAdmin.PreviewDefault" xml:space="preserve"><value>Proposed default language: {0}</value></data>
+  <data name="LanguageAdmin.DownloadReport" xml:space="preserve"><value>Download full validation report</value></data>
+  <data name="LanguageAdmin.ReportSummary" xml:space="preserve"><value>{0} — {1}; missing texts: {2}; errors: {3}</value></data>
+  <data name="LanguageAdmin.MissingHint" xml:space="preserve"><value>Missing non-English texts use the current English package. English must be complete.</value></data>
+  <data name="LanguageAdmin.FullReportHint" xml:space="preserve"><value>The first 50 entries are shown here. Download the validation report for the complete lists.</value></data>
+  <data name="LanguageAdmin.InvalidPreview" xml:space="preserve"><value>The draft contains errors and cannot be activated. Correct the reported fields or package and check again.</value></data>
+  <data name="LanguageAdmin.Confirm" xml:space="preserve"><value>I reviewed the default, file mappings and validation results and want to activate this configuration.</value></data>
+  <data name="LanguageAdmin.Activate" xml:space="preserve"><value>Activate checked configuration</value></data>
+  <data name="LanguageAdmin.Activated" xml:space="preserve"><value>Language configuration activated. Reload the page after saving other open forms to use the new languages and texts. SQL settings were not saved or changed.</value></data>
+  <data name="LanguageAdmin.Errors.AccessDenied" xml:space="preserve"><value>The current account is not permitted to manage languages.</value></data>
+  <data name="LanguageAdmin.Errors.Configuration" xml:space="preserve"><value>Check culture codes, display names, unique JSON filenames and the enabled default language. Keep the complete en-US fallback entry. The application log contains technical details.</value></data>
+  <data name="LanguageAdmin.Errors.Conflict" xml:space="preserve"><value>Language files changed or another administrator is saving. Reload the language settings, review your changes and check again. No automatic retry is performed.</value></data>
+  <data name="LanguageAdmin.Errors.Storage" xml:space="preserve"><value>The language directory could not be read or written. Check file permissions and application logs, then reload language settings before trying again.</value></data>
+  <data name="LanguageAdmin.Errors.Unhealthy" xml:space="preserve"><value>The files on disk are invalid or unavailable. The application may still use its last validated texts. Repair the files using the application log, then explicitly reload language settings.</value></data>
+  <data name="LanguageAdmin.Errors.TooLarge" xml:space="preserve"><value>The upload or language configuration exceeds its permitted size.</value></data>
+  <data name="LanguageAdmin.Errors.ReviewRequired" xml:space="preserve"><value>Check the language draft and explicitly confirm its current preview before activation.</value></data>
+  <data name="LanguageAdmin.Errors.NoChanges" xml:space="preserve"><value>This checked configuration is already active. There are no changes to activate.</value></data>
+  <data name="LanguageAdmin.Errors.NoPrevious" xml:space="preserve"><value>No previous configuration is available for this active revision.</value></data>
+  <data name="LanguageAdmin.Errors.Unconfirmed" xml:space="preserve"><value>Activation could not be confirmed. Files may already have changed. Check the logs and reload language settings before any further operation; do not retry automatically.</value></data>
+  <data name="LanguageAdmin.Issue.Json" xml:space="preserve"><value>The package is not a valid UTF-8 JSON text dictionary.</value></data>
+  <data name="LanguageAdmin.Issue.DuplicateKey" xml:space="preserve"><value>Duplicate resource key:</value></data>
+  <data name="LanguageAdmin.Issue.UnknownKey" xml:space="preserve"><value>Unknown resource key:</value></data>
+  <data name="LanguageAdmin.Issue.ValueType" xml:space="preserve"><value>The value must be text:</value></data>
+  <data name="LanguageAdmin.Issue.TextLength" xml:space="preserve"><value>The text exceeds the length limit:</value></data>
+  <data name="LanguageAdmin.Issue.EmptyEnglish" xml:space="preserve"><value>English text must not be empty:</value></data>
+  <data name="LanguageAdmin.Issue.Parameters" xml:space="preserve"><value>Invalid or incompatible format parameters:</value></data>
+  <data name="LanguageAdmin.Issue.MissingEnglish" xml:space="preserve"><value>Required English text is missing or invalid:</value></data>
   <data name="UserDirectory.OpenWarning" xml:space="preserve"><value>Open mode: everyone who can reach this application can manage users and teams. The application does not verify upstream Entra authentication or application roles. Local account blocks do not revoke access in Open mode. Changes are audited as Open mode without a verified person. Ownership migration requires SQL or Entra application authentication.</value></data>
   <data name="UserDirectory.InventoryRoles" xml:space="preserve"><value>Inventory server roles</value></data>
   <data name="UserDirectory.InventoryRolesHint" xml:space="preserve"><value>Select zero or more observed Inventory roles. Roles may belong to multiple teams and do not grant application permissions. Outer whitespace and case are ignored. Renames are new roles; unobserved assignments remain until explicitly removed. No roles does not mean all servers. Views are not filtered yet.</value></data>
@@ -243,6 +292,7 @@
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <data name="Language.Title" xml:space="preserve"><value>Language</value></data>
+  <data name="Language.ResourceReloadFailed" xml:space="preserve"><value>Updated language files could not be loaded. The last validated texts remain in use. Ask an administrator to check the application logs and language files, then reload this page.</value></data>
   <data name="Language.Apply" xml:space="preserve"><value>Change language</value></data>
   <data name="Language.English" xml:space="preserve"><value>English</value></data>
   <data name="Language.German" xml:space="preserve"><value>Deutsch</value></data>
@@ -262,17 +312,18 @@
   <data name="Navigation.Dashboards" xml:space="preserve"><value>Dashboards</value></data>
   <data name="Navigation.DashboardListFailed" xml:space="preserve"><value>Published dashboards could not be loaded. Open My dashboards to try again.</value></data>
   <data name="Navigation.Analyze" xml:space="preserve"><value>Analyze</value></data>
-  <data name="Navigation.Queries" xml:space="preserve"><value>Queries</value></data>
+  <data name="Navigation.Queries" xml:space="preserve"><value>Request API</value></data>
   <data name="Navigation.Logbook" xml:space="preserve"><value>Logbook</value></data>
   <data name="Navigation.RootCauseAnalysis" xml:space="preserve"><value>Root cause analysis</value></data>
   <data name="Navigation.AnalysisWorkspace" xml:space="preserve"><value>Analysis workspace</value></data>
   <data name="Navigation.Configuration" xml:space="preserve"><value>Configuration</value></data>
-  <data name="Navigation.Rules" xml:space="preserve"><value>Rules</value></data>
+  <data name="Navigation.Rules" xml:space="preserve"><value>Alert rules</value></data>
+  <data name="Navigation.DashboardEditor" xml:space="preserve"><value>Dashboard editor</value></data>
   <data name="Navigation.Inventory" xml:space="preserve"><value>Inventory</value></data>
   <data name="Navigation.Admin" xml:space="preserve"><value>Admin</value></data>
   <data name="Navigation.Settings" xml:space="preserve"><value>Settings</value></data>
   <data name="Navigation.AlertAuthentication" xml:space="preserve"><value>Alert authentication</value></data>
-  <data name="Navigation.AnalysisQueries" xml:space="preserve"><value>Analysis queries</value></data>
+  <data name="Navigation.AnalysisQueries" xml:space="preserve"><value>KQL Dashboard queries</value></data>
   <data name="Navigation.Users" xml:space="preserve"><value>Users</value></data>
   <data name="Authentication.SignedIn" xml:space="preserve"><value>Signed in</value></data>
   <data name="Authentication.SignOut" xml:space="preserve"><value>Sign out</value></data>
@@ -1190,7 +1241,7 @@
   <data name="QueryExamples.Last120Minutes" xml:space="preserve"><value>Last 120 minutes</value></data>
   <data name="QueryExamples.AlertEvents" xml:space="preserve"><value>Alert events</value></data>
   <data name="QueryExamples.Last2Hours" xml:space="preserve"><value>Last 2 hours</value></data>
-  <data name="AdminAnalysisQueries.PageTitle" xml:space="preserve"><value>Analysis Query Administration</value></data>
+  <data name="AdminAnalysisQueries.PageTitle" xml:space="preserve"><value>KQL Dashboard queries</value></data>
   <data name="AdminAnalysisQueries.Description" xml:space="preserve"><value>Author, validate, version, and publish the KQL available to operators.</value></data>
   <data name="AdminAnalysisQueries.Export" xml:space="preserve"><value>Export queries (ZIP)</value></data>
   <data name="AdminAnalysisQueries.ExportHelp" xml:space="preserve"><value>Exports all saved drafts, including disabled queries. Unsaved editor changes are not included.</value></data>
@@ -1290,7 +1341,7 @@
   <data name="AdminAnalysisQueries.Status.Withdrawn" xml:space="preserve"><value>Publication withdrawn for everyone. The draft and version history were retained. Validate and publish to release it again.</value></data>
   <data name="AdminAnalysisQueries.Status.Disabled" xml:space="preserve"><value>Query disabled.</value></data>
   <data name="AdminScheduledQueries.Title" xml:space="preserve"><value>Scheduled KQL alert rules</value></data>
-  <data name="AdminScheduledQueries.Eyebrow" xml:space="preserve"><value>Configuration / Alert rules</value></data>
+  <data name="AdminScheduledQueries.Eyebrow" xml:space="preserve"><value>Configuration</value></data>
   <data name="AdminScheduledQueries.Description" xml:space="preserve"><value>Run your own KQL on a schedule and create one alert lifecycle per rule and system or workspace.</value></data>
   <data name="AdminScheduledQueries.OtherRules" xml:space="preserve"><value>Other alert rules</value></data>
   <data name="AdminScheduledQueries.ExecutionHelp" xml:space="preserve"><value>Checks run on the server, even without an open dashboard. The WebApp must remain running (App Service: Always On). Missing data or failed queries never count as zero and never resolve an existing alert.</value></data>
@@ -1979,6 +2030,9 @@
   <data name="KqlEditor.Keywords.Title" xml:space="preserve"><value>KQL keyword reference</value></data>
   <data name="KqlEditor.Keywords.Help" xml:space="preserve"><value>Hover, focus or tap a keyword to read its help. Arrow keys, Home and End navigate the list; Escape closes it. This reference does not change your query.</value></data>
   <data name="KqlEditor.Keywords.NoInfo" xml:space="preserve"><value>No help is stored for this keyword in the JSON dictionary.</value></data>
+  <data name="KqlEditor.Keywords.Syntax" xml:space="preserve"><value>Syntax / template</value></data>
+  <data name="KqlEditor.Keywords.Details" xml:space="preserve"><value>Details</value></data>
+  <data name="KqlEditor.Keywords.Example" xml:space="preserve"><value>Example</value></data>
   <data name="KqlEditor.TablesLoading" xml:space="preserve"><value>Loading table names from the selected workspaces…</value></data>
   <data name="KqlEditor.TablesLoaded" xml:space="preserve"><value>{0} table names loaded. Complete table names appear in black and bold.</value></data>
   <data name="KqlEditor.TablesFailed" xml:space="preserve"><value>Table names could not be loaded from all selected workspaces. Check live-query configuration and workspace permissions. Keyword completion remains available.</value></data>
@@ -2112,4 +2166,31 @@
   <data name="KqlEditor.Hints.SchemaMultiple" xml:space="preserve"><value>Multiple workspaces: no cross-workspace column validation.</value></data>
   <data name="KqlEditor.Hints.SchemaLimited" xml:space="preserve"><value>Schema or query context is not fully known; no invalid columns are inferred from it.</value></data>
   <data name="KqlEditor.Hints.Failed" xml:space="preserve"><value>Local editor hints are unavailable. You can still edit, run and save the query.</value></data>
+  <data name="DashboardSetup.Title" xml:space="preserve"><value>Dashboard setup JSON</value></data>
+  <data name="DashboardSetup.Help" xml:space="preserve"><value>Transfer the current layout, widget query keys, system selection, filters and refresh settings. Query definitions, results, credentials, ownership and publication are not included. Maximum file size: 64 KiB.</value></data>
+  <data name="DashboardSetup.Export" xml:space="preserve"><value>Prepare current setup export</value></data>
+  <data name="DashboardSetup.Download" xml:space="preserve"><value>Download JSON file</value></data>
+  <data name="DashboardSetup.File" xml:space="preserve"><value>Open dashboard setup JSON file</value></data>
+  <data name="DashboardSetup.Json" xml:space="preserve"><value>Or paste dashboard setup JSON</value></data>
+  <data name="DashboardSetup.Preview" xml:space="preserve"><value>Check import</value></data>
+  <data name="DashboardSetup.Summary" xml:space="preserve"><value>{0}: {1} widgets, {2} columns × {3} rows</value></data>
+  <data name="DashboardSetup.TargetWorkspace" xml:space="preserve"><value>Workspace for the imported dashboard</value></data>
+  <data name="DashboardSetup.SelectWorkspace" xml:space="preserve"><value>Select a configured workspace or all workspaces</value></data>
+  <data name="DashboardSetup.PrivateImport" xml:space="preserve"><value>Import creates a new private dashboard in your own collection. Existing dashboards remain unchanged. Queries are not executed or published. Hidden library entries are not transferred.</value></data>
+  <data name="DashboardSetup.WorkspaceUnavailable" xml:space="preserve"><value>The source workspace '{0}' is unavailable. Select a target workspace explicitly.</value></data>
+  <data name="DashboardSetup.UnavailableQueries" xml:space="preserve"><value>These query keys are missing, disabled, unpublished, or not available to your role or the selected workspaces. Import is blocked until they are available.</value></data>
+  <data name="DashboardSetup.InventoryWarnings" xml:space="preserve"><value>These systems are missing from inventory, or these roles currently have no matching systems. Their selection is retained, not silently removed.</value></data>
+  <data name="DashboardSetup.AcknowledgeInventory" xml:space="preserve"><value>I want to retain this selection despite the inventory warnings.</value></data>
+  <data name="DashboardSetup.UnsavedChanges" xml:space="preserve"><value>Save your current dashboard changes before importing. Import does not save or discard those changes.</value></data>
+  <data name="DashboardSetup.Import" xml:space="preserve"><value>Import as a new private dashboard</value></data>
+  <data name="DashboardSetup.Imported" xml:space="preserve"><value>Dashboard '{0}' was imported and saved privately. No queries were executed.</value></data>
+  <data name="DashboardSetup.ExecutionPending" xml:space="preserve"><value>The saved auto-refresh setting is retained, but automatic execution is suspended in this session until you run the dashboard or explicitly change auto-refresh.</value></data>
+  <data name="DashboardSetup.Errors.Required" xml:space="preserve"><value>Open or paste a dashboard setup JSON document first.</value></data>
+  <data name="DashboardSetup.Errors.TooLarge" xml:space="preserve"><value>The dashboard setup exceeds the 64 KiB size limit.</value></data>
+  <data name="DashboardSetup.Errors.InvalidJson" xml:space="preserve"><value>The dashboard setup JSON is invalid. Required fields must be present; duplicate or unknown fields, including inline queries, are not accepted.</value></data>
+  <data name="DashboardSetup.Errors.UnsupportedVersion" xml:space="preserve"><value>Use format 'alert-console.dashboard-setup', version 1.</value></data>
+  <data name="DashboardSetup.Errors.InvalidSettings" xml:space="preserve"><value>The setup contains invalid settings, identities, widget sizes or overlapping positions. Correct the document; settings are not silently changed.</value></data>
+  <data name="DashboardSetup.Errors.QueryUnavailable" xml:space="preserve"><value>A widget's query is unavailable. Restore its published query before exporting.</value></data>
+  <data name="DashboardSetup.Errors.DependenciesUnavailable" xml:space="preserve"><value>Check the import, resolve unavailable dependencies and acknowledge any current inventory warnings before importing.</value></data>
+  <data name="DashboardSetup.Errors.Failed" xml:space="preserve"><value>The dashboard setup transfer could not be completed. No import was confirmed. Try again.</value></data>
 </root>

@@ -288,6 +288,7 @@ builder.Services.AddScoped<AnalysisDashboardState>();
 builder.Services.AddHostedService<AgentAnalysisRetentionService>();
 
 var app = builder.Build();
+app.Services.GetRequiredService<JsonUiLanguageStore>().Validate();
 if (string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
 {
     app.Logger.LogInformation(

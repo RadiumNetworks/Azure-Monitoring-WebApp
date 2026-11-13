@@ -35,7 +35,7 @@ public static class AnalysisQueryExportEndpoints
                     detail: "The export failed. Check the server logs for details.");
             }
         })
-        .RequireAuthorization("AdminAccess")
+        .RequireAuthorization("OperatorAccess")
         .WithName("ExportAnalysisQueryDrafts")
         .WithSummary("Downloads all saved analysis query drafts as a ZIP of JSON templates")
         .WithDescription("Includes disabled definitions and their saved draft scope and visualization. Excludes unsaved editor changes, database IDs, workspace assignments and publication history. Files use the AD query template schema.")

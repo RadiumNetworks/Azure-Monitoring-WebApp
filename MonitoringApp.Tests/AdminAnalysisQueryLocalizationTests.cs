@@ -219,7 +219,8 @@ public sealed class AdminAnalysisQueryLocalizationTests
                     ? "Ein JSON-Dokument für eine Analyseabfrage einfügen, zum Beispiel eine Datei aus „Abfragen exportieren (ZIP)“. Falls der Schlüssel bereits existiert, diesen vor dem Speichern ändern; vorhandene Abfragen werden durch diesen Import niemals überschrieben."
                     : "Paste one Analysis query JSON document, for example a file from Export queries (ZIP). If its key already exists, change the key before saving; existing queries are never overwritten by this import.", html);
                 Assert.Contains(culture == "de-DE" ? "JSON in neuen Entwurf einlesen" : "Read JSON into new draft", html);
-                Assert.Contains(culture == "de-DE" ? "<h1>Analyseabfragen</h1>" : "<h1>Analysis queries</h1>", html);
+                Assert.Contains(culture == "de-DE" ? "<h1>KQL-Dashboard-Abfragen</h1>" : "<h1>KQL Dashboard queries</h1>", html);
+                Assert.Contains(culture == "de-DE" ? ">Konfiguration</p>" : ">Configuration</p>", html);
                 Assert.Contains(culture == "de-DE"
                     ? "Die für Operatoren verfügbare KQL erstellen, validieren, versionieren und veröffentlichen."
                     : "Author, validate, version, and publish the KQL available to operators.", html);
@@ -679,7 +680,7 @@ public sealed class AdminAnalysisQueryLocalizationTests
             Assert.Equal(count, await verify.AnalysisQueryWorkspaces.CountAsync(workspace => workspace.WorkspaceKey == "original-workspace"));
             Assert.Empty(log.Errors);
             Assert.Equal("fr-FR", CultureInfo.CurrentCulture.Name);
-            Assert.Equal("AdminAccess", Assert.Single(typeof(AdminAnalysisQueries).GetCustomAttributes<AuthorizeAttribute>()).Policy);
+            Assert.Equal("OperatorAccess", Assert.Single(typeof(AdminAnalysisQueries).GetCustomAttributes<AuthorizeAttribute>()).Policy);
             Assert.Equal("/admin/analysis-queries", Assert.Single(typeof(AdminAnalysisQueries).GetCustomAttributes<RouteAttribute>()).Template);
             if (count == 0)
             {

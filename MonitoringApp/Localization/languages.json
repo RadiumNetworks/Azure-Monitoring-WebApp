@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "defaultCulture": "en-US",
+  "languages": [
+    {
+      "culture": "en-US",
+      "displayName": "English",
+      "file": "ui.en-US.json",
+      "enabled": true
+    },
+    {
+      "culture": "de-DE",
+      "displayName": "Deutsch",
+      "file": "ui.de-DE.json",
+      "enabled": true
+    }
+  ]
+}

@@ -12,6 +12,9 @@
       data-kql-schema-title="@Text["KqlEditor.SchemaTitle"]" data-kql-schema-empty="@Text["KqlEditor.SchemaEmpty"]"
       data-kql-diagnostic-messages="@DiagnosticMessages"
       data-kql-keyword-no-info="@Text["KqlEditor.Keywords.NoInfo"]"
+      data-kql-keyword-syntax="@Text["KqlEditor.Keywords.Syntax"]"
+      data-kql-keyword-details="@Text["KqlEditor.Keywords.Details"]"
+      data-kql-keyword-example="@Text["KqlEditor.Keywords.Example"]"
       data-kql-schema-unavailable="@Text["KqlEditor.SchemaUnavailable"]">
     <textarea @bind:get="editorValue" @bind:set="ChangeValueAsync" rows="@Rows" maxlength="@MaxLength"
               required="@Required" disabled="@Disabled" readonly="@ReadOnly"

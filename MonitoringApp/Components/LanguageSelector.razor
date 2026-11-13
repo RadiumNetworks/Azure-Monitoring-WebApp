@@ -1,5 +1,6 @@
 @using System.Globalization
 @inject UiText Text
+@inject UiLanguageContext Languages
 @inject NavigationManager Navigation
 
 <section class="language-selector" data-language-selector data-current-culture="@CultureInfo.CurrentUICulture.Name">
@@ -9,12 +10,18 @@
         <label>
             <span>@Text["Language.Title"]</span>
             <select name="Culture" disabled>
-                <option value="en-US" selected="@(CultureInfo.CurrentUICulture.Name == UiLocalization.English)">@Text["Language.English"]</option>
-                <option value="de-DE" selected="@(CultureInfo.CurrentUICulture.Name == UiLocalization.German)">@Text["Language.German"]</option>
+                @foreach (var language in Languages.EnabledLanguages)
+                {
+                    <option value="@language.Culture" selected="@(CultureInfo.CurrentUICulture.Name == language.Culture)">@language.DisplayName</option>
+                }
             </select>
         </label>
         <button type="submit" class="admin-secondary" disabled>@Text["Language.Apply"]</button>
     </form>
+    @if (Text.HasResourceReloadFailure)
+    {
+        <p data-language-resource-error role="alert">@Text["Language.ResourceReloadFailed"]</p>
+    }
     <p data-language-unavailable hidden role="alert">@Text["Language.BrowserUnavailable"]</p>
     <p data-language-error hidden role="alert">@Text["Language.BrowserFailed"]</p>
     <dialog aria-labelledby="language-warning-title" aria-describedby="language-warning-text">

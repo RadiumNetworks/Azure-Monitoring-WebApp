@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -192,7 +193,7 @@ public sealed class EntraAuthorizationTests
     [InlineData(typeof(AdminSettings), "Operator")]
     [InlineData(typeof(AdminUsers), "Operator")]
     [InlineData(typeof(AdminAlertAuthentication), "Operator")]
-    [InlineData(typeof(AdminAnalysisQueries), "Operator")]
+    [InlineData(typeof(AdminAnalysisQueries), "Reader")]
     [InlineData(typeof(AdminLogAnalytics), "Operator")]
     public async Task BlazorRouteViewDeniesAccessBeforeCreatingProtectedPage(Type page, string role)
     {
@@ -223,6 +224,7 @@ public sealed class EntraAuthorizationTests
     [InlineData("/", "Unknown", "Access denied")]
     [InlineData("/admin/rules", "Reader", "Access denied")]
     [InlineData("/admin/inventory", "Reader", "Access denied")]
+    [InlineData("/admin/analysis-queries", "Reader", "Access denied")]
     [InlineData("/admin/settings", "Operator", "Access denied")]
     [InlineData("/login", "", "Sign in with Microsoft")]
     [InlineData("/login", null, "Sign in with Microsoft")]
@@ -243,6 +245,7 @@ public sealed class EntraAuthorizationTests
 
     private static async Task AssertApplicationRouterAccess(string path, string? role, string expected)
     {
+        await using var store = await MainNavigationTests.NavigationStore.CreateAsync();
         var authentication = new ApplicationAuthenticationOptions { Type = ApplicationAuthenticationOptions.Entra };
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -253,6 +256,8 @@ public sealed class EntraAuthorizationTests
         builder.Services.AddSingleton(authentication);
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<CurrentUserIdentity>();
+        builder.Services.AddSingleton<IDbContextFactory<AlertDbContext>>(store);
+        builder.Services.AddSingleton<AnalysisDashboardPublishing>();
         builder.Services.AddScoped<NavigationManager>(_ => new TestNavigationManager(path));
         builder.Services.AddScoped<AuthenticationStateProvider>(_ => new FixedAuthenticationState(
             role is null ? new ClaimsPrincipal(new ClaimsIdentity()) : CurrentUserIdentity.CreateAppServicePrincipal(new HeaderDictionary

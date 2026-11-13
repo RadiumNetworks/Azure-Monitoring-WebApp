@@ -26,6 +26,8 @@ public sealed class AnalysisDashboardDocument
     public bool AutoRefreshEnabled { get; set; }
     public int? TimeRangeMinutesOverride { get; set; }
     public int? BinMinutesOverride { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AnalysisDashboardViewFilters? ViewFilters { get; set; }
     public AnalysisDashboardPanelLayout SystemsPanel { get; set; } = new();
     public AnalysisDashboardPanelLayout QueryLibraryPanel { get; set; } = new();
     public List<AnalysisDashboardSystem> Systems { get; set; } = [];

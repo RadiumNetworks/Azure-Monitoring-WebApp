@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Resources;
 
@@ -11,6 +12,15 @@ public sealed class UiResources
 
     internal static readonly string[] RequiredKeys =
     [
+        "DashboardSetup.Title", "DashboardSetup.Help", "DashboardSetup.Export", "DashboardSetup.Download",
+        "DashboardSetup.File", "DashboardSetup.Json", "DashboardSetup.Preview", "DashboardSetup.Summary",
+        "DashboardSetup.TargetWorkspace", "DashboardSetup.SelectWorkspace", "DashboardSetup.PrivateImport",
+        "DashboardSetup.WorkspaceUnavailable", "DashboardSetup.UnavailableQueries", "DashboardSetup.InventoryWarnings",
+        "DashboardSetup.AcknowledgeInventory", "DashboardSetup.UnsavedChanges", "DashboardSetup.Import", "DashboardSetup.Imported",
+        "DashboardSetup.ExecutionPending",
+        "DashboardSetup.Errors.Required", "DashboardSetup.Errors.TooLarge", "DashboardSetup.Errors.InvalidJson",
+        "DashboardSetup.Errors.UnsupportedVersion", "DashboardSetup.Errors.InvalidSettings",
+        "DashboardSetup.Errors.QueryUnavailable", "DashboardSetup.Errors.DependenciesUnavailable", "DashboardSetup.Errors.Failed",
         "QueryTemplates.Display.Invalid",
         "Prompt.Review.ResultRequired", "Prompt.Review.ActionInvalid", "Prompt.Review.ActorInvalid",
         "Prompt.Review.CommentTooLong", "Prompt.Review.CommentRequired", "Prompt.Review.ReloadFailed",
@@ -67,6 +77,7 @@ public sealed class UiResources
         "KqlEditor.Hints.SchemaFailed", "KqlEditor.Hints.SchemaMultiple", "KqlEditor.Hints.SchemaLimited",
         "KqlEditor.Hints.Failed",
         "KqlEditor.Keywords.Title", "KqlEditor.Keywords.Help", "KqlEditor.Keywords.NoInfo",
+        "KqlEditor.Keywords.Syntax", "KqlEditor.Keywords.Details", "KqlEditor.Keywords.Example",
         "Analysis.Validation.RegistryQueryMissing",
         "QueryTemplate.Validation.InputRequired", "QueryTemplate.Validation.ImportTooLarge",
         "QueryTemplate.Validation.NullTemplate", "QueryTemplate.Validation.InvalidJson",
@@ -256,7 +267,7 @@ public sealed class UiResources
         "Brand.HomeLabel", "Navigation.PrimaryLabel", "Navigation.Overview", "Navigation.Inbox",
         "Navigation.Graph", "Navigation.Dashboards", "Navigation.DashboardListFailed", "Navigation.Analyze", "Navigation.Queries",
         "Navigation.Logbook", "Navigation.RootCauseAnalysis", "Navigation.AnalysisWorkspace",
-        "Navigation.Configuration", "Navigation.Rules", "Navigation.Inventory", "Navigation.Admin",
+        "Navigation.Configuration", "Navigation.Rules", "Navigation.DashboardEditor", "Navigation.Inventory", "Navigation.Admin",
         "Navigation.Settings", "Navigation.AlertAuthentication", "Navigation.AnalysisQueries", "Navigation.Users",
         "Authentication.SignedIn", "Authentication.SignOut", "Authentication.SignIn",
         "Authentication.RestrictedAccess", "Authentication.OpenModeDescription", "Authentication.OpenConsole",
@@ -461,8 +472,18 @@ public sealed class UiResources
             : throw new InvalidOperationException($"The English UI resource '{key}' is missing or empty.");
     }
 
+    internal static IReadOnlyDictionary<string, string> GetEnglishEntries()
+    {
+        var resources = English.GetResourceSet(CultureInfo.InvariantCulture, true, false)
+            ?? throw new InvalidOperationException("The English UI resource file is missing.");
+        return resources.Cast<DictionaryEntry>()
+            .ToFrozenDictionary(entry => (string)entry.Key, entry => GetEnglish((string)entry.Key), StringComparer.Ordinal);
+    }
+
     public static void ValidateEnglish()
     {
+        foreach (var code in Enum.GetNames<UiLanguageAdminError>()) _ = GetEnglish("LanguageAdmin.Errors." + code);
+        foreach (var code in Enum.GetNames<UiLanguagePackIssueCode>()) _ = GetEnglish("LanguageAdmin.Issue." + code);
         var resources = English.GetResourceSet(CultureInfo.InvariantCulture, true, false)
             ?? throw new InvalidOperationException("The English UI resource file is missing.");
         foreach (DictionaryEntry resource in resources)

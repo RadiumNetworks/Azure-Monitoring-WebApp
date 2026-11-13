@@ -87,15 +87,21 @@ public sealed class AnalysisDashboardCollection
 
     public void RenameActive(string name) => Active.Document.Name = ValidateName(name);
 
-    public void AddCopy(AnalysisDashboardDocument source)
+    public void AddCopy(AnalysisDashboardDocument source) => AddClone(source, copy: true);
+
+    public void AddImported(AnalysisDashboardDocument source) => AddClone(source, copy: false);
+
+    private void AddClone(AnalysisDashboardDocument source, bool copy)
     {
         var sourceName = ValidateName(source.Name);
         var document = Clone(source);
-        var number = 1;
+        var number = copy ? 1 : 0;
         string name;
         do
         {
-            var suffix = number == 1 ? " (copy)" : $" (copy {number})";
+            var suffix = number == 0 ? string.Empty :
+                number == 1 ? copy ? " (copy)" : " (import)" :
+                copy ? $" (copy {number})" : $" (import {number})";
             var length = Math.Min(sourceName.Length, 256 - suffix.Length);
             if (length > 0 && char.IsHighSurrogate(sourceName[length - 1]))
                 length--;

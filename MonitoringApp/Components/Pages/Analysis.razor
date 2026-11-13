@@ -58,6 +58,100 @@
     }
 </section>
 
+@if (editMode && selectedPublishedDashboard is null)
+{
+    <details class="admin-rule-card analysis-setup-transfer">
+        <summary>@Text["DashboardSetup.Title"]</summary>
+        <p>@Text["DashboardSetup.Help"]</p>
+        @if (setupTransferError is not null)
+        {
+            <p class="admin-message admin-message-error" role="alert">@setupTransferError</p>
+        }
+        @if (setupTransferStatus is not null)
+        {
+            <p class="admin-message" role="status">@setupTransferStatus</p>
+        }
+        @if (setupAwaitingExecution)
+        {
+            <p class="admin-message admin-message-warning" role="status">@Text["DashboardSetup.ExecutionPending"]</p>
+        }
+        <button class="admin-secondary" type="button" disabled="@(DashboardBusy || PersonalActionsBlocked)"
+                @onclick="ExportDashboardSetupAsync">@Text["DashboardSetup.Export"]</button>
+        @if (setupExportJson is not null)
+        {
+            <a class="admin-secondary" download="dashboard-setup.json"
+               href="@("data:application/json;charset=utf-8;base64," + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(setupExportJson)))">
+                @Text["DashboardSetup.Download"]
+            </a>
+        }
+        <label class="admin-field">
+            <span>@Text["DashboardSetup.File"]</span>
+            <InputFile accept=".json,application/json" disabled="@(DashboardBusy || PersonalActionsBlocked)"
+                       OnChange="ReadDashboardSetupFileAsync" />
+        </label>
+        <label class="admin-field">
+            <span>@Text["DashboardSetup.Json"]</span>
+            <textarea rows="8" maxlength="@AnalysisDashboardSetupJson.MaxBytes" spellcheck="false"
+                      disabled="@(DashboardBusy || PersonalActionsBlocked)" @bind="setupImportJson"
+                      @bind:after="ClearSetupPreview"></textarea>
+        </label>
+        <button class="admin-secondary" type="button" disabled="@(DashboardBusy || PersonalActionsBlocked)"
+                @onclick="PreviewDashboardSetupAsync">@Text["DashboardSetup.Preview"]</button>
+        @if (pendingSetup is not null)
+        {
+            <h3>@Text.Format("DashboardSetup.Summary", pendingSetup.Name, pendingSetup.Widgets.Count,
+                pendingSetup.Columns, pendingSetup.Rows)</h3>
+            <label class="admin-field">
+                <span>@Text["DashboardSetup.TargetWorkspace"]</span>
+                <select value="@(setupImportWorkspace ?? "__select__")" disabled="@DashboardBusy" @onchange="SetupWorkspaceChangedAsync">
+                    @if (setupImportWorkspace is null)
+                    {
+                        <option value="__select__" disabled>@Text["DashboardSetup.SelectWorkspace"]</option>
+                    }
+                    <option value="">@Text["Filters.AllWorkspaces"]</option>
+                    @foreach (var workspace in Options.Workspaces.OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@workspace.Key">@workspace.DisplayName</option>
+                    }
+                </select>
+            </label>
+            <p>@Text["DashboardSetup.PrivateImport"]</p>
+            @if (setupPreview is not null)
+            {
+            @if (setupPreview.WorkspaceUnavailable)
+            {
+                <p class="admin-message admin-message-warning" role="status">@Text.Format("DashboardSetup.WorkspaceUnavailable", pendingSetup.Filters.WorkspaceKey)</p>
+            }
+            @if (setupPreview.UnavailableQueries.Count > 0)
+            {
+                <p class="admin-message admin-message-warning" role="status">@Text["DashboardSetup.UnavailableQueries"]</p>
+                <ul>@foreach (var key in setupPreview.UnavailableQueries) { <li><code>@key</code></li> }</ul>
+            }
+            @if (setupPreview.HasInventoryWarnings)
+            {
+                <p class="admin-message admin-message-warning" role="status">@Text["DashboardSetup.InventoryWarnings"]</p>
+                <ul>
+                    @foreach (var system in setupPreview.MissingSystems) { <li>@system.Computer · @system.SubscriptionId</li> }
+                    @foreach (var role in setupPreview.EmptyRoles) { <li>@role</li> }
+                </ul>
+                <label class="inbox-edit-toggle">
+                    <input type="checkbox" disabled="@DashboardBusy" @bind="setupAcknowledgeInventory" />
+                    <span>@Text["DashboardSetup.AcknowledgeInventory"]</span>
+                </label>
+            }
+            }
+            @if (HasUnsavedSetupChanges)
+            {
+                <p class="admin-message admin-message-warning" role="status">@Text["DashboardSetup.UnsavedChanges"]</p>
+            }
+            <button class="admin-primary" type="button"
+                    disabled="@(DashboardBusy || PersonalActionsBlocked || setupPreview is null || !setupPreview.CanImport || HasUnsavedSetupChanges ||
+                        (setupPreview.HasInventoryWarnings && !setupAcknowledgeInventory))"
+                    @onclick="ImportDashboardSetupAsync">@Text["DashboardSetup.Import"]</button>
+        }
+    </details>
+}
+
 <section class="@(UsesRoleFilters ? "analysis-controls analysis-role-filters" : "analysis-controls")" aria-label="@Text["Analysis.FiltersLabel"]">
     <label>
         <span>@Text["Filters.Workspace"]</span>
@@ -606,8 +700,18 @@
     private string? publicationError;
     private string? publicationLoadError;
     private string? publicationMessage;
-    private bool DashboardBusy => isRunning || isDashboardRunning || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || isRefreshingSelection;
-    private bool PersonalActionsBlocked => selectedPublishedDashboard is not null || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || dashboardLoadFailed;
+    private bool isTransferringSetup;
+    private bool setupAwaitingExecution;
+    private string setupImportJson = string.Empty;
+    private string? setupExportJson;
+    private string? setupTransferError;
+    private string? setupTransferStatus;
+    private AnalysisDashboardSetup? pendingSetup;
+    private AnalysisDashboardSetupPreview? setupPreview;
+    private string? setupImportWorkspace;
+    private bool setupAcknowledgeInventory;
+    private bool DashboardBusy => isRunning || isDashboardRunning || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || isRefreshingSelection || isTransferringSetup;
+    private bool PersonalActionsBlocked => selectedPublishedDashboard is not null || isChangingDashboard || isSavingDashboard || isPublishingDashboard || isLoadingDashboard || dashboardLoadFailed || isTransferringSetup;
     private PublishedAnalysisDashboard? OwnPublication => publishedDashboards.FirstOrDefault(item =>
         item.Id == dashboardCollection.ActiveDashboardId && item.Owner.Equals(dashboardOwnerKey, StringComparison.OrdinalIgnoreCase));
     private string? dashboardStatus;
@@ -663,12 +767,185 @@
         Dashboard.Document.Widgets.Count > 0 &&
         !disposed && HasSelectionRule;
 
-    private async Task LoadLibraryAsync()
+    private async Task<IReadOnlyList<AnalysisQueryDefinition>> LoadAllowedQueriesAsync()
     {
         var user = (await AuthenticationStateTask).User;
-        availableQueries = (await Registry.ListPublishedAsync())
+        return (await Registry.ListPublishedAsync(refreshCancellation.Token))
             .Where(query => AnalysisQueryExecutionService.IsRoleAllowed(query.MinimumRole, user, AuthenticationOptions.IsOpen))
             .ToArray();
+    }
+
+    private async Task LoadLibraryAsync() => availableQueries = await LoadAllowedQueriesAsync();
+
+    private AnalysisDashboardViewFilters CurrentSetupFilters => new()
+        { WorkspaceKey = workspaceFilter, Domain = domainFilter, Site = siteFilter, Role = roleFilter };
+
+    private bool HasUnsavedSetupChanges
+    {
+        get
+        {
+            if (UsesInventoryRoles && selectedInventoryRoles.Count == 0)
+                return true;
+            var saved = new AnalysisDashboardState();
+            saved.Load(dashboardCollection.OpenActive());
+            return System.Text.Json.JsonSerializer.Serialize(saved.Document) !=
+                System.Text.Json.JsonSerializer.Serialize(Dashboard.Document);
+        }
+    }
+
+    private void ClearSetupPreview()
+    {
+        pendingSetup = null;
+        setupPreview = null;
+        setupAcknowledgeInventory = false;
+        setupTransferError = setupTransferStatus = null;
+    }
+
+    private void SetupTransferFailed(Exception exception)
+    {
+        Logger.LogWarning(exception, "Dashboard setup transfer could not be completed.");
+        setupTransferError = exception is AnalysisDashboardSetupException setup
+            ? Text[$"DashboardSetup.Errors.{setup.Code}"]
+            : exception is DbUpdateConcurrencyException ? Text["Analysis.Errors.CollectionChanged"]
+            : AnalysisErrorPresentation.Message(exception, Text, "DashboardSetup.Errors.Failed");
+    }
+
+    private async Task ExportDashboardSetupAsync()
+    {
+        if (DashboardBusy || PersonalActionsBlocked || !editMode) return;
+        isTransferringSetup = true;
+        setupExportJson = null;
+        setupTransferError = setupTransferStatus = null;
+        try
+        {
+            ValidateSelectionDraft();
+            await DashboardRepository.RequireAccessAsync(dashboardActorKey, dashboardOwnerKey, refreshCancellation.Token);
+            var queries = await LoadAllowedQueriesAsync();
+            setupExportJson = AnalysisDashboardSetupJson.Export(Dashboard.Document, CurrentSetupFilters, queries);
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is AnalysisDashboardSetupException or AnalysisValidationException or
+            UnauthorizedAccessException or Microsoft.Data.SqlClient.SqlException or
+            AnalysisQueryPublicationException or AnalysisQuerySnapshotJsonException)
+        { SetupTransferFailed(exception); }
+        finally { isTransferringSetup = false; }
+    }
+
+    private async Task ReadDashboardSetupFileAsync(InputFileChangeEventArgs args)
+    {
+        if (DashboardBusy || PersonalActionsBlocked || !editMode) return;
+        ClearSetupPreview();
+        setupImportJson = string.Empty;
+        isTransferringSetup = true;
+        try
+        {
+            if (args.File.Size > AnalysisDashboardSetupJson.MaxBytes)
+                throw new AnalysisDashboardSetupException(AnalysisDashboardSetupError.TooLarge);
+            await using var stream = args.File.OpenReadStream(AnalysisDashboardSetupJson.MaxBytes, refreshCancellation.Token);
+            using var reader = new StreamReader(stream, new System.Text.UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
+            setupImportJson = await reader.ReadToEndAsync(refreshCancellation.Token);
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is AnalysisDashboardSetupException or IOException or System.Text.DecoderFallbackException or JSException)
+        { SetupTransferFailed(exception); }
+        finally { isTransferringSetup = false; }
+        if (setupTransferError is null && !disposed)
+            await PreviewDashboardSetupAsync();
+    }
+
+    private async Task RefreshSetupPreviewAsync()
+    {
+        var setup = pendingSetup ?? throw new InvalidOperationException("Dashboard setup preview is missing.");
+        await DashboardRepository.RequireAccessAsync(dashboardActorKey, dashboardOwnerKey, refreshCancellation.Token);
+        var queries = await LoadAllowedQueriesAsync();
+        var currentInventory = await AlertStore.GetComputerInventoryAsync(refreshCancellation.Token);
+        setupPreview = AnalysisDashboardSetupJson.Preview(setup, setupImportWorkspace, queries, currentInventory, QueryRunner.WorkspaceResolver);
+    }
+
+    private async Task PreviewDashboardSetupAsync()
+    {
+        if (DashboardBusy || PersonalActionsBlocked || !editMode) return;
+        ClearSetupPreview();
+        isTransferringSetup = true;
+        try
+        {
+            pendingSetup = AnalysisDashboardSetupJson.Parse(setupImportJson);
+            setupImportWorkspace = pendingSetup.Filters.WorkspaceKey.Length == 0 ||
+                QueryRunner.WorkspaceResolver.IsConfiguredWorkspace(pendingSetup.Filters.WorkspaceKey)
+                ? pendingSetup.Filters.WorkspaceKey : null;
+            await RefreshSetupPreviewAsync();
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is AnalysisDashboardSetupException or AnalysisValidationException or
+            UnauthorizedAccessException or Microsoft.Data.SqlClient.SqlException or
+            AnalysisQueryPublicationException or AnalysisQuerySnapshotJsonException)
+        { setupPreview = null; SetupTransferFailed(exception); }
+        finally { isTransferringSetup = false; }
+    }
+
+    private async Task SetupWorkspaceChangedAsync(ChangeEventArgs args)
+    {
+        if (DashboardBusy || PersonalActionsBlocked || pendingSetup is null) return;
+        setupImportWorkspace = args.Value?.ToString();
+        setupAcknowledgeInventory = false;
+        setupTransferError = null;
+        setupPreview = null;
+        isTransferringSetup = true;
+        try { await RefreshSetupPreviewAsync(); }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is AnalysisDashboardSetupException or AnalysisValidationException or
+            UnauthorizedAccessException or Microsoft.Data.SqlClient.SqlException or
+            AnalysisQueryPublicationException or AnalysisQuerySnapshotJsonException)
+        { SetupTransferFailed(exception); }
+        finally { isTransferringSetup = false; }
+    }
+
+    private async Task ImportDashboardSetupAsync()
+    {
+        if (DashboardBusy || PersonalActionsBlocked || !editMode) return;
+        setupTransferError = setupTransferStatus = null;
+        if (pendingSetup is null || setupPreview is null || HasUnsavedSetupChanges)
+        {
+            Logger.LogWarning("Dashboard setup import requires a preview and a saved current dashboard.");
+            setupTransferError = Text[HasUnsavedSetupChanges ? "DashboardSetup.UnsavedChanges" : "DashboardSetup.Errors.DependenciesUnavailable"];
+            return;
+        }
+        isTransferringSetup = true;
+        try
+        {
+            await DashboardRepository.RequireAccessAsync(dashboardActorKey, dashboardOwnerKey, refreshCancellation.Token);
+            var queries = await LoadAllowedQueriesAsync();
+            var currentInventory = await AlertStore.GetComputerInventoryAsync(refreshCancellation.Token);
+            var previousPreview = setupPreview;
+            setupPreview = AnalysisDashboardSetupJson.Preview(pendingSetup, setupImportWorkspace, queries, currentInventory, QueryRunner.WorkspaceResolver);
+            if (!previousPreview.MissingSystems.Select(system => SubscriptionComputerKey.Create(system.SubscriptionId, system.Computer))
+                    .SequenceEqual(setupPreview.MissingSystems.Select(system => SubscriptionComputerKey.Create(system.SubscriptionId, system.Computer)),
+                        StringComparer.OrdinalIgnoreCase) ||
+                !previousPreview.EmptyRoles.SequenceEqual(setupPreview.EmptyRoles, StringComparer.OrdinalIgnoreCase))
+                setupAcknowledgeInventory = false;
+            var document = AnalysisDashboardSetupJson.CreateDocument(pendingSetup, setupImportWorkspace, queries, currentInventory,
+                QueryRunner.WorkspaceResolver, setupAcknowledgeInventory);
+            var stored = await DashboardRepository.LoadAsync(dashboardActorKey, refreshCancellation.Token);
+            if (dashboardOwnerKey.Equals(dashboardActorKey, StringComparison.OrdinalIgnoreCase) && stored.Revision != dashboardRevision)
+                throw new DbUpdateConcurrencyException("The dashboard collection changed before import.");
+            var candidate = stored.Collection ?? AnalysisDashboardCollection.Create();
+            candidate.AddImported(document);
+            var saved = await DashboardRepository.SaveAsync(dashboardActorKey, candidate, stored.Revision, refreshCancellation.Token);
+            inventory = currentInventory;
+            availableQueries = queries;
+            dashboardOwnerKey = dashboardActorKey;
+            ActivatePersonalDashboard(candidate, saved.Revision);
+            setupAwaitingExecution = true;
+            editMode = dashboardEditMode = true;
+            setupImportJson = string.Empty;
+            setupTransferStatus = Text.Format("DashboardSetup.Imported", Dashboard.Document.Name);
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is AnalysisDashboardSetupException or AnalysisValidationException or
+            UnauthorizedAccessException or DbUpdateException or Microsoft.Data.SqlClient.SqlException or
+            AnalysisQueryPublicationException or AnalysisQuerySnapshotJsonException)
+        { SetupTransferFailed(exception); }
+        finally { isTransferringSetup = false; }
     }
 
     private async Task RefreshLibraryAsync()
@@ -773,6 +1050,9 @@
     private void DashboardAccessDenied(UnauthorizedAccessException exception)
     {
         Logger.LogWarning(exception, "Historical alias dashboard access is no longer available.");
+        ClearSetupPreview();
+        setupExportJson = null;
+        setupImportJson = string.Empty;
         InvalidateSelection();
         dashboardLoadFailed = true;
         errorMessage = Text["AnalysisDashboards.AccessDenied"];
@@ -864,6 +1144,8 @@
 
     private async Task DashboardFiltersChangedAsync()
     {
+        if (Dashboard.Document.ViewFilters is not null && selectedPublishedDashboard is null)
+            Dashboard.UpdateWorkspace(document => document.ViewFilters = CurrentSetupFilters);
         selectionGeneration++;
         widgetResults.Clear();
         widgetErrors.Clear();
@@ -896,6 +1178,7 @@
     {
         if (PersonalActionsBlocked)
             return;
+        setupAwaitingExecution = false;
         Dashboard.UpdateWorkspace(document =>
         {
             document.AutoRefreshEnabled = args.Value is true;
@@ -924,35 +1207,34 @@
         await SaveDashboardAsync();
     }
 
-    private async Task RefreshClockAsync(CancellationToken cancellationToken)
+    private Task RefreshClockAsync(CancellationToken cancellationToken) =>
+        AnalysisRefreshLoop.RunAsync(() => InvokeAsync(RefreshDashboardTickAsync), cancellationToken);
+
+    private async Task RefreshDashboardTickAsync()
     {
-        await AnalysisRefreshLoop.RunAsync(() =>
-            InvokeAsync(async () =>
-                {
-                    if (!Dashboard.Document.AutoRefreshEnabled || isRunning || isDashboardRunning || PersonalActionsBlocked)
-                        return;
-                    var refreshedDashboard = CanRunDashboard;
-                    if (refreshedDashboard)
-                        await RunDashboardAsync();
-                    if (hasDetailRequest && CanRun && Dashboard.Document.AutoRefreshEnabled)
-                    {
-                        var matchingWidget = refreshedDashboard ? Dashboard.Document.Widgets.FirstOrDefault(widget =>
-                            widget.QueryDefinitionId == selectedQueryId &&
-                            (Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) == timeRangeMinutes &&
-                            (Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? SelectedQuery?.DefaultBinMinutes) == binMinutes &&
-                            widget.GroupBy == groupBy) : null;
-                        if (matchingWidget is not null && widgetErrors.TryGetValue(matchingWidget.Id, out var refreshError))
-                        {
-                            result = null;
-                            errorMessage = refreshError;
-                        }
-                        else if (matchingWidget is not null && widgetResults.TryGetValue(matchingWidget.Id, out var refreshed))
-                            result = refreshed;
-                        else
-                            await RunAsync();
-                    }
-                    StateHasChanged();
-                }), cancellationToken);
+        if (setupAwaitingExecution || !Dashboard.Document.AutoRefreshEnabled || isRunning || isDashboardRunning || PersonalActionsBlocked)
+            return;
+        var refreshedDashboard = CanRunDashboard;
+        if (refreshedDashboard)
+            await RunDashboardAsync();
+        if (hasDetailRequest && CanRun && Dashboard.Document.AutoRefreshEnabled)
+        {
+            var matchingWidget = refreshedDashboard ? Dashboard.Document.Widgets.FirstOrDefault(widget =>
+                widget.QueryDefinitionId == selectedQueryId &&
+                (Dashboard.Document.TimeRangeMinutesOverride ?? widget.TimeRangeMinutes) == timeRangeMinutes &&
+                (Dashboard.Document.BinMinutesOverride ?? widget.BinMinutes ?? SelectedQuery?.DefaultBinMinutes) == binMinutes &&
+                widget.GroupBy == groupBy) : null;
+            if (matchingWidget is not null && widgetErrors.TryGetValue(matchingWidget.Id, out var refreshError))
+            {
+                result = null;
+                errorMessage = refreshError;
+            }
+            else if (matchingWidget is not null && widgetResults.TryGetValue(matchingWidget.Id, out var refreshed))
+                result = refreshed;
+            else
+                await RunAsync();
+        }
+        StateHasChanged();
     }
 
     private void QueryChanged()
@@ -1318,6 +1600,7 @@
     {
         if (!CanRunDashboard)
             return;
+        setupAwaitingExecution = false;
         isDashboardRunning = true;
         errorMessage = null;
         StateHasChanged();
@@ -1671,6 +1954,16 @@
         selectedPublishedDashboard = null;
         runPublishedOnFilterChange = false;
         Dashboard.Load(document);
+        setupAwaitingExecution = false;
+        ClearSetupPreview();
+        setupExportJson = null;
+        if (document.ViewFilters is { } filters)
+        {
+            workspaceFilter = filters.WorkspaceKey;
+            domainFilter = filters.Domain;
+            siteFilter = filters.Site;
+            roleFilter = filters.Role;
+        }
         confirmWithdrawDashboard = false;
         selectedQueryId = Guid.Empty;
         openedWidgetId = null;

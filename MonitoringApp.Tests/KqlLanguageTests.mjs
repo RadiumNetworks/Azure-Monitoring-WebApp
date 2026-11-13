@@ -1192,3 +1192,35 @@ test("AP8 changing exact 64 KiB multi-source drafts meet the unchanged 50 ms p95
     t.diagnostic(`Node ${process.version}; changing 64 KiB join/union completion + diagnostics; 30 iterations; p95=${times[28].toFixed(2)} ms`);
     assert.ok(times[28] <= 50, `p95 ${times[28].toFixed(2)} ms exceeds 50 ms`);
 });
+
+for (const field of ["syntax", "details", "example"]) {
+    for (const invalid of ["", " ", null, [], {}, 42, true, { de: " " }, { en: 1 }]) {
+        test(`invalid structured ${field} fails explicitly: ${JSON.stringify(invalid)}`, () => {
+            assert.throws(() => language.normalizeEntries([{ word: "where", [field]: invalid }]),
+                new RegExp(`Invalid ${field}`));
+        });
+    }
+}
+
+test("structured help survives recursive normalization while legacy info remains valid", () => {
+    const input = [{ word: "order", info: "Old text", syntax: "<table> | order by <columns>",
+        next: [{ word: "by", info: { en: "Columns", de: "Spalten" }, details: "Detail",
+            example: { en: "T\n| order by Name" } }] }];
+    const normalized = plain(language.normalizeEntries(input));
+    assert.equal(normalized[0].info, "Old text");
+    assert.equal(normalized[0].syntax, input[0].syntax);
+    assert.deepEqual(normalized[0].next[0].example, input[0].next[0].example);
+    assert.equal(normalized[0].next[0].details, "Detail");
+});
+
+test("every documented actual JSON keyword has localized compact help, a template and multiline example", () => {
+    const documented = realEntries.filter(entry => entry.info);
+    assert.equal(documented.length, 124);
+    for (const entry of documented) {
+        assert.ok(entry.info.en?.trim(), `${entry.word}: English summary`);
+        assert.ok(entry.info.de?.trim(), `${entry.word}: German summary`);
+        assert.ok(!entry.info.en.includes("\nExample:"), `${entry.word}: compact summary`);
+        assert.ok(entry.syntax?.trim(), `${entry.word}: template`);
+        assert.ok(entry.example?.includes("\n"), `${entry.word}: multiline example`);
+    }
+});

@@ -1,0 +1,298 @@
+@implements IDisposable
+@using System.Security.Claims
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject UiLanguageAdministration Administration
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ApplicationAuthenticationOptions AuthenticationOptions
+@inject UiText Text
+@inject ILogger<UiLanguageSettings> Logger
+
+<section class="admin-editor" aria-labelledby="language-settings-heading" data-language-administration>
+    <h2 id="language-settings-heading">@Text["LanguageAdmin.Title"]</h2>
+    <p>@Text["LanguageAdmin.Description"]</p>
+    <p class="admin-message admin-message-warning" role="status">@Text["LanguageAdmin.ReloadHint"]</p>
+    @if (AuthenticationOptions.IsOpen)
+    {
+        <p class="admin-message admin-message-warning" role="alert">@Text["LanguageAdmin.OpenWarning"]</p>
+    }
+    @if (error is not null)
+    {
+        <p class="admin-message admin-message-error" role="alert">@error</p>
+    }
+    @if (status is not null)
+    {
+        <p class="admin-message admin-message-success" role="status">@status</p>
+    }
+    <button class="admin-secondary" type="button" disabled="@busy" @onclick="LoadAsync">@Text["LanguageAdmin.Load"]</button>
+    @if (state is not null)
+    {
+        <a class="admin-secondary" download="languages.json" href="@DataUri(state.RegistryJson)">@Text["LanguageAdmin.DownloadRegistry"]</a>
+        <form class="admin-form" @onsubmit="PreviewAsync" @onsubmit:preventDefault>
+            <fieldset class="admin-fieldset" disabled="@(busy || blocked)">
+                <legend>@Text["LanguageAdmin.Languages"]</legend>
+                <label class="admin-field">
+                    <span>@Text["LanguageAdmin.Default"]</span>
+                    <select required @bind="selectedDefault" @bind:after="Changed">
+                        @foreach (var row in rows.Where(row => row.Enabled))
+                        {
+                            <option value="@row.Culture">@row.DisplayName (@row.Culture)</option>
+                        }
+                    </select>
+                </label>
+                @foreach (var row in rows)
+                {
+                    <fieldset class="admin-fieldset" @key="row.Id">
+                        <legend>@row.Culture</legend>
+                        <label class="admin-field"><span>@Text["LanguageAdmin.Culture"]</span>
+                            <input required maxlength="85" @bind="row.Culture" @bind:event="oninput" @bind:after="Changed" />
+                        </label>
+                        <label class="admin-field"><span>@Text["LanguageAdmin.Name"]</span>
+                            <input required maxlength="128" @bind="row.DisplayName" @bind:event="oninput" @bind:after="Changed" />
+                        </label>
+                        <label class="admin-field"><span>@Text["LanguageAdmin.File"]</span>
+                            <input required maxlength="128" spellcheck="false" @bind="row.File" @bind:event="oninput" @bind:after="Changed" />
+                        </label>
+                        <label class="admin-check"><input type="checkbox" @bind="row.Enabled" @bind:after="Changed" />@Text["LanguageAdmin.Enabled"]</label>
+                        <label class="admin-field"><span>@Text["LanguageAdmin.Upload"]</span>
+                            <InputFile accept=".json,application/json" OnChange="args => UploadAsync(row, args)" />
+                            <small>@Text["LanguageAdmin.UploadHint"]</small>
+                        </label>
+                        <button class="admin-secondary" type="button" @onclick="() => DownloadAsync(row)"
+                                disabled="@(row.OriginalCulture is null)">@Text["LanguageAdmin.DownloadActive"]</button>
+                        <button class="admin-secondary" type="button" @onclick="() => Remove(row)"
+                                disabled="@(string.Equals(row.Culture, UiLocalization.English, StringComparison.OrdinalIgnoreCase))">@Text["LanguageAdmin.Remove"]</button>
+                    </fieldset>
+                }
+                <button class="admin-secondary" type="button" disabled="@(rows.Count >= UiLanguageConfiguration.MaximumLanguages)" @onclick="Add">@Text["LanguageAdmin.Add"]</button>
+            </fieldset>
+            <div class="admin-form-actions">
+                <button class="admin-primary" type="submit" disabled="@(busy || blocked)">@Text["LanguageAdmin.Check"]</button>
+                <button class="admin-secondary" type="button" disabled="@(busy || blocked || !state.CanRollback)"
+                        @onclick="PreviewRollbackAsync">@Text["LanguageAdmin.CheckPrevious"]</button>
+            </div>
+        </form>
+        @if (download is not null)
+        {
+            <a class="admin-secondary" download="@download.File" href="@("data:application/json;base64," + Convert.ToBase64String(download.Bytes))">@Text.Format("LanguageAdmin.DownloadFile", download.File)</a>
+        }
+    }
+    @if (preview is not null)
+    {
+        <section class="admin-editor" data-language-preview>
+            <h3>@Text[preview.IsRollback ? "LanguageAdmin.PreviousPreview" : "LanguageAdmin.Preview"]</h3>
+            <p>@Text.Format("LanguageAdmin.PreviewDefault", preview.Configuration.DefaultCulture)</p>
+            <ul>
+                @foreach (var language in preview.Configuration.Languages)
+                {
+                    <li>@language.DisplayName (<code>@language.Culture</code>): <code>@language.File</code> - @Text[language.Enabled ? "Common.Enabled" : "Common.Disabled"]</li>
+                }
+            </ul>
+            <a class="admin-secondary" download="language-validation.json" href="@reportUri">@Text["LanguageAdmin.DownloadReport"]</a>
+            @foreach (var report in preview.Reports)
+            {
+                <details>
+                    <summary>@Text.Format("LanguageAdmin.ReportSummary", report.Culture, report.File, report.MissingKeys.Count, report.Issues.Count)</summary>
+                    @foreach (var issue in report.Issues.Take(50))
+                    {
+                        <p class="admin-message admin-message-error">@Text["LanguageAdmin.Issue." + issue.Code] <code>@(issue.Key.Length > 256 ? issue.Key[..256] + "..." : issue.Key)</code></p>
+                    }
+                    @if (report.MissingKeys.Count > 0)
+                    {
+                        <p>@Text["LanguageAdmin.MissingHint"]</p>
+                        <ul>@foreach (var key in report.MissingKeys.Take(50)) { <li><code>@key</code></li> }</ul>
+                    }
+                    @if (report.Issues.Count > 50 || report.MissingKeys.Count > 50)
+                    {
+                        <p>@Text["LanguageAdmin.FullReportHint"]</p>
+                    }
+                </details>
+            }
+            @if (!preview.CanActivate)
+            {
+                <p class="admin-message admin-message-error" role="alert">@Text[preview.Revision == preview.ExpectedRevision ? "LanguageAdmin.Errors.NoChanges" : "LanguageAdmin.InvalidPreview"]</p>
+            }
+            <label class="admin-check"><input type="checkbox" @bind="reviewed" disabled="@(busy || !preview.CanActivate)" />@Text["LanguageAdmin.Confirm"]</label>
+            <button type="button" class="admin-primary" disabled="@(busy || blocked || !reviewed || !preview.CanActivate)" @onclick="ActivateAsync">@Text["LanguageAdmin.Activate"]</button>
+            <button type="button" class="admin-secondary" disabled="@busy" @onclick="Changed">@Text["Common.Cancel"]</button>
+        </section>
+    }
+</section>
+
+@code {
+    private readonly CancellationTokenSource cancellation = new();
+    private readonly List<LanguageRow> rows = [];
+    private readonly List<UiLanguageUpload> uploads = [];
+    private UiLanguageAdminState? state;
+    private UiLanguagePreview? preview;
+    private UiLanguageDownload? download;
+    private string selectedDefault = UiLocalization.English;
+    private string? reportUri;
+    private string? status;
+    private string? error;
+    private bool busy;
+    private bool blocked;
+    private bool reviewed;
+    private long draftVersion;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task LoadAsync() => Run(async user =>
+    {
+        SetState(await Administration.LoadAsync(user, cancellation.Token));
+    });
+
+    private void SetState(UiLanguageAdminState loaded)
+    {
+        state = loaded;
+        selectedDefault = loaded.DefaultCulture;
+        rows.Clear();
+        rows.AddRange(loaded.Languages.Select(language => new LanguageRow(language)));
+        uploads.Clear();
+        blocked = false;
+        Changed();
+    }
+
+    private void Changed()
+    {
+        draftVersion++;
+        preview = null;
+        reportUri = null;
+        reviewed = false;
+        download = null;
+        status = null;
+        uploads.RemoveAll(upload => !rows.Any(row => row.File.Equals(upload.File, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void Add()
+    {
+        if (busy || blocked) return;
+        if (rows.Count >= UiLanguageConfiguration.MaximumLanguages)
+        {
+            error = Text["LanguageAdmin.Errors.Configuration"];
+            Logger.LogWarning("The maximum number of UI languages has been reached.");
+            return;
+        }
+        Changed();
+        rows.Add(new LanguageRow());
+    }
+
+    private void Remove(LanguageRow row)
+    {
+        if (busy || blocked) return;
+        rows.Remove(row);
+        Changed();
+    }
+
+    private Task UploadAsync(LanguageRow row, InputFileChangeEventArgs args) => Run(async user =>
+    {
+        Changed();
+        if (args.File.Size > JsonUiLanguageStore.MaximumFileBytes)
+            throw new UiLanguageAdminException(UiLanguageAdminError.TooLarge);
+        await using var stream = args.File.OpenReadStream(JsonUiLanguageStore.MaximumFileBytes, cancellation.Token);
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, cancellation.Token);
+        var upload = await Administration.StageUploadAsync(user, buffer.ToArray(), cancellation.Token);
+        if (!rows.Contains(row)) throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        uploads.RemoveAll(item => item.File == row.File);
+        uploads.Add(upload);
+        row.File = upload.File;
+    });
+
+    private Task PreviewAsync() => Run(async user =>
+    {
+        Changed();
+        if (state is null || blocked) throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        var version = draftVersion;
+        var prepared = await Administration.PreviewAsync(user, state.Revision, selectedDefault,
+            rows.Select(row => new UiLanguageDefinition { Culture = row.Culture, DisplayName = row.DisplayName, File = row.File, Enabled = row.Enabled }).ToArray(),
+            uploads, cancellation.Token);
+        if (version != draftVersion) throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        SetPreview(prepared);
+    });
+
+    private Task PreviewRollbackAsync() => Run(async user =>
+    {
+        Changed();
+        if (state is null || blocked) throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        var version = draftVersion;
+        var prepared = await Administration.PreviewRollbackAsync(user, state.Revision, cancellation.Token);
+        if (version != draftVersion) throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        SetPreview(prepared);
+    });
+
+    private void SetPreview(UiLanguagePreview prepared)
+    {
+        preview = prepared;
+        reportUri = DataUri(JsonSerializer.Serialize(prepared.Reports, new JsonSerializerOptions
+        { WriteIndented = true, Converters = { new JsonStringEnumConverter() } }));
+    }
+
+    private Task ActivateAsync() => Run(async user =>
+    {
+        if (!reviewed || preview is null || blocked)
+            throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        SetState(await Administration.ActivateAsync(user, preview, cancellation.Token));
+        status = Text["LanguageAdmin.Activated"];
+    });
+
+    private Task DownloadAsync(LanguageRow row) => Run(async user =>
+    {
+        if (state is null || row.OriginalCulture is null)
+            throw new UiLanguageAdminException(UiLanguageAdminError.ReviewRequired);
+        download = await Administration.DownloadAsync(user, state.Revision, row.OriginalCulture, cancellation.Token);
+    });
+
+    private async Task Run(Func<ClaimsPrincipal, Task> action)
+    {
+        if (busy) return;
+        busy = true;
+        error = null;
+        status = null;
+        try { await action((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (UiLanguageAdminException exception)
+        {
+            error = Text["LanguageAdmin.Errors." + exception.Code];
+            if (exception.Code is UiLanguageAdminError.Conflict or UiLanguageAdminError.Storage or UiLanguageAdminError.Unhealthy or UiLanguageAdminError.Unconfirmed)
+            { blocked = true; Changed(); }
+            if (exception.Code == UiLanguageAdminError.AccessDenied)
+            { state = null; rows.Clear(); uploads.Clear(); Changed(); }
+        }
+        catch (Exception exception) when (exception is IOException or JSException)
+        {
+            Logger.LogError(exception, "The browser language upload could not be read.");
+            blocked = true;
+            Changed();
+            error = Text["LanguageAdmin.Errors.Storage"];
+        }
+        finally { busy = false; }
+    }
+
+    private static string DataUri(string json) => "data:application/json;charset=utf-8;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+
+    private sealed class LanguageRow
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public string? OriginalCulture { get; }
+        public string Culture { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string File { get; set; } = "";
+        public bool Enabled { get; set; } = true;
+        public LanguageRow() { }
+        public LanguageRow(UiLanguageDefinition language)
+        {
+            OriginalCulture = Culture = language.Culture;
+            DisplayName = language.DisplayName;
+            File = language.File;
+            Enabled = language.Enabled;
+        }
+    }
+
+    public void Dispose()
+    {
+        cancellation.Cancel();
+        cancellation.Dispose();
+    }
+}

@@ -114,7 +114,9 @@ async function fixture({ count = 1, failure, language = "en-US", missingLanguage
             kqlSchemaTitle: "{0} columns ({1})", kqlSchemaEmpty: "No columns returned",
             kqlSchemaUnavailable: "Table not discovered in this workspace",
             kqlDiagnosticMessages: JSON.stringify(hintMessages[language.startsWith("de") ? "de" : "en"]),
-            kqlKeywordNoInfo: language.startsWith("de") ? "Keine Hilfe hinterlegt" : "No help stored" };
+            kqlKeywordNoInfo: language.startsWith("de") ? "Keine Hilfe hinterlegt" : "No help stored",
+            kqlKeywordSyntax: language.startsWith("de") ? "Syntax / Vorlage" : "Syntax / template",
+            kqlKeywordDetails: "Details", kqlKeywordExample: language.startsWith("de") ? "Beispiel" : "Example" };
         const input = new Element();
         Object.assign(input, { value: "", selectionStart: 0, selectionEnd: 0, maxLength: -1 });
         input.setAttribute("aria-describedby", "existing-help");
@@ -1153,12 +1155,14 @@ for (const language of ["en-US", "de-DE"]) {
         f.type(f, "SecurityEvent | join (OtherEvents) on Computer");
         for (const word of ["join", "union"]) {
             f.keywordList.children.find(button => button.textContent === word).fire("mouseenter");
-            const info = actualDictionary.find(entry => entry.word === word).info[language.slice(0, 2)];
-            assert.equal(f.keywordHelp.textContent, `${word}\n${info}`);
+            const entry = actualDictionary.find(entry => entry.word === word);
+            assert.ok(f.keywordHelp.textContent.startsWith(`${word}\n${entry.info[language.slice(0, 2)]}`));
+            assert.ok(f.keywordHelp.textContent.includes(entry.syntax));
+            assert.ok(f.keywordHelp.textContent.includes(entry.example));
         }
         assert.deepEqual(f.changes, []);
         assert.equal(f.requests.length, 1);
-        assert.match(f.requests[0], /kql-completion\.json\?v=20261112-2$/);
+        assert.match(f.requests[0], /kql-completion\.json\?v=20261112-3$/);
     });
 }
 
@@ -1178,4 +1182,73 @@ test("AP8 join suggestions revalidate both schemas at Tab when workspace count c
     assert.ok(f.hints.textContent.includes(hintMessages.en.SchemaMultiple));
     f.type(f, "union SecurityEvent, OtherE");
     assert.equal(f.ghost().textContent, "vents");
+});
+
+for (const language of ["en-US", "de-DE", "de-AT", "en-GB"]) {
+    test(`structured JSON help separates compact hover from detailed reference: ${language}`, async () => {
+        const entry = { word: "where", contexts: ["operator"],
+            info: { en: "Filter rows.", de: "Zeilen filtern." },
+            syntax: "<table> | where <condition>",
+            details: { en: "Only matching rows remain.", de: "Nur passende Zeilen bleiben." },
+            example: "datatable(Value:long)[1, 2, 3]\n| where Value > 1\n| project Value" };
+        const f = await fixture({ language, dictionaryEntries: [entry] });
+        const localized = language.startsWith("de") ? "de" : "en";
+        const query = "SecurityEvent | wh";
+        f.type(f, query);
+        assert.equal(f.ghost().dataset.kqlInfo, `${entry.info[localized]}\n${entry.syntax}`);
+        assert.ok(!f.ghost().dataset.kqlInfo.includes(entry.example));
+        assert.ok(!f.ghost().dataset.kqlInfo.includes(entry.details[localized]));
+        f.keywordToggle.fire("click");
+        f.keywordList.children[0].fire("mouseenter");
+        const sections = f.keywordHelp.children.filter(child => child instanceof Element);
+        assert.deepEqual(sections.map(section => section.children[0].textContent),
+            [f.root.dataset.kqlKeywordSyntax, "Details", f.root.dataset.kqlKeywordExample]);
+        assert.deepEqual(sections.map(section => section.children[1].textContent),
+            [entry.syntax, entry.details[localized], entry.example]);
+        assert.equal(f.input.value, query);
+        assert.deepEqual(f.changes, []);
+        f.type(f, "SecurityEvent | where ");
+        const word = f.overlay.querySelector(".free-kql-keyword");
+        assert.equal(word.dataset.kqlInfo, `${entry.info[localized]}\n${entry.syntax}`);
+    });
+}
+
+test("structured help localizes each field independently with exact, base and English fallback", async () => {
+    const f = await fixture({ language: "de-AT", dictionaryEntries: [{
+        word: "where", info: { en: "English", de: "Deutsch", "de-AT": "Exakt" },
+        syntax: { en: "English template", de: "Deutsche Vorlage" },
+        details: { en: "English detail fallback" }, example: { fr: "Not available" }
+    }] });
+    f.keywordList.children[0].focus();
+    assert.ok(f.keywordHelp.textContent.startsWith("where\nExakt"));
+    assert.ok(f.keywordHelp.textContent.includes("Deutsche Vorlage"));
+    assert.ok(f.keywordHelp.textContent.includes("English detail fallback"));
+    assert.ok(!f.keywordHelp.textContent.includes("Not available"));
+    assert.equal(f.keywordHelp.children.filter(child => child instanceof Element).length, 2);
+});
+
+test("structured reference fields remain literal text and safely replace a previous long example", async () => {
+    const unsafe = "<img src=x onerror=alert(1)>\n<script>invalid()</script>";
+    const f = await fixture({ dictionaryEntries: [
+        { word: "where", info: "Summary", syntax: unsafe, details: unsafe, example: unsafe },
+        { word: "take", info: "Legacy function help" }
+    ] });
+    f.keywordList.children.find(button => button.textContent === "where").fire("click");
+    const sections = f.keywordHelp.children.filter(child => child instanceof Element);
+    assert.equal(sections.length, 3);
+    assert.ok(sections.every(section => section.children[1].children.every(child => child instanceof TextNode)));
+    assert.ok(sections.every(section => section.children[1].textContent === unsafe));
+    f.keywordList.children.find(button => button.textContent === "take").focus();
+    assert.equal(f.keywordHelp.textContent, "take\nLegacy function help");
+    assert.ok(f.keywordHelp.children.every(child => child instanceof TextNode));
+});
+
+test("template-only structured help does not claim that no help is stored", async () => {
+    const f = await fixture({ dictionaryEntries: [{ word: "where", contexts: ["operator"],
+        syntax: "<table> | where <condition>", example: "T\n| where Value > 0" }] });
+    f.keywordList.children[0].focus();
+    assert.ok(!f.keywordHelp.textContent.includes(f.root.dataset.kqlKeywordNoInfo));
+    assert.equal(f.keywordHelp.children.filter(child => child instanceof Element).length, 2);
+    f.type(f, "SecurityEvent | wh");
+    assert.equal(f.ghost().dataset.kqlInfo, "<table> | where <condition>");
 });

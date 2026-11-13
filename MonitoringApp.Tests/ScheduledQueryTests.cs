@@ -1882,12 +1882,11 @@ public sealed class ScheduledQueryTests
                 var raw = Render();
                 var html = WebUtility.HtmlDecode(raw);
                 Assert.Contains(culture == "de-DE" ? "<h1>Geplante KQL-Alarmregeln</h1>" : "<h1>Scheduled KQL alert rules</h1>", html);
-                Assert.Contains(culture == "de-DE" ? ">Konfiguration / Alarmregeln</p>" : ">Configuration / Alert rules</p>", html);
+                Assert.Contains(culture == "de-DE" ? ">Konfiguration</p>" : ">Configuration</p>", html);
                 Assert.Contains(culture == "de-DE"
                     ? "Eigene KQL nach Zeitplan ausführen und einen Alarmlebenszyklus je Regel und System oder Workspace erstellen."
                     : "Run your own KQL on a schedule and create one alert lifecycle per rule and system or workspace.", html);
-                Assert.Contains(culture == "de-DE" ? ">Andere Alarmregeln</a>" : ">Other alert rules</a>", html);
-                Assert.Contains("href=\"admin/rules\"", raw);
+                Assert.DoesNotContain("href=\"admin/rules\"", raw);
                 Assert.Contains(culture == "de-DE"
                     ? "Prüfungen laufen auf dem Server, auch ohne geöffnetes Dashboard. Die WebApp muss weiterlaufen (App Service: Always On). Fehlende Daten oder fehlgeschlagene Abfragen werden niemals als 0 gewertet und lösen niemals einen bestehenden Alarm auf."
                     : "Checks run on the server, even without an open dashboard. The WebApp must remain running (App Service: Always On). Missing data or failed queries never count as zero and never resolve an existing alert.", html);

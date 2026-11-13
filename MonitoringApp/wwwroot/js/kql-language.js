@@ -17,15 +17,21 @@
                 throw new Error(`Invalid contexts for KQL word '${entry.word}'.`);
             if (entry.resultColumns !== undefined && !["single", "multiple"].includes(entry.resultColumns))
                 throw new Error(`Invalid resultColumns for KQL word '${entry.word}'.`);
-            if (entry.info !== undefined && (typeof entry.info === "string" ? !entry.info.trim()
-                : !entry.info || typeof entry.info !== "object" || Array.isArray(entry.info) ||
-                    Object.keys(entry.info).length === 0 ||
-                    Object.values(entry.info).some(text => typeof text !== "string" || !text.trim()))) {
-                throw new Error(`Invalid info for KQL word '${entry.word}'.`);
+            for (const field of ["info", "syntax", "details", "example"]) {
+                const content = entry[field];
+                if (content !== undefined && (typeof content === "string" ? !content.trim()
+                    : !content || typeof content !== "object" || Array.isArray(content) ||
+                        Object.keys(content).length === 0 ||
+                        Object.values(content).some(text => typeof text !== "string" || !text.trim()))) {
+                    throw new Error(`Invalid ${field} for KQL word '${entry.word}'.`);
+                }
             }
             return {
                 word: entry.word,
                 info: entry.info,
+                syntax: entry.syntax,
+                details: entry.details,
+                example: entry.example,
                 contexts: entry.contexts ?? ["expression"],
                 resultColumns: entry.resultColumns ?? "single",
                 next: entry.next === undefined ? undefined : normalizeEntries(entry.next)

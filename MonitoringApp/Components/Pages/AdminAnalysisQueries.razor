@@ -1,6 +1,6 @@
 @page "/admin/analysis-queries"
 @rendermode InteractiveServer
-@attribute [Authorize(Policy = "AdminAccess")]
+@attribute [Authorize(Policy = "OperatorAccess")]
 @using System.Globalization
 @using Microsoft.EntityFrameworkCore
 @inject AnalysisQueryRegistry Registry
@@ -18,7 +18,7 @@
 
 <section class="admin-heading kql-admin-heading">
     <div>
-        <p class="eyebrow">@Text["Common.Administration"]</p>
+        <p class="eyebrow">@Text["Navigation.Configuration"]</p>
         <h1>@Text["Navigation.AnalysisQueries"]</h1>
         <p class="subtitle">@Text["AdminAnalysisQueries.Description"]</p>
     </div>

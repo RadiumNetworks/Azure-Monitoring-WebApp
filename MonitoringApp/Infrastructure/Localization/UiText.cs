@@ -5,6 +5,8 @@ namespace MonitoringApp;
 
 public sealed class UiText(IStringLocalizer<UiResources> localizer, ILogger<UiText> logger)
 {
+    public bool HasResourceReloadFailure => localizer is JsonUiStringLocalizer { HasReloadFailure: true };
+
     public string Format(string key, params object[] arguments) =>
         string.Format(CultureInfo.CurrentUICulture, this[key], arguments);
 

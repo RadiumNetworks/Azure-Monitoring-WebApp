@@ -16,15 +16,14 @@
                     <div class="navigation-submenu">
                         <NavLink href="/" Match="NavLinkMatch.All">@Text["Navigation.Inbox"]</NavLink>
                         <NavLink href="/graph">@Text["Navigation.Graph"]</NavLink>
-                        <details class="navigation-dashboard-group">
-                            <summary>@Text["Navigation.Dashboards"]</summary>
-                            <div class="navigation-dashboard-links">
-                                <NavLink href="/analysis" Match="NavLinkMatch.All">@Text["AnalysisPublications.MyDashboards"]</NavLink>
-                                <AuthorizeView Policy="OperatorAccess" Context="dashboardReader">
+                        <AuthorizeView Policy="OperatorAccess" Context="dashboardReader">
+                            <details class="navigation-dashboard-group">
+                                <summary>@Text["Navigation.Dashboards"]</summary>
+                                <div class="navigation-dashboard-links">
                                     <PublishedDashboardNavigation />
-                                </AuthorizeView>
-                            </div>
-                        </details>
+                                </div>
+                            </details>
+                        </AuthorizeView>
                     </div>
                 </div>
                 <div class="navigation-group">
@@ -40,15 +39,20 @@
                         <NavLink href="/logbook">@Text["Navigation.Logbook"]</NavLink>
                         <NavLink href="/rca">@Text["Navigation.RootCauseAnalysis"]</NavLink>
                         <NavLink href="/prompt">@Text["Navigation.AnalysisWorkspace"]</NavLink>
+                        <AuthorizeView Policy="OperatorAccess" Context="queryAuthor">
+                            <NavLink href="/kql">@Text["FreeKql.Title"]</NavLink>
+                        </AuthorizeView>
                     </div>
                 </div>
                 <AuthorizeView Policy="OperatorAccess">
                     <div class="navigation-group">
                         <button type="button" class="navigation-group-toggle" aria-haspopup="true">@Text["Navigation.Configuration"]</button>
                         <div class="navigation-submenu">
-                            <NavLink href="/admin/rules">@Text["Navigation.Rules"]</NavLink>
+                            <NavLink href="/admin/rules" Match="NavLinkMatch.All">@Text["Navigation.Rules"]</NavLink>
                             <NavLink href="/admin/inventory">@Text["Navigation.Inventory"]</NavLink>
-                            <NavLink href="/kql">@Text["FreeKql.Title"]</NavLink>
+                            <NavLink href="/analysis" Match="NavLinkMatch.All">@Text["Navigation.DashboardEditor"]</NavLink>
+                            <NavLink href="/admin/analysis-queries">@Text["Navigation.AnalysisQueries"]</NavLink>
+                            <NavLink href="/admin/rules/queries">@Text["Rules.ScheduledRules"]</NavLink>
                         </div>
                     </div>
                 </AuthorizeView>
@@ -59,7 +63,6 @@
                             <NavLink href="/admin/settings">@Text["Navigation.Settings"]</NavLink>
                             <NavLink href="/admin/log-analytics">Log Analytics</NavLink>
                             <NavLink href="/admin/alert-authentication">@Text["Navigation.AlertAuthentication"]</NavLink>
-                            <NavLink href="/admin/analysis-queries">@Text["Navigation.AnalysisQueries"]</NavLink>
                             <NavLink href="/admin/users">@Text["Navigation.Users"]</NavLink>
                         </div>
                     </div>

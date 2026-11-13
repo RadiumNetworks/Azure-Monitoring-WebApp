@@ -18,10 +18,10 @@ public static class UiLanguageEndpoints
         app.MapPost(UiLocalization.ChangePath,
             Results<RedirectHttpResult, ProblemHttpResult> (
                 [FromForm] UiLanguageRequest request, HttpContext context,
-                UiText text, ILoggerFactory logging) =>
+                UiText text, UiLanguageContext languages, ILoggerFactory logging) =>
             {
                 context.Response.Headers.CacheControl = "no-store";
-                var culture = UiLocalization.CanonicalCulture(request.Culture);
+                var culture = languages.CanonicalCulture(request.Culture);
                 if (culture is null || !IsLocalReturnUrl(request.ReturnUrl))
                 {
                     logging.CreateLogger("UiLanguage").LogWarning("An invalid UI language change request was rejected.");
@@ -45,7 +45,7 @@ public static class UiLanguageEndpoints
             .AllowAnonymous()
             .WithName("ChangeUiLanguage")
             .WithSummary("Changes the browser UI language using an antiforgery-protected form")
-            .WithDescription("Allows en-US and de-DE only. Does not change roles, server parsing culture, SQL data or prompts. Redirects only to a local URL.")
+            .WithDescription("Allows only languages enabled in the validated runtime registry. Does not change roles, server parsing culture, SQL data or prompts. Redirects only to a local URL.")
             .Produces(StatusCodes.Status302Found)
             .ProducesProblem(StatusCodes.Status400BadRequest);
     }

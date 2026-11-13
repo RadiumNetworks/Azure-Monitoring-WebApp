@@ -20,7 +20,7 @@ using MonitoringApp.Components;
 
 namespace MonitoringApp.Tests;
 
-public sealed class AnalysisDashboardPublishingTests
+public sealed partial class AnalysisDashboardPublishingTests
 {
     private const string HistoricalAlias = "old-alice@example.com";
     private const string HistoricalSibling = "admin-alice@example.com";

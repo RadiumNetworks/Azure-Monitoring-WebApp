@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.Extensions.Localization;
 
 namespace MonitoringApp;
 
@@ -10,14 +11,16 @@ public static class UiLocalization
     public const string English = "en-US";
     public const string German = "de-DE";
 
-    public static string? CanonicalCulture(string? culture) =>
-        string.Equals(culture, English, StringComparison.OrdinalIgnoreCase) ? English :
-        string.Equals(culture, German, StringComparison.OrdinalIgnoreCase) ? German : null;
-
     public static IServiceCollection AddUiLocalization(this IServiceCollection services)
     {
         UiResources.ValidateEnglish();
         services.AddLocalization(options => options.ResourcesPath = "Resources");
+        services.AddSingleton(provider => new JsonUiLanguageStore(
+            Path.Combine(AppContext.BaseDirectory, "Localization"),
+            provider.GetRequiredService<ILogger<JsonUiLanguageStore>>()));
+        services.AddScoped<UiLanguageContext>();
+        services.AddScoped<UiLanguageAdministration>();
+        services.AddScoped<IStringLocalizer<UiResources>, JsonUiStringLocalizer>();
         services.AddScoped<UiText>();
         services.AddScoped<QueryTextPresentation>();
         // Existing machine parsing/formatting must not inherit the selected UI language.
@@ -26,8 +29,9 @@ public static class UiLocalization
         {
             options.DefaultRequestCulture = new RequestCulture(serverCulture, CultureInfo.GetCultureInfo(English));
             options.SupportedCultures = [serverCulture];
-            options.SupportedUICultures =
-                [CultureInfo.GetCultureInfo(English), CultureInfo.GetCultureInfo(German)];
+            // The sole provider validates UI cultures against the request's registry snapshot.
+            options.SupportedUICultures = UiLanguageConfiguration.AvailableCultures();
+            options.FallBackToParentUICultures = false;
             options.RequestCultureProviders =
                 [new UiCultureCookieProvider(serverCulture, logging.CreateLogger<UiCultureCookieProvider>())];
         });
@@ -39,17 +43,18 @@ public static class UiLocalization
     {
         public override Task<ProviderCultureResult?> DetermineProviderCultureResult(HttpContext httpContext)
         {
-            if (!httpContext.Request.Cookies.TryGetValue(CookieName, out var cookie))
-                return Task.FromResult<ProviderCultureResult?>(null);
-
-            var parsed = CookieRequestCultureProvider.ParseCookieValue(cookie);
-            var selected = parsed?.UICultures.Count == 1
-                ? CanonicalCulture(parsed.UICultures[0].Value)
-                : null;
-            if (selected is null)
+            var languages = httpContext.RequestServices.GetRequiredService<UiLanguageContext>();
+            var selected = languages.DefaultCulture;
+            if (httpContext.Request.Cookies.TryGetValue(CookieName, out var cookie))
             {
-                logger.LogWarning("An invalid or unsupported UI culture cookie was ignored; using English.");
-                return Task.FromResult<ProviderCultureResult?>(null);
+                var parsed = CookieRequestCultureProvider.ParseCookieValue(cookie);
+                var requested = parsed?.UICultures.Count == 1
+                    ? languages.CanonicalCulture(parsed.UICultures[0].Value) : null;
+                if (requested is null)
+                    logger.LogWarning("An invalid, disabled or unsupported UI culture cookie was ignored; using configured default {Culture}.",
+                        languages.DefaultCulture);
+                else
+                    selected = requested;
             }
 
             return Task.FromResult<ProviderCultureResult?>(new ProviderCultureResult(serverCulture.Name, selected));
